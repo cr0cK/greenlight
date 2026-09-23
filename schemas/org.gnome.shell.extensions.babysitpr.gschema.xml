@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.babysitpr" path="/org/gnome/shell/extensions/babysitpr/">
+    <key name="refresh-interval" type="i">
+      <default>120</default>
+      <summary>Refresh interval</summary>
+      <description>Time between checks, in seconds.</description>
+      <range min="30" max="600"/>
+    </key>
+    <key name="state-cache" type="s">
+      <default>'{}'</default>
+      <summary>Previous pull request state</summary>
+      <description>Local data used to detect new green check runs.</description>
+    </key>
+    <key name="initialized" type="b">
+      <default>false</default>
+      <summary>Initial refresh completed</summary>
+      <description>Prevents startup notifications for pull requests that are already green.</description>
+    </key>
+  </schema>
+</schemalist>
