@@ -5,12 +5,14 @@ A small GNOME Shell extension that watches your open GitHub pull requests and no
 ## Features
 
 - Shows your open pull requests in the GNOME top bar menu.
-- Displays each pull request's check status and check count.
+- Shows each pull request's author, draft/review status, CI pass count, and failure count.
+- Filters pull requests across multiple accounts and organizations, with a separate repository selection for each owner.
+- Groups pull requests by owner and sorts each group by last update, newest first.
 - Opens a pull request in your browser when selected.
 - Sends a desktop notification when a pull request reaches a new green check run.
 - Lets you set the polling interval from 30 seconds to 10 minutes.
 
-The initial refresh establishes a baseline, so pull requests that are already green do not trigger startup notifications. Draft pull requests are included. The search is capped at the 30 most recently updated open pull requests.
+The initial refresh establishes a baseline, so pull requests that are already green do not trigger startup notifications. Changing the repository or author filter also establishes a quiet baseline. The search is capped at the 30 most recently updated open pull requests.
 
 ## Requirements
 
@@ -31,16 +33,27 @@ From the repository root:
 
 ~~~sh
 make install
+~~~
+
+GNOME Shell must reload its extension list before you enable a newly installed extension. On Wayland, log out and back in. On X11, press Alt+F2, enter r, and press Enter.
+
+Then enable BabysitPR:
+
+~~~sh
 gnome-extensions enable babysitpr@alexis
 ~~~
 
-On Wayland, log out and back in if GNOME does not load the extension immediately.
-
 ## Use
 
-The panel indicator shows how many pull requests BabysitPR is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. The preferences menu lets you change the refresh interval.
+The panel indicator shows how many pull requests BabysitPR is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
 
-BabysitPR runs one gh search for the account's open pull requests, then reads each pull request's checks sequentially. This avoids overlapping refreshes. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
+In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner to monitor all of its repositories or load and select a subset; each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
+
+The menu groups pull requests under their account or organization. Each row puts the title and CI badge on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
+
+Each pull request row shows its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
+
+BabysitPR searches the selected owner or repository scopes through `gh search prs`, merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 
@@ -59,4 +72,4 @@ To remove an installed copy:
 gnome-extensions uninstall babysitpr@alexis
 ~~~
 
-See docs/spec-v0.1.md for the v0.1 contract and CHANGELOG.md for release notes.
+See docs/spec-v0.1.md through docs/spec-v0.4.md for the product contracts, and CHANGELOG.md for release notes.

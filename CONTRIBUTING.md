@@ -10,7 +10,7 @@ Run the repository checks before proposing a change:
 make check
 ~~~
 
-The check validates the GSettings schema, parses both JavaScript modules, and packages the extension. Do not include generated dist/ files in commits.
+The check validates the GSettings schema, parses all JavaScript modules, and packages the extension. Do not include generated dist/ files in commits.
 
 ## Code and documentation style
 
@@ -19,7 +19,7 @@ The check validates the GSettings schema, parses both JavaScript modules, and pa
 - Use GNOME Shell ES modules and GSettings for extension preferences.
 - Keep subprocess calls as argument arrays; do not pass user or repository data through a shell.
 - Do not add or store GitHub credentials. Use the user's existing gh authentication.
-- Update CHANGELOG.md and docs/spec-v0.1.md when a change affects the user-visible contract.
+- Update CHANGELOG.md and the relevant docs/spec-v*.md when a change affects the user-visible contract.
 
 ## Commit messages
 

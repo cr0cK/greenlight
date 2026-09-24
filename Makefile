@@ -8,8 +8,12 @@ check:
 	glib-compile-schemas --strict --dry-run schemas
 	node --input-type=module --check < extension.js
 	node --input-type=module --check < prefs.js
+	node --input-type=module --check < filters.js
 	mkdir -p $(DIST)
-	gnome-extensions pack --force --out-dir $(DIST) .
+	gnome-extensions pack --force \
+		--extra-source=babysitpr-pr-symbolic.svg \
+		--extra-source=filters.js \
+		--out-dir $(DIST) .
 
 pack: check
 

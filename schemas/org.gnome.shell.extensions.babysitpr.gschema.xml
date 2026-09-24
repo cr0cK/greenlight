@@ -7,10 +7,50 @@
       <description>Time between checks, in seconds.</description>
       <range min="30" max="600"/>
     </key>
+    <key name="owner-filters" type="s">
+      <default>'[]'</default>
+      <summary>Owner and repository filters</summary>
+      <description>JSON list of monitored accounts, organizations, and repository selections.</description>
+    </key>
+    <key name="owner-filters-configured" type="b">
+      <default>false</default>
+      <summary>Owner filters configured</summary>
+      <description>Distinguishes the initial all-accessible scope from an intentionally empty selection.</description>
+    </key>
+    <key name="repo-owner" type="s">
+      <default>''</default>
+      <summary>Legacy repository owner</summary>
+      <description>Previous single-owner setting, migrated to owner filters.</description>
+    </key>
+    <key name="selected-repositories" type="s">
+      <default>'[]'</default>
+      <summary>Selected repositories</summary>
+      <description>JSON list of owner/repository names selected in preferences.</description>
+    </key>
+    <key name="repo-selection-configured" type="b">
+      <default>false</default>
+      <summary>Repository selection configured</summary>
+      <description>Distinguishes an unconfigured selection from an intentionally empty selection.</description>
+    </key>
+    <key name="repo-filter" type="s">
+      <default>''</default>
+      <summary>Legacy repository filter</summary>
+      <description>Previous single-repository filter, migrated to the repository selection.</description>
+    </key>
+    <key name="author-filter" type="s">
+      <default>'@me'</default>
+      <summary>Pull request author filter</summary>
+      <description>GitHub login to monitor; @me is the default and empty includes every author.</description>
+    </key>
     <key name="state-cache" type="s">
       <default>'{}'</default>
       <summary>Previous pull request state</summary>
       <description>Local data used to detect new green check runs.</description>
+    </key>
+    <key name="last-filter" type="s">
+      <default>''</default>
+      <summary>Last pull request filters</summary>
+      <description>Stored so changing filters establishes a quiet notification baseline.</description>
     </key>
     <key name="initialized" type="b">
       <default>false</default>

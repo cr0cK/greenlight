@@ -8,39 +8,79 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import {
+    migrateLegacyOwnerFilters,
+    readOwnerFilters,
+} from './filters.js';
 
 const SEARCH_LIMIT = 30;
-// Fetch one extra result to show a truncation notice only when results were omitted.
 const SEARCH_FETCH_LIMIT = SEARCH_LIMIT + 1;
+const MAX_QUERY_QUALIFIERS = 16;
+const MAX_QUERY_LENGTH = 220;
+const FILTER_REFRESH_DELAY_MS = 600;
 const CHECK_FIELDS = 'bucket,name,workflow,state,completedAt,startedAt,link';
-const SEARCH_FIELDS = 'number,title,url,repository,isDraft';
+const SEARCH_FIELDS = 'number,title,url,repository,author,isDraft,updatedAt';
 
 const STATUS = {
-    success: {label: 'All checks passed', icon: 'checkbox-checked-symbolic'},
-    pending: {label: 'Checks in progress', icon: 'view-refresh-symbolic'},
-    failure: {label: 'Checks failed', icon: 'dialog-error-symbolic'},
-    cancelled: {label: 'Checks cancelled', icon: 'dialog-warning-symbolic'},
-    skipped: {label: 'Checks skipped', icon: 'dialog-information-symbolic'},
-    none: {label: 'No checks', icon: 'dialog-information-symbolic'},
-    unknown: {label: 'Status unavailable', icon: 'dialog-question-symbolic'},
+    success: {label: 'Checks green', icon: 'checkbox-checked-symbolic', color: '#26a269'},
+    pending: {label: 'Checks in progress', icon: 'view-refresh-symbolic', color: '#e5a50a'},
+    failure: {label: 'Checks failed', icon: 'dialog-error-symbolic', color: '#c01c28'},
+    cancelled: {label: 'Checks cancelled', icon: 'dialog-warning-symbolic', color: '#77767b'},
+    skipped: {label: 'Checks skipped', icon: 'dialog-information-symbolic', color: '#77767b'},
+    none: {label: 'No checks', icon: 'dialog-information-symbolic', color: '#77767b'},
+    unknown: {label: 'Checks unavailable', icon: 'dialog-warning-symbolic', color: '#c01c28'},
 };
 
-/** Skipped checks are non-blocking, but at least one check must pass for green. */
-function classifyChecks(checks) {
-    if (checks.length === 0)
-        return 'none';
+/** Counts gh check buckets and classifies skipped checks as green only with a real pass. */
+function summarizeChecks(checks) {
+    const summary = {
+        total: checks.length,
+        passed: 0,
+        failed: 0,
+        pending: 0,
+        skipped: 0,
+        cancelled: 0,
+        unknown: 0,
+        state: 'unknown',
+    };
 
-    const buckets = checks.map(check => String(check.bucket ?? '').toLowerCase());
-    if (buckets.includes('fail'))
-        return 'failure';
-    if (buckets.includes('cancel'))
-        return 'cancelled';
-    if (buckets.includes('pending'))
-        return 'pending';
-    if (buckets.every(bucket => bucket === 'pass' || bucket === 'skipping'))
-        return buckets.includes('pass') ? 'success' : 'skipped';
+    for (const check of checks) {
+        switch (String(check.bucket ?? '').toLowerCase()) {
+        case 'pass':
+            summary.passed++;
+            break;
+        case 'fail':
+            summary.failed++;
+            break;
+        case 'pending':
+            summary.pending++;
+            break;
+        case 'skipping':
+            summary.skipped++;
+            break;
+        case 'cancel':
+            summary.cancelled++;
+            break;
+        default:
+            summary.unknown++;
+            break;
+        }
+    }
 
-    return 'pending';
+    if (summary.total === 0)
+        summary.state = 'none';
+    else if (summary.failed > 0)
+        summary.state = 'failure';
+    else if (summary.pending > 0 || summary.unknown > 0)
+        summary.state = 'pending';
+    else if (summary.cancelled > 0)
+        summary.state = 'cancelled';
+    else if (summary.passed > 0)
+        summary.state = 'success';
+    else if (summary.skipped === summary.total)
+        summary.state = 'skipped';
+
+    return summary;
 }
 
 /** Keeps a compact check-run fingerprint to spot a fresh green run between polls. */
@@ -60,35 +100,145 @@ function checksFingerprint(checks) {
     return GLib.compute_checksum_for_string(GLib.ChecksumType.SHA256, contents, -1);
 }
 
-/** Preserves a GHES host prefix because search may return PRs from another host. */
+/** Parse PR URLs with GLib because GJS does not provide the browser URL global. */
 function repositoryArgument(pr) {
-    const url = new URL(pr.url);
-    const parts = url.pathname.split('/').filter(Boolean);
+    const uri = GLib.Uri.parse(pr.url, GLib.UriFlags.NONE);
+    const host = uri.get_host();
+    const parts = (uri.get_path() ?? '').split('/').filter(Boolean);
     const pullIndex = parts.findIndex(part => part === 'pull');
+    const fullName = repositoryFullName(pr, parts, pullIndex);
+
+    if (!host || !fullName)
+        throw new Error('Could not determine the pull request repository.');
+
+    return host.toLowerCase() === 'github.com' ? fullName : host + '/' + fullName;
+}
+
+/** Extracts owner/repository from gh search data or its pull request URL. */
+function repositoryFullName(pr, urlParts = null, pullIndex = -1) {
     const repository = pr.repository;
-    const fullName = typeof repository === 'string'
+    return typeof repository === 'string'
         ? repository
         : repository?.nameWithOwner
             ?? repository?.fullName
             ?? (repository?.owner?.login && repository?.name
                 ? repository.owner.login + '/' + repository.name
                 : null)
-            ?? (pullIndex >= 2 ? parts.slice(0, pullIndex).join('/') : null);
+            ?? (pullIndex >= 2 ? urlParts.slice(0, pullIndex).join('/') : null);
+}
 
-    if (!fullName)
-        throw new Error('Could not determine the pull request repository.');
+/** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */
+function chunkSearchFilters(values, qualifier, fixedQueryLength) {
+    const chunks = [];
+    let current = [];
+    let currentLength = fixedQueryLength;
 
-    return url.hostname === 'github.com' ? fullName : url.hostname + '/' + fullName;
+    for (const value of values) {
+        const qualifierLength = qualifier.length + value.length + (current.length > 0 ? 1 : 0);
+        if (current.length > 0 && (current.length >= MAX_QUERY_QUALIFIERS ||
+            currentLength + qualifierLength > MAX_QUERY_LENGTH)) {
+            chunks.push(current);
+            current = [];
+            currentLength = fixedQueryLength;
+        }
+        current.push(value);
+        currentLength += qualifier.length + value.length + (current.length > 1 ? 1 : 0);
+    }
+
+    if (current.length > 0)
+        chunks.push(current);
+    return chunks;
+}
+
+/** Produces non-overlapping all-owner and selected-repository search scopes. */
+function searchScopes(settings, authorFilter) {
+    if (!settings.get_boolean('owner-filters-configured'))
+        return [{type: 'all', values: []}];
+
+    const owners = readOwnerFilters(settings).filter(owner => owner.enabled);
+    const allOwners = owners
+        .filter(owner => owner.repositories === null)
+        .map(owner => owner.login);
+    const repositories = [...new Set(owners
+        .filter(owner => owner.repositories !== null)
+        .flatMap(owner => owner.repositories))];
+    const fixedQueryLength = 24 + (authorFilter ? 7 + authorFilter.length : 0);
+
+    return [
+        ...chunkSearchFilters(allOwners, 'org:', fixedQueryLength)
+            .map(values => ({type: 'owners', values})),
+        ...chunkSearchFilters(repositories, 'repo:', fixedQueryLength)
+            .map(values => ({type: 'repositories', values})),
+    ];
+}
+
+/** Gives filter changes a stable notification baseline independent of UI row order. */
+function filterSignature(settings) {
+    const owners = readOwnerFilters(settings)
+        .sort((first, second) => first.login.toLowerCase().localeCompare(second.login.toLowerCase()))
+        .map(owner => ({
+            login: owner.login.toLowerCase(),
+            kind: owner.kind,
+            enabled: owner.enabled,
+            repositories: owner.repositories === null
+                ? null
+                : [...owner.repositories].map(name => name.toLowerCase()).sort(),
+        }));
+    return JSON.stringify({
+        configured: settings.get_boolean('owner-filters-configured'),
+        owners,
+        author: settings.get_string('author-filter').trim(),
+    });
+}
+
+/** Groups PR rows by owner and keeps each section ordered by last update. */
+function groupPullRequestsByOwner(pullRequests) {
+    const groups = new Map();
+    for (const pullRequest of pullRequests) {
+        const owner = pullRequest.owner || 'Unknown owner';
+        if (!groups.has(owner))
+            groups.set(owner, []);
+        groups.get(owner).push(pullRequest);
+    }
+
+    return [...groups.entries()]
+        .map(([owner, pullRequests]) => ({
+            owner,
+            pullRequests: pullRequests.sort(compareUpdatedPullRequests),
+            latestUpdate: Date.parse(pullRequests[0]?.updatedAt ?? '') || 0,
+        }))
+        .sort((first, second) => second.latestUpdate - first.latestUpdate ||
+            first.owner.localeCompare(second.owner));
+}
+
+/** Creates a compact semantic badge with a high-contrast label for CI and review metadata. */
+function createBadge(text, background, accessibleName = text) {
+    const badge = new St.Label({
+        text,
+        y_align: Clutter.ActorAlign.CENTER,
+        style: 'padding: 1px 6px; border-radius: 6px; background-color: ' + background +
+            '; color: #ffffff; font-size: 0.9em; font-weight: 600;',
+    });
+    badge.accessible_name = accessibleName;
+    return badge;
+}
+
+/** Orders results locally as a fallback when a GitHub host ignores search sorting. */
+function compareUpdatedPullRequests(first, second) {
+    const firstTime = Date.parse(first.updatedAt ?? '') || 0;
+    const secondTime = Date.parse(second.updatedAt ?? '') || 0;
+    return secondTime - firstTime;
 }
 
 /**
- * Monitors the authenticated user's open PRs through the local gh CLI.
+ * Monitors open PRs through the active gh account, owner, repository, and author filters.
  * Calls run without a shell so user data and repository names stay separate arguments.
  */
 export default class BabysitPRExtension extends Extension {
     enable() {
         this._enabled = true;
         this._settings = this.getSettings();
+        migrateLegacyOwnerFilters(this._settings);
         this._cancellable = new Gio.Cancellable();
         this._activeProcess = null;
         this._activeTimeoutId = 0;
@@ -96,14 +246,21 @@ export default class BabysitPRExtension extends Extension {
         this._error = null;
         this._prs = [];
         this._hasMorePullRequests = false;
+        this._hasNoScopes = false;
+        this._filterRefreshSourceId = 0;
+        this._refreshAfterCurrent = false;
 
         this._indicator = new PanelMenu.Button(0.0, 'BabysitPR', false);
         this._indicator.accessible_name = 'BabysitPR';
         const panelBox = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._panelIcon = new St.Icon({
-            icon_name: 'view-list-symbolic',
+            gicon: Gio.FileIcon.new(
+                this.dir.get_child('babysitpr-pr-symbolic.svg')
+            ),
+            icon_size: 16,
             style_class: 'system-status-icon',
         });
+        this._panelIcon.accessible_name = 'Pull request monitor';
         this._panelLabel = new St.Label({
             text: 'PR',
             y_align: Clutter.ActorAlign.CENTER,
@@ -113,10 +270,12 @@ export default class BabysitPRExtension extends Extension {
         this._indicator.add_child(panelBox);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
-        this._settingsSignal = this._settings.connect(
-            'changed::refresh-interval',
-            () => this._scheduleRefresh()
-        );
+        this._settingsSignals = [
+            this._settings.connect('changed::refresh-interval', () => this._scheduleRefresh()),
+            this._settings.connect('changed::owner-filters', () => this._scheduleFilterRefresh()),
+            this._settings.connect('changed::owner-filters-configured', () => this._scheduleFilterRefresh()),
+            this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
+        ];
         this._renderMenu();
         this._refresh();
         this._scheduleRefresh();
@@ -128,14 +287,18 @@ export default class BabysitPRExtension extends Extension {
             GLib.Source.remove(this._refreshSourceId);
             this._refreshSourceId = 0;
         }
-        if (this._settingsSignal) {
-            this._settings.disconnect(this._settingsSignal);
-            this._settingsSignal = 0;
-        }
+        for (const signal of this._settingsSignals ?? [])
+            this._settings.disconnect(signal);
+        this._settingsSignals = [];
         if (this._activeTimeoutId) {
             GLib.Source.remove(this._activeTimeoutId);
             this._activeTimeoutId = 0;
         }
+        if (this._filterRefreshSourceId) {
+            GLib.Source.remove(this._filterRefreshSourceId);
+            this._filterRefreshSourceId = 0;
+        }
+        this._hasNoScopes = false;
         this._cancellable?.cancel();
         this._activeProcess?.force_exit();
         this._indicator?.destroy();
@@ -163,6 +326,27 @@ export default class BabysitPRExtension extends Extension {
                 this._refreshSourceId = 0;
                 this._refresh();
                 this._scheduleRefresh();
+                return GLib.SOURCE_REMOVE;
+            }
+        );
+    }
+
+    _scheduleFilterRefresh() {
+        if (!this._enabled)
+            return;
+
+        if (this._filterRefreshSourceId)
+            GLib.Source.remove(this._filterRefreshSourceId);
+
+        this._filterRefreshSourceId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            FILTER_REFRESH_DELAY_MS,
+            () => {
+                this._filterRefreshSourceId = 0;
+                if (this._loading)
+                    this._refreshAfterCurrent = true;
+                else
+                    this._refresh();
                 return GLib.SOURCE_REMOVE;
             }
         );
@@ -206,30 +390,77 @@ export default class BabysitPRExtension extends Extension {
     }
 
     async _refresh() {
-        if (!this._enabled || this._loading)
+        if (!this._enabled)
             return;
+        if (this._loading) {
+            if (this._filterRefreshSourceId) {
+                GLib.Source.remove(this._filterRefreshSourceId);
+                this._filterRefreshSourceId = 0;
+                this._refreshAfterCurrent = true;
+            }
+            return;
+        }
+        if (this._filterRefreshSourceId) {
+            GLib.Source.remove(this._filterRefreshSourceId);
+            this._filterRefreshSourceId = 0;
+        }
 
         this._loading = true;
         this._error = null;
         this._renderMenu();
 
+        const authorFilter = this._settings.get_string('author-filter').trim();
+        const scopes = searchScopes(this._settings, authorFilter);
+        const hasNoScopes = this._settings.get_boolean('owner-filters-configured') &&
+            scopes.length === 0;
+        const currentFilterSignature = filterSignature(this._settings);
+
         try {
-            const search = await this._runGh([
-                'search', 'prs',
-                '--author', '@me',
-                '--state', 'open',
-                '--sort', 'updated',
-                '--order', 'desc',
-                '--limit', String(SEARCH_FETCH_LIMIT),
-                '--json', SEARCH_FIELDS,
-            ]);
-            if (search.exitCode !== 0)
-                throw new Error('gh search prs failed');
+            const searchRowsByKey = new Map();
+            for (const scope of scopes) {
+                const searchArgs = ['search', 'prs'];
+                if (authorFilter)
+                    searchArgs.push('--author', authorFilter);
+                if (scope.type === 'owners') {
+                    for (const owner of scope.values)
+                        searchArgs.push('--owner', owner);
+                } else if (scope.type === 'repositories') {
+                    for (const repository of scope.values)
+                        searchArgs.push('--repo', repository);
+                }
+                searchArgs.push(
+                    '--state', 'open',
+                    '--sort', 'updated',
+                    '--order', 'desc',
+                    '--limit', String(SEARCH_FETCH_LIMIT),
+                    '--json', SEARCH_FIELDS
+                );
 
-            const searchRows = JSON.parse(search.stdout);
-            if (!Array.isArray(searchRows))
-                throw new Error('gh search prs returned an unexpected response');
+                const search = await this._runGh(searchArgs);
+                if (search.exitCode !== 0)
+                    throw new Error('gh search prs failed');
 
+                const response = JSON.parse(search.stdout);
+                if (!Array.isArray(response))
+                    throw new Error('gh search prs returned an unexpected response');
+
+                const allowedValues = new Set(scope.values.map(value => value.toLowerCase()));
+                for (const row of response) {
+                    const fullName = repositoryFullName(row);
+                    if (!fullName)
+                        continue;
+                    const matches = scope.type === 'owners'
+                        ? allowedValues.has(fullName.split('/')[0].toLowerCase())
+                        : scope.type === 'repositories'
+                            ? allowedValues.has(fullName.toLowerCase())
+                            : true;
+                    if (matches)
+                        searchRowsByKey.set(fullName.toLowerCase() + '#' + row.number, row);
+                }
+            }
+
+            const searchRows = [...searchRowsByKey.values()];
+            searchRows.sort(compareUpdatedPullRequests);
             const hasMorePullRequests = searchRows.length > SEARCH_LIMIT;
             const snapshot = [];
             for (const row of searchRows.slice(0, SEARCH_LIMIT)) {
@@ -238,6 +469,10 @@ export default class BabysitPRExtension extends Extension {
 
                 let repo = 'Unknown repository';
                 let key = repo + '#' + row.number;
+                const fullName = repositoryFullName(row);
+                const nameParts = fullName?.split('/') ?? [];
+                const owner = nameParts.shift() ?? 'Unknown owner';
+                const repositoryName = nameParts.join('/') || 'Unknown repository';
                 try {
                     repo = repositoryArgument(row);
                     key = repo + '#' + row.number;
@@ -255,12 +490,16 @@ export default class BabysitPRExtension extends Extension {
                     if (!Array.isArray(checks))
                         throw new Error('gh pr checks returned an unexpected response');
 
+                    const checkSummary = summarizeChecks(checks);
                     snapshot.push({
                         ...row,
                         repo,
+                        owner,
+                        repositoryName,
                         key,
                         checks,
-                        checkState: classifyChecks(checks),
+                        checkSummary,
+                        checkState: checkSummary.state,
                         fingerprint: checksFingerprint(checks),
                         checkError: false,
                     });
@@ -269,6 +508,8 @@ export default class BabysitPRExtension extends Extension {
                     snapshot.push({
                         ...row,
                         repo,
+                        owner,
+                        repositoryName,
                         key,
                         checks: [],
                         checkState: previous?.state ?? 'unknown',
@@ -281,9 +522,17 @@ export default class BabysitPRExtension extends Extension {
             if (!this._enabled)
                 return;
 
-            this._updateNotificationCache(snapshot);
+            const latestFilterSignature = filterSignature(this._settings);
+            if (latestFilterSignature !== currentFilterSignature) {
+                // Discard results from filters the user has already replaced.
+                this._refreshAfterCurrent = true;
+                return;
+            }
+
+            this._updateNotificationCache(snapshot, currentFilterSignature);
             this._prs = snapshot;
             this._hasMorePullRequests = hasMorePullRequests;
+            this._hasNoScopes = hasNoScopes;
         } catch {
             if (!this._enabled)
                 return;
@@ -296,6 +545,10 @@ export default class BabysitPRExtension extends Extension {
                 this._loading = false;
                 this._updatePanel();
                 this._renderMenu();
+                if (this._refreshAfterCurrent) {
+                    this._refreshAfterCurrent = false;
+                    this._scheduleFilterRefresh();
+                }
             }
         }
     }
@@ -309,13 +562,14 @@ export default class BabysitPRExtension extends Extension {
         }
     }
 
-    _updateNotificationCache(snapshot) {
-        // The first complete read is a baseline; later reads alert only on a new green run.
+    _updateNotificationCache(snapshot, filterSignature) {
+        // A filter change starts a new baseline so existing green PRs do not alert immediately.
         const initialized = this._settings.get_boolean('initialized');
+        const filterChanged = this._settings.get_string('last-filter') !== filterSignature;
         const previous = this._readCache();
         const allChecksRead = snapshot.every(pr => !pr.checkError);
 
-        if (!initialized) {
+        if (!initialized || filterChanged) {
             if (!allChecksRead)
                 return;
 
@@ -323,6 +577,7 @@ export default class BabysitPRExtension extends Extension {
             for (const pr of snapshot)
                 baseline[pr.key] = {state: pr.checkState, fingerprint: pr.fingerprint};
             this._settings.set_string('state-cache', JSON.stringify(baseline));
+            this._settings.set_string('last-filter', filterSignature);
             this._settings.set_boolean('initialized', true);
             return;
         }
@@ -354,15 +609,7 @@ export default class BabysitPRExtension extends Extension {
             return;
 
         this._panelLabel.text = this._error ? 'PR !' : 'PR ' + this._prs.length;
-        if (this._error ||
-            this._prs.some(pr => pr.checkState === 'failure' || pr.checkState === 'cancelled'))
-            this._panelIcon.icon_name = 'dialog-error-symbolic';
-        else if (this._prs.length > 0 && this._prs.every(pr => pr.checkState === 'success'))
-            this._panelIcon.icon_name = 'checkbox-checked-symbolic';
-        else if (this._prs.some(pr => pr.checkState === 'pending'))
-            this._panelIcon.icon_name = 'view-refresh-symbolic';
-        else
-            this._panelIcon.icon_name = 'view-list-symbolic';
+        this._panelIcon.accessible_name = 'Pull request monitor';
     }
 
     _renderMenu() {
@@ -394,16 +641,31 @@ export default class BabysitPRExtension extends Extension {
             ));
         } else if (this._prs.length === 0) {
             menu.addMenuItem(new PopupMenu.PopupMenuItem(
-                this._error ? 'No previous state available.' : 'No open pull requests found.',
+                this._hasNoScopes
+                    ? 'No active owners or repositories. Open Preferences to choose what to monitor.'
+                    : this._error
+                        ? 'No previous state available.'
+                        : 'No open pull requests match the selected owners and author.',
                 {reactive: false, can_focus: false}
             ));
         } else {
-            for (const pr of this._prs)
-                menu.addMenuItem(this._createPullRequestItem(pr));
+            for (const group of groupPullRequestsByOwner(this._prs)) {
+                const heading = new PopupMenu.PopupMenuItem(
+                    group.owner + ' · ' + group.pullRequests.length +
+                    (group.pullRequests.length === 1 ? ' pull request' : ' pull requests'),
+                    {reactive: false, can_focus: false}
+                );
+                heading.label.set_style(
+                    'font-weight: 600; padding-top: 5px;'
+                );
+                menu.addMenuItem(heading);
+                for (const pr of group.pullRequests)
+                    menu.addMenuItem(this._createPullRequestItem(pr));
+            }
 
             if (this._hasMorePullRequests) {
                 menu.addMenuItem(new PopupMenu.PopupMenuItem(
-                    'Showing only the ' + SEARCH_LIMIT + ' most recently updated pull requests.',
+                    'Showing the ' + SEARCH_LIMIT + ' most recently updated pull requests across owners.',
                     {reactive: false, can_focus: false}
                 ));
             }
@@ -416,45 +678,114 @@ export default class BabysitPRExtension extends Extension {
     }
 
     _createPullRequestItem(pr) {
-        const status = STATUS[pr.checkState] ?? STATUS.unknown;
+        const status = STATUS[pr.checkError ? 'unknown' : pr.checkState] ?? STATUS.unknown;
         const item = new PopupMenu.PopupBaseMenuItem();
         const icon = new St.Icon({
             icon_name: status.icon,
             style_class: 'popup-menu-icon',
             y_align: Clutter.ActorAlign.CENTER,
+            style: 'color: ' + status.color + ';',
         });
         icon.accessible_name = status.label;
         item.add_child(icon);
 
-        const labels = new St.BoxLayout({
+        const content = new St.BoxLayout({
             vertical: true,
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
+            style: 'spacing: 3px;',
         });
-        const title = new St.Label({
-            text: pr.repo + ' #' + pr.number + ' · ' + pr.title,
+        const titleLine = new St.BoxLayout({
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
-            style: 'max-width: 32em;',
+            style: 'spacing: 6px;',
+        });
+        const number = createBadge('#' + pr.number, '#3c5268', 'Pull request ' + pr.number);
+        const title = new St.Label({
+            text: pr.title,
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'font-weight: 600; max-width: 34em;',
         });
         title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
-        let details = status.label;
-        if (pr.checkError)
-            details += ' · checks unavailable';
-        else if (pr.checks.length > 0)
-            details += ' · ' + pr.checks.length + ' checks';
-        if (pr.isDraft)
-            details += ' · draft';
-
-        const detailLabel = new St.Label({
-            text: details,
+        const author = pr.author?.login ? '@' + pr.author.login : 'Unknown author';
+        const metadataLine = new St.BoxLayout({
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'spacing: 5px;',
+        });
+        const repository = new St.Label({
+            text: pr.repositoryName,
+            style_class: 'dim-label',
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'max-width: 17em;',
+        });
+        repository.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        const authorLabel = new St.Label({
+            text: author,
             style_class: 'dim-label',
             y_align: Clutter.ActorAlign.CENTER,
         });
-        labels.add_child(title);
-        labels.add_child(detailLabel);
-        item.add_child(labels);
+        const reviewBadge = createBadge(
+            pr.isDraft ? 'Draft' : 'Ready for review',
+            pr.isDraft ? '#55565e' : '#315b7e',
+            pr.isDraft ? 'Draft pull request' : 'Ready for review'
+        );
+        metadataLine.add_child(repository);
+        metadataLine.add_child(authorLabel);
+        metadataLine.add_child(reviewBadge);
+
+        let checkLabel;
+        let checkColor;
+        if (pr.checkError) {
+            checkLabel = 'CI unavailable';
+            checkColor = '#922c31';
+        } else if (pr.checkSummary.total === 0) {
+            checkLabel = 'No CI';
+            checkColor = '#55565e';
+        } else {
+            checkLabel = 'CI ' + pr.checkSummary.passed + '/' + pr.checkSummary.total;
+            checkColor = {
+                success: '#276746',
+                pending: '#805d0c',
+                failure: '#922c31',
+                cancelled: '#55565e',
+                skipped: '#55565e',
+                unknown: '#922c31',
+            }[pr.checkState] ?? '#55565e';
+
+            const counts = pr.checkSummary;
+            for (const [count, label, color] of [
+                [counts.failed, 'failed', '#922c31'],
+                [counts.pending, 'pending', '#805d0c'],
+                [counts.skipped, 'skipped', '#55565e'],
+                [counts.cancelled, 'cancelled', '#55565e'],
+                [counts.unknown, 'unknown', '#55565e'],
+            ]) {
+                if (count > 0)
+                    metadataLine.add_child(createBadge(count + ' ' + label, color));
+            }
+        }
+        const checkBadge = createBadge(
+            checkLabel,
+            checkColor,
+            pr.checkError
+                ? 'Checks unavailable'
+                : pr.checkSummary.total === 0
+                    ? 'No CI checks'
+                    : status.label + ', ' + pr.checkSummary.passed + ' of ' +
+                        pr.checkSummary.total + ' checks passed'
+        );
+
+        titleLine.add_child(number);
+        titleLine.add_child(title);
+        titleLine.add_child(checkBadge);
+        content.add_child(titleLine);
+        content.add_child(metadataLine);
+        item.add_child(content);
+        item.accessible_name = pr.owner + '/' + pr.repositoryName + ' pull request ' +
+            pr.number + ': ' + pr.title + '. ' + checkBadge.accessible_name;
         item.connect('activate', () => {
             try {
                 Gio.AppInfo.launch_default_for_uri(pr.url, null);
