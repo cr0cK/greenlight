@@ -53,7 +53,7 @@ The menu groups pull requests under their account or organization. Each row puts
 
 Each pull request row shows its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
 
-BabysitPR searches the selected owner or repository scopes through `gh search prs`, merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
+BabysitPR searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 

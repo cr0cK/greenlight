@@ -12,6 +12,7 @@ All notable changes to BabysitPR are documented here.
 
 ### Changed
 
+- Pull requests from archived repositories are excluded from every search scope.
 - Owners and selected repositories are queried in separate bounded `gh search prs` commands, then merged into the newest 30 results.
 - Search scopes are no longer tied to a single organization or repository.
 

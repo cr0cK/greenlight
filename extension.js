@@ -429,6 +429,7 @@ export default class BabysitPRExtension extends Extension {
                         searchArgs.push('--repo', repository);
                 }
                 searchArgs.push(
+                    '--archived=false',
                     '--state', 'open',
                     '--sort', 'updated',
                     '--order', 'desc',
