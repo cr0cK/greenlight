@@ -110,7 +110,8 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   repository names in commits, PR texts, docs, or test fixtures.
 - Commits and PR titles use Conventional Commits. PRs are squash-merged, so the PR title is the
   commit release-please reads. `feat` bumps the minor version, `fix` the patch, and breaking
-  changes the major version.
+  changes the major version. `docs`, `test`, `build`, `ci`, `chore`, and `style` are hidden
+  changelog sections and never trigger a release.
 - Release PRs are opened with GITHUB_TOKEN, which fires no `pull_request` event. `release.yml`
   dispatches `pr-checks.yml` on the release branch instead; keep that step if you touch either
   workflow.
