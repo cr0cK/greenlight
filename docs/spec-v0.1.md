@@ -1,4 +1,4 @@
-# BabysitPR — v0.1 specification
+# Greenlight — v0.1 specification
 
 ## Goal
 
@@ -8,7 +8,7 @@ Show check progress for the authenticated user's open pull requests in the GNOME
 
 - Personal use on GNOME Shell 49.
 - The local GitHub CLI (gh) must be installed and authenticated.
-- BabysitPR follows the account and host selected by the active gh configuration.
+- Greenlight follows the account and host selected by the active gh configuration.
 
 ## Main flow
 
@@ -45,7 +45,7 @@ Show check progress for the authenticated user's open pull requests in the GNOME
 
 ## Security and privacy
 
-- BabysitPR does not request or store a GitHub token.
+- Greenlight does not request or store a GitHub token.
 - All GitHub reads use the local gh executable and its configured authentication.
 - Commands are started with an argument vector and no shell.
 - The extension only performs read operations and stores a small local status cache for notifications.

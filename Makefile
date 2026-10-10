@@ -1,6 +1,6 @@
 .PHONY: check pack install clean
 
-UUID = babysitpr@cr0ck.github.io
+UUID = greenlight@cr0ck.github.io
 DIST = dist
 BUNDLE = $(DIST)/$(UUID).shell-extension.zip
 
@@ -15,7 +15,7 @@ check:
 	node --test tests/*.test.js
 	mkdir -p $(DIST)
 	gnome-extensions pack --force \
-		--extra-source=babysitpr-pr-symbolic.svg \
+		--extra-source=greenlight-pr-symbolic.svg \
 		--extra-source=filters.js \
 		--extra-source=quickopen.js \
 		--extra-source=preview.js \

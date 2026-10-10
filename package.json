@@ -1,8 +1,8 @@
 {
-  "name": "babysitpr",
-  "version": "0.5.0",
+  "name": "greenlight",
+  "version": "1.0.0",
   "private": true,
-  "description": "Development tooling for the BabysitPR GNOME Shell extension.",
+  "description": "Development tooling for the Greenlight GNOME Shell extension.",
   "license": "MIT",
   "type": "module",
   "scripts": {

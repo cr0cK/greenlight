@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve BabysitPR. By participating, you agree to follow the
+Thanks for helping improve Greenlight. By participating, you agree to follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Development setup
@@ -35,8 +35,8 @@ scripts/sandbox.sh          # rebuilds, then opens the sandbox window
 scripts/sandbox.sh --reset  # same, from fresh settings
 ~~~
 
-The sandbox keeps its extensions and settings in ~/.cache/babysitpr-sandbox (override with
-BABYSITPR_SANDBOX) on a private D-Bus session. The devkit window starts with a 1280x800 screen
+The sandbox keeps its extensions and settings in ~/.cache/greenlight-sandbox (override with
+GREENLIGHT_SANDBOX) on a private D-Bus session. The devkit window starts with a 1280x800 screen
 and can take about 30 seconds to appear the first time. The sandbox copies the desktop's Num Lock
 state on each run. Preferences persist between runs. Close the window and run the script again
 after a code change.
@@ -69,7 +69,7 @@ follow the same format.
 Releases are automated with [release-please](https://github.com/googleapis/release-please).
 Every merge to `main` updates a release pull request that bumps `package.json`, the
 `version-name` in `metadata.json`, and CHANGELOG.md from the commit history: `feat` bumps the
-minor version, `fix` the patch, and breaking changes the minor version until 1.0. Do not edit
+minor version, `fix` the patch, and breaking changes the major version. Do not edit
 CHANGELOG.md by hand. Merging the release pull request tags `vX.Y.Z`, publishes a GitHub Release,
 and attaches the installable extension zip. The integer `version` field of metadata.json is left
 to extensions.gnome.org.

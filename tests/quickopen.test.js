@@ -12,7 +12,7 @@ const REPOSITORIES = [
     'acme/web-platform',
     'acme/web-client',
     'acme/platform-infra',
-    'octocat/babysitpr',
+    'octocat/greenlight',
     'octocat/repo2',
 ];
 
@@ -35,11 +35,11 @@ test('parses repository queries and numbers', () => {
 
 test('parses pasted GitHub URLs without their trailing fragments', () => {
     assert.deepEqual(
-        parseQuickOpenQuery('https://github.com/cr0cK/babysitpr/pull/7/files#diff'),
+        parseQuickOpenQuery('https://github.com/cr0cK/greenlight/pull/7/files#diff'),
         {
-            repositoryQuery: 'cr0cK/babysitpr',
+            repositoryQuery: 'cr0cK/greenlight',
             number: 7,
-            url: 'https://github.com/cr0cK/babysitpr/pull/7',
+            url: 'https://github.com/cr0cK/greenlight/pull/7',
         });
 });
 
@@ -53,8 +53,8 @@ test('ranks repository name matches before owner and fuzzy matches', () => {
 });
 
 test('uses recent repositories to break ties', () => {
-    const suggestions = quickOpenSuggestions('#3', REPOSITORIES, ['octocat/babysitpr']);
-    assert.equal(suggestions[0].repository, 'octocat/babysitpr');
+    const suggestions = quickOpenSuggestions('#3', REPOSITORIES, ['octocat/greenlight']);
+    assert.equal(suggestions[0].repository, 'octocat/greenlight');
     assert.equal(suggestions.length, 5);
 });
 
@@ -71,8 +71,8 @@ test('matches subsequences and reports no match', () => {
 });
 
 test('suggests repositories without a URL until a number is typed', () => {
-    const [suggestion] = quickOpenSuggestions('babysit', REPOSITORIES);
-    assert.deepEqual(suggestion, {repository: 'octocat/babysitpr', number: null, url: null});
+    const [suggestion] = quickOpenSuggestions('green', REPOSITORIES);
+    assert.deepEqual(suggestion, {repository: 'octocat/greenlight', number: null, url: null});
 });
 
 test('accepts an unwatched owner/repository typed in full', () => {

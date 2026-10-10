@@ -1,10 +1,10 @@
-# BabysitPR
+# Greenlight
 
-[![PR checks](https://github.com/cr0cK/babysitPR/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/cr0cK/babysitPR/actions/workflows/pr-checks.yml)
-[![Latest release](https://img.shields.io/github/v/release/cr0cK/babysitPR)](https://github.com/cr0cK/babysitPR/releases/latest)
+[![PR checks](https://github.com/cr0cK/greenlight/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/cr0cK/greenlight/actions/workflows/pr-checks.yml)
+[![Latest release](https://img.shields.io/github/v/release/cr0cK/greenlight)](https://github.com/cr0cK/greenlight/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A small GNOME Shell extension that watches your open GitHub pull requests and notifies you when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
+A small GNOME Shell extension that watches your open GitHub pull requests and gives you the green light when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
 
 ## Features
 
@@ -32,29 +32,26 @@ gh auth status
 
 ## Install
 
-Download `babysitpr@cr0ck.github.io.shell-extension.zip` from the
-[latest release](https://github.com/cr0cK/babysitPR/releases/latest), then install it:
+Download `greenlight@cr0ck.github.io.shell-extension.zip` from the
+[latest release](https://github.com/cr0cK/greenlight/releases/latest), then install it:
 
 ~~~sh
-gnome-extensions install --force babysitpr@cr0ck.github.io.shell-extension.zip
+gnome-extensions install --force greenlight@cr0ck.github.io.shell-extension.zip
 ~~~
 
 To install from a checkout instead, run `make install` from the repository root.
 
 GNOME Shell must reload its extension list before you enable a newly installed extension. On Wayland, log out and back in. On X11, press Alt+F2, enter r, and press Enter.
 
-Then enable BabysitPR:
+Then enable Greenlight:
 
 ~~~sh
-gnome-extensions enable babysitpr@cr0ck.github.io
+gnome-extensions enable greenlight@cr0ck.github.io
 ~~~
-
-Versions up to 0.5.0 used the UUID `babysitpr@alexis`. When upgrading, remove the old copy with
-`gnome-extensions uninstall babysitpr@alexis`; your preferences are kept.
 
 ## Use
 
-The panel indicator shows how many pull requests BabysitPR is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
+The panel indicator shows how many pull requests Greenlight is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
 
 In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner to monitor all of its repositories or load and select a subset; each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
 
@@ -64,14 +61,14 @@ Use the quick open field under **Refresh now** to open an issue or pull request 
 
 Each pull request row shows its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
 
-BabysitPR searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
+Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 
-To remove BabysitPR:
+To remove Greenlight:
 
 ~~~sh
-gnome-extensions uninstall babysitpr@cr0ck.github.io
+gnome-extensions uninstall greenlight@cr0ck.github.io
 ~~~
 
 ## Contributing

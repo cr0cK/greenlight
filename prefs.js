@@ -78,7 +78,7 @@ function repositoryChoices(owner) {
 }
 
 /** Provides discovered owner scopes, per-owner repositories, and one save action. */
-export default class BabysitPRPreferences extends ExtensionPreferences {
+export default class GreenlightPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         migrateLegacyOwnerFilters(settings);
@@ -86,7 +86,7 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
         const page = new Adw.PreferencesPage();
         const monitoringGroup = new Adw.PreferencesGroup({
             title: 'Monitoring',
-            description: 'BabysitPR uses the installed gh CLI and its current authentication.',
+            description: 'Greenlight uses the installed gh CLI and its current authentication.',
         });
         const authorRow = new Adw.ActionRow({
             title: 'Author',

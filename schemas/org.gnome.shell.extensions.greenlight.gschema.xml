@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.babysitpr" path="/org/gnome/shell/extensions/babysitpr/">
+  <schema id="org.gnome.shell.extensions.greenlight" path="/org/gnome/shell/extensions/greenlight/">
     <key name="refresh-interval" type="i">
       <default>120</default>
       <summary>Refresh interval</summary>

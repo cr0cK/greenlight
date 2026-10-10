@@ -5,8 +5,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-UUID=babysitpr@cr0ck.github.io
-SANDBOX=${BABYSITPR_SANDBOX:-${XDG_CACHE_HOME:-$HOME/.cache}/babysitpr-sandbox}
+UUID=greenlight@cr0ck.github.io
+SANDBOX=${GREENLIGHT_SANDBOX:-${XDG_CACHE_HOME:-$HOME/.cache}/greenlight-sandbox}
 EXTENSION_DIR=$SANDBOX/data/gnome-shell/extensions/$UUID
 
 if [[ ${1:-} == --reset ]]; then

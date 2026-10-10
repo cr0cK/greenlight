@@ -1,11 +1,11 @@
 {
-  "uuid": "babysitpr@cr0ck.github.io",
-  "name": "BabysitPR",
+  "uuid": "greenlight@cr0ck.github.io",
+  "name": "Greenlight",
   "description": "Watch your open GitHub pull requests from the top bar: review and CI status, a notification when checks pass, and quick open with inline previews of any issue or pull request.",
   "shell-version": [
     "49"
   ],
-  "url": "https://github.com/cr0cK/babysitPR",
-  "settings-schema": "org.gnome.shell.extensions.babysitpr",
-  "version-name": "0.5.0"
+  "url": "https://github.com/cr0cK/greenlight",
+  "settings-schema": "org.gnome.shell.extensions.greenlight",
+  "version-name": "1.0.0"
 }

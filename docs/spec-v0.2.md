@@ -1,4 +1,4 @@
-# BabysitPR — v0.2 specification
+# Greenlight — v0.2 specification
 
 ## Goal
 

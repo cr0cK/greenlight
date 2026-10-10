@@ -124,16 +124,16 @@ test('returns null for missing numbers and repositories, throws otherwise', () =
 });
 
 test('looks up one number across repositories with variables, not inline names', () => {
-    const args = lookupArguments(['octo-org/web-platform', 'octocat/babysitpr'], 1291);
+    const args = lookupArguments(['octo-org/web-platform', 'octocat/greenlight'], 1291);
     assert.deepEqual(args.slice(0, 4), ['api', 'graphql', '--hostname', 'github.com']);
     const query = args[5];
     assert.match(query, /^query=query\(\$number: Int!, \$o0: String!, \$n0: String!, \$o1: String!/);
     assert.match(query, /r1: repository\(owner: \$o1, name: \$n1\)/);
-    assert.doesNotMatch(query, /octo-org|babysitpr/);
+    assert.doesNotMatch(query, /octo-org|greenlight/);
     assert.deepEqual(args.slice(6), [
         '-F', 'number=1291',
         '-f', 'o0=octo-org', '-f', 'n0=web-platform',
-        '-f', 'o1=octocat', '-f', 'n1=babysitpr',
+        '-f', 'o1=octocat', '-f', 'n1=greenlight',
     ]);
 });
 

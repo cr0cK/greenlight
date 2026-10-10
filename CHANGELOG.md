@@ -1,11 +1,24 @@
 # Changelog
 
-All notable changes to BabysitPR are documented here. The format follows
+All notable changes to Greenlight are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## [0.5.0](https://github.com/cr0cK/babysitPR/releases/tag/v0.5.0) (2026-10-10)
+## [1.0.0](https://github.com/cr0cK/greenlight/releases/tag/v1.0.0) (2026-10-10)
+
+First public release. BabysitPR is now Greenlight.
+
+### Changed
+
+- The extension is named Greenlight, with the UUID `greenlight@cr0ck.github.io` and the GSettings
+  schema `org.gnome.shell.extensions.greenlight`. Preferences from pre-release BabysitPR builds
+  are not migrated.
+- Released under the MIT license, with release-please managing versions and this changelog.
+
+## Pre-release history (BabysitPR)
+
+## 0.5.0 (2026-10-10)
 
 ### Added
 
@@ -29,7 +42,7 @@ entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.
 - Migrating v0.2 or v0.3 settings no longer leaves the settings object in delay-apply mode,
   which silently dropped every later write (notification cache, quick open history) on reload.
 
-## [0.4.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
+## 0.4.0 (2026-09-24)
 
 ### Added
 
@@ -44,7 +57,7 @@ entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.
   then merged into the newest 30 results.
 - Search scopes are no longer tied to a single organization or repository.
 
-## [0.3.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
+## 0.3.0 (2026-09-24)
 
 ### Added
 
@@ -59,13 +72,13 @@ entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.
 - Repository searches inspect up to the 1,000 most recently updated open pull requests for the
   selected owner.
 
-## [0.2.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
+## 0.2.0 (2026-09-24)
 
 ### Added
 
 - Author filtering, newest-first sorting, and per-PR author, review, and CI summaries.
 
-## [0.1.0](https://github.com/cr0cK/babysitPR/commit/9bd72f7) (2026-09-23)
+## 0.1.0 (2026-09-23)
 
 ### Added
 

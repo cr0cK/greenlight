@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents working on BabysitPR, a GNOME Shell 49 extension that monitors GitHub pull
+Guidance for AI agents working on Greenlight, a GNOME Shell 49 extension that monitors GitHub pull
 requests through the `gh` CLI. Read CONTRIBUTING.md for the human workflow; this file holds what
 the code does not tell you.
 
@@ -14,7 +14,7 @@ the code does not tell you.
 | `quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
 | `preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
-| `schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.babysitpr` |
+| `schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `docs/spec-v*.md` | Product contracts, one per minor version |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
 
@@ -49,7 +49,7 @@ headless GNOME Shell and drive it, rather than asking the user to check:
   throwaway helper extension in the scratch directory whose `enable()` sets
   `global.context.unsafe_mode = true`. Never ship that helper.
 - Reach the extension from Eval with
-  `Main.extensionManager.lookup('babysitpr@cr0ck.github.io').stateObj`.
+  `Main.extensionManager.lookup('greenlight@cr0ck.github.io').stateObj`.
 - Drive input with a Clutter virtual device:
   - `notify_keyval` types characters, but keypad keys only work through `notify_key` with evdev
     codes (KP1 = 79).
@@ -100,14 +100,16 @@ devkit shows its own monitor, and the panel would land on an invisible one.
 
 ## Versions, releases, and docs
 
-- The UUID is `babysitpr@cr0ck.github.io`. Never change it casually: changing it makes users
+- The UUID is `greenlight@cr0ck.github.io`. Never change it casually: changing it makes users
   reinstall.
 - release-please owns `CHANGELOG.md`, `package.json` `version`, and `metadata.json`
   `version-name`. Do not edit them by hand. `metadata.json` must not get an integer `version`:
   extensions.gnome.org sets it.
+- The repository is public: never put session links, local paths, or private organization and
+  repository names in commits, PR texts, docs, or test fixtures.
 - Commits and PR titles use Conventional Commits. PRs are squash-merged, so the PR title is the
   commit release-please reads. `feat` bumps the minor version, `fix` the patch, and breaking
-  changes the minor until 1.0.
+  changes the major version.
 - Release PRs are opened with GITHUB_TOKEN, which fires no `pull_request` event. `release.yml`
   dispatches `pr-checks.yml` on the release branch instead; keep that step if you touch either
   workflow.

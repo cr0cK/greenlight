@@ -296,7 +296,7 @@ function compareUpdatedPullRequests(first, second) {
  * Monitors open PRs through the active gh account, owner, repository, and author filters.
  * Calls run without a shell so user data and repository names stay separate arguments.
  */
-export default class BabysitPRExtension extends Extension {
+export default class GreenlightExtension extends Extension {
     enable() {
         this._enabled = true;
         this._settings = this.getSettings();
@@ -311,12 +311,12 @@ export default class BabysitPRExtension extends Extension {
         this._filterRefreshSourceId = 0;
         this._refreshAfterCurrent = false;
 
-        this._indicator = new PanelMenu.Button(0.0, 'BabysitPR', false);
-        this._indicator.accessible_name = 'BabysitPR';
+        this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
+        this._indicator.accessible_name = 'Greenlight';
         const panelBox = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._panelIcon = new St.Icon({
             gicon: Gio.FileIcon.new(
-                this.dir.get_child('babysitpr-pr-symbolic.svg')
+                this.dir.get_child('greenlight-pr-symbolic.svg')
             ),
             icon_size: 16,
             style_class: 'system-status-icon',
@@ -633,7 +633,7 @@ export default class BabysitPRExtension extends Extension {
 
             this._error = 'Could not refresh pull requests. Check that gh is installed ' +
                 'and authenticated (gh auth status).';
-            console.error('BabysitPR: failed to read pull requests.');
+            console.error('Greenlight: failed to read pull requests.');
         } finally {
             if (this._enabled) {
                 this._loading = false;
@@ -688,7 +688,7 @@ export default class BabysitPRExtension extends Extension {
             if (pr.checkState === 'success' &&
                 (!old || old.state !== 'success' || old.fingerprint !== pr.fingerprint)) {
                 Main.notify(
-                    'BabysitPR',
+                    'Greenlight',
                     pr.repo + ' #' + pr.number + ' is all green: ' + pr.title
                 );
             }
@@ -949,7 +949,7 @@ export default class BabysitPRExtension extends Extension {
                 this._lookupCache.set(repository.toLowerCase() + '#' + number, {time, found, title});
         } catch {
             if (!cancellable.is_cancelled()) {
-                console.error('BabysitPR: could not look up the issue or pull request number.');
+                console.error('Greenlight: could not look up the issue or pull request number.');
                 state.status = 'error';
             }
         }
@@ -1029,7 +1029,7 @@ export default class BabysitPRExtension extends Extension {
             this._previewCache.set(state.key, {time: GLib.get_monotonic_time(), preview});
         } catch {
             if (!cancellable.is_cancelled())
-                console.error('BabysitPR: could not load the issue or pull request preview.');
+                console.error('Greenlight: could not load the issue or pull request preview.');
         }
 
         if (cancellable.is_cancelled() || this._previewState !== state)
@@ -1275,7 +1275,7 @@ export default class BabysitPRExtension extends Extension {
             try {
                 Gio.AppInfo.launch_default_for_uri(link.url, null);
             } catch {
-                console.error('BabysitPR: could not open this link.');
+                console.error('Greenlight: could not open this link.');
             }
             this._indicator.menu.close();
             return Clutter.EVENT_STOP;
@@ -1369,7 +1369,7 @@ export default class BabysitPRExtension extends Extension {
         try {
             Gio.AppInfo.launch_default_for_uri(suggestion.url, null);
         } catch {
-            console.error('BabysitPR: could not open this issue or pull request.');
+            console.error('Greenlight: could not open this issue or pull request.');
             return;
         }
         this._settings.set_string('recent-repositories', JSON.stringify(
@@ -1574,7 +1574,7 @@ export default class BabysitPRExtension extends Extension {
             try {
                 Gio.AppInfo.launch_default_for_uri(pr.url, null);
             } catch {
-                console.error('BabysitPR: could not open this pull request.');
+                console.error('Greenlight: could not open this pull request.');
             }
         });
         return item;
