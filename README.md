@@ -6,6 +6,11 @@
 
 A small GNOME Shell extension that watches your open GitHub pull requests and gives you the green light when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
 
+<p align="center">
+  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="44%">
+  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="54%">
+</p>
+
 ## Features
 
 - Shows your open pull requests in the GNOME top bar menu.
@@ -52,6 +57,10 @@ gnome-extensions enable greenlight@cr0ck.github.io
 ## Use
 
 The panel indicator shows how many pull requests Greenlight is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
+
+<p align="center">
+  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, hover preview delay, and owners" width="70%">
+</p>
 
 In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner to monitor all of its repositories or load and select a subset; each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
 

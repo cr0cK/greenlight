@@ -41,6 +41,15 @@ and can take about 30 seconds to appear the first time. The sandbox copies the d
 state on each run. Preferences persist between runs. Close the window and run the script again
 after a code change.
 
+A change to the menu or the preferences window also regenerates the README screenshots:
+
+~~~sh
+scripts/screenshots.sh      # rewrites docs/screenshots/*.png
+~~~
+
+It runs a headless GNOME Shell with `scripts/screenshots/gh`, a stand-in for the GitHub CLI that
+serves fictional pull requests, so the images never show a real account. It needs ImageMagick.
+
 ## Code and documentation style
 
 - Follow .editorconfig and the ESLint rules, which match the GNOME Shell code style.

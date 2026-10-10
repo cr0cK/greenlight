@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Stand-in for the GitHub CLI that serves fictional data, so screenshots show no real account.
+
+It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo list, and the
+gh api graphql lookup and preview queries.
+"""
+import json
+import sys
+
+PULL_REQUESTS = [
+    ('acme/web-platform', 142, 'Add a dark theme to the settings page', 'octocat', False, 'pass'),
+    ('octo-org/docs', 305, 'Document the release process', 'hubot', False, 'pass'),
+    ('acme/api-gateway', 87, 'Retry webhook deliveries with backoff', 'octocat', False, 'fail'),
+    ('acme/web-platform', 139, 'Cache avatar requests', 'monalisa', True, 'pending'),
+    ('octocat/dotfiles', 12, 'Switch the prompt to starship', 'octocat', False, 'pass'),
+]
+
+CHECKS = {
+    'pass': [('lint', 'pass'), ('unit tests', 'pass'), ('e2e', 'pass'), ('build', 'pass')],
+    'fail': [('lint', 'pass'), ('unit tests', 'fail'), ('build', 'pass')],
+    'pending': [('lint', 'pass'), ('unit tests', 'pending'), ('build', 'pending')],
+}
+
+REPOSITORIES = {
+    'acme': ['acme/web-platform', 'acme/web-client', 'acme/api-gateway', 'acme/infra'],
+    'octo-org': ['octo-org/docs', 'octo-org/website'],
+    'octocat': ['octocat/dotfiles', 'octocat/hello-world'],
+}
+
+PREVIEW_BODY = """\
+## Summary
+
+Adds a **dark theme** to the settings page and follows the system preference by default.
+Closes #128.
+
+- Reads `prefers-color-scheme` on load
+- Stores an explicit choice in local storage
+- [x] Light and dark screenshots attached
+- [ ] Follow-up: theme the onboarding flow
+
+> [!NOTE]
+> The old `?theme=` query parameter still works.
+
+See the [design notes](https://example.com/design) for the palette.
+"""
+
+
+def option(args, name):
+    """Returns every value given to a repeated flag such as --repo or -f."""
+    return [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == name]
+
+
+def fields(args):
+    pairs = (value.split('=', 1) for value in option(args, '-f') + option(args, '-F'))
+    return dict(pair for pair in pairs if len(pair) == 2)
+
+
+def search(args):
+    repositories = {repository.lower() for repository in option(args, '--repo')}
+    owners = {owner.lower() for owner in option(args, '--owner')}
+    rows = []
+    for index, (repository, number, title, author, draft, _) in enumerate(PULL_REQUESTS):
+        owner = repository.split('/')[0]
+        if repository.lower() not in repositories and owner.lower() not in owners:
+            continue
+        rows.append({
+            'number': number,
+            'title': title,
+            'url': f'https://github.com/{repository}/pull/{number}',
+            'repository': {'nameWithOwner': repository, 'name': repository.split('/')[1]},
+            'author': {'login': author},
+            'isDraft': draft,
+            'updatedAt': f'2026-10-10T{12 - index:02d}:00:00Z',
+        })
+    print(json.dumps(rows))
+
+
+def checks(args):
+    number = int(args[2])
+    repository = option(args, '--repo')[0]
+    state = next(pr[5] for pr in PULL_REQUESTS if pr[0] == repository and pr[1] == number)
+    print(json.dumps([
+        {'name': name, 'bucket': bucket, 'workflow': 'CI', 'state': bucket.upper(),
+         'startedAt': '2026-10-10T11:00:00Z', 'completedAt': '2026-10-10T11:04:00Z',
+         'link': f'https://github.com/{repository}/actions'}
+        for name, bucket in CHECKS[state]
+    ]))
+    return 8 if state == 'pending' else 0
+
+
+def find(repository, number):
+    return next((pr for pr in PULL_REQUESTS
+                 if pr[0].lower() == repository.lower() and pr[1] == number), None)
+
+
+def lookup(values):
+    number = int(values['number'])
+    data = {}
+    index = 0
+    while f'o{index}' in values:
+        pr = find(values[f'o{index}'] + '/' + values[f'n{index}'], number)
+        data[f'r{index}'] = {'issueOrPullRequest': pr and {
+            '__typename': 'PullRequest', 'title': pr[2]}}
+        index += 1
+    print(json.dumps({'data': data}))
+
+
+def preview(values):
+    pr = find(values['owner'] + '/' + values['name'], int(values['number']))
+    if not pr:
+        print(json.dumps({'data': {'repository': {'issueOrPullRequest': None}},
+                          'errors': [{'type': 'NOT_FOUND'}]}))
+        return 1
+    contexts = [
+        {'__typename': 'CheckRun', 'name': name, 'status': 'COMPLETED' if bucket != 'pending'
+         else 'IN_PROGRESS', 'conclusion': {'pass': 'SUCCESS', 'fail': 'FAILURE'}.get(bucket)}
+        for name, bucket in CHECKS[pr[5]]
+    ]
+    print(json.dumps({'data': {'repository': {'issueOrPullRequest': {
+        '__typename': 'PullRequest',
+        'title': pr[2],
+        'state': 'OPEN',
+        'isDraft': pr[4],
+        'body': PREVIEW_BODY,
+        'headRefName': 'settings-dark-theme',
+        'baseRefName': 'main',
+        'additions': 214,
+        'deletions': 37,
+        'author': {'login': pr[3]},
+        'commits': {'nodes': [{'commit': {'statusCheckRollup': {'contexts': {
+            'totalCount': len(contexts), 'nodes': contexts}}}}]},
+    }}}}))
+    return 0
+
+
+def main(args):
+    if args[:2] == ['search', 'prs']:
+        search(args)
+    elif args[:2] == ['pr', 'checks']:
+        return checks(args)
+    elif args[:2] == ['repo', 'list']:
+        print(json.dumps([{'nameWithOwner': name, 'visibility': 'PUBLIC'}
+                          for name in REPOSITORIES.get(args[2], [])]))
+    elif args[:2] == ['api', 'graphql']:
+        values = fields(args)
+        return lookup(values) if 'o0' in values else preview(values)
+    else:
+        print('screenshot gh: unsupported call: ' + ' '.join(args[:3]), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]) or 0)
