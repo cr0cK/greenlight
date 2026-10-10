@@ -17,6 +17,7 @@ the code does not tell you.
 | `schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `docs/spec-v*.md` | Product contracts, one per minor version |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
+| `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/gh` |
 
 The pure modules import nothing from `gi://`, so `node --test` covers them. Keep new logic there
 when it can live without GNOME APIs.
@@ -115,7 +116,9 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   workflow.
 - The gitleaks pre-commit hook only scans staged changes. CI scans the full history with a
   checksum-pinned gitleaks binary; bump its version and SHA-256 together.
-- A user-visible change updates README.md and the current `docs/spec-v*.md` in the same PR.
+- A user-visible change updates README.md and the current `docs/spec-v*.md` in the same PR. When
+  it changes the menu or the preferences window, run `scripts/screenshots.sh`, look at the new
+  images, and commit them; extend `scripts/screenshots/gh` rather than capturing real data.
   Source, docs, and UI strings are in English.
 - A defect found outside the task at hand becomes a GitHub issue with its reproduction, not a
   wider PR.
