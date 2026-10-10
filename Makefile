@@ -1,6 +1,6 @@
 .PHONY: check pack install clean
 
-UUID = babysitpr@alexis
+UUID = babysitpr@cr0ck.github.io
 DIST = dist
 BUNDLE = $(DIST)/$(UUID).shell-extension.zip
 
@@ -20,6 +20,7 @@ check:
 		--extra-source=quickopen.js \
 		--extra-source=preview.js \
 		--extra-source=markdown.js \
+		--extra-source=LICENSE \
 		--out-dir $(DIST) .
 
 pack: check

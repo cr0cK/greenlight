@@ -1,5 +1,9 @@
 # BabysitPR
 
+[![PR checks](https://github.com/cr0cK/babysitPR/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/cr0cK/babysitPR/actions/workflows/pr-checks.yml)
+[![Latest release](https://img.shields.io/github/v/release/cr0cK/babysitPR)](https://github.com/cr0cK/babysitPR/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A small GNOME Shell extension that watches your open GitHub pull requests and notifies you when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
 
 ## Features
@@ -26,23 +30,27 @@ Check the GitHub CLI session with:
 gh auth status
 ~~~
 
-For development checks and packaging, install Node.js, GLib schema tools, and the GNOME extension CLI.
-
 ## Install
 
-From the repository root:
+Download `babysitpr@cr0ck.github.io.shell-extension.zip` from the
+[latest release](https://github.com/cr0cK/babysitPR/releases/latest), then install it:
 
 ~~~sh
-make install
+gnome-extensions install --force babysitpr@cr0ck.github.io.shell-extension.zip
 ~~~
+
+To install from a checkout instead, run `make install` from the repository root.
 
 GNOME Shell must reload its extension list before you enable a newly installed extension. On Wayland, log out and back in. On X11, press Alt+F2, enter r, and press Enter.
 
 Then enable BabysitPR:
 
 ~~~sh
-gnome-extensions enable babysitpr@alexis
+gnome-extensions enable babysitpr@cr0ck.github.io
 ~~~
+
+Versions up to 0.5.0 used the UUID `babysitpr@alexis`. When upgrading, remove the old copy with
+`gnome-extensions uninstall babysitpr@alexis`; your preferences are kept.
 
 ## Use
 
@@ -60,19 +68,21 @@ BabysitPR searches the selected owner or repository scopes through `gh search pr
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 
-## Check and package
+To remove BabysitPR:
 
 ~~~sh
-make check
-make pack
+gnome-extensions uninstall babysitpr@cr0ck.github.io
 ~~~
 
-The check validates the GSettings schema, parses every JavaScript module, runs the quick open and preview unit tests, and builds the GNOME extension bundle in dist/. Node.js is not needed at runtime.
+## Contributing
 
-To remove an installed copy:
+Bug reports, ideas, and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the
+development setup, the checks, and the sandbox that runs the extension in a windowed GNOME Shell.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-~~~sh
-gnome-extensions uninstall babysitpr@alexis
-~~~
+See `docs/spec-v0.1.md` through `docs/spec-v0.5.md` for the product contracts, and
+[CHANGELOG.md](CHANGELOG.md) for release notes.
 
-See docs/spec-v0.1.md through docs/spec-v0.5.md for the product contracts, and CHANGELOG.md for release notes.
+## License
+
+[MIT](LICENSE)

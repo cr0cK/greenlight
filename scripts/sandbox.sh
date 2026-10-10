@@ -5,10 +5,9 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-UUID=babysitpr@alexis
+UUID=babysitpr@cr0ck.github.io
 SANDBOX=${BABYSITPR_SANDBOX:-${XDG_CACHE_HOME:-$HOME/.cache}/babysitpr-sandbox}
 EXTENSION_DIR=$SANDBOX/data/gnome-shell/extensions/$UUID
-KEYFILE=$SANDBOX/config/glib-2.0/settings/keyfile
 
 if [[ ${1:-} == --reset ]]; then
     rm -rf "$SANDBOX"
@@ -36,23 +35,20 @@ fi
 
 make -C "$ROOT" pack
 rm -rf "$EXTENSION_DIR"
-mkdir -p "$EXTENSION_DIR" "$(dirname "$KEYFILE")"
+mkdir -p "$EXTENSION_DIR" "$SANDBOX/config"
 unzip -q "$ROOT/dist/$UUID.shell-extension.zip" -d "$EXTENSION_DIR"
 glib-compile-schemas "$EXTENSION_DIR/schemas"
 
-if [[ ! -f $KEYFILE ]]; then
-    cat > "$KEYFILE" <<EOF
-[org/gnome/shell]
-enabled-extensions=['$UUID']
-disable-user-extensions=false
-welcome-dialog-last-shown-version='999'
-EOF
-fi
-
+sandbox_gsettings() {
+    XDG_CONFIG_HOME="$SANDBOX/config" GSETTINGS_BACKEND=keyfile gsettings set "$@"
+}
+# Set on every run, so a sandbox created before a UUID change still enables this checkout.
+sandbox_gsettings org.gnome.shell enabled-extensions "['$UUID']"
+sandbox_gsettings org.gnome.shell disable-user-extensions false
+sandbox_gsettings org.gnome.shell welcome-dialog-last-shown-version "'999'"
 # The sandbox keyboard has its own Num Lock state; mirror the desktop's so keypad digits
 # type digits instead of moving focus.
-XDG_CONFIG_HOME="$SANDBOX/config" GSETTINGS_BACKEND=keyfile gsettings set \
-    org.gnome.desktop.peripherals.keyboard numlock-state \
+sandbox_gsettings org.gnome.desktop.peripherals.keyboard numlock-state \
     "$(gsettings get org.gnome.desktop.peripherals.keyboard numlock-state)"
 
 echo "Sandbox: $SANDBOX"

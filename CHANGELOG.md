@@ -1,50 +1,71 @@
 # Changelog
 
-All notable changes to BabysitPR are documented here.
+All notable changes to BabysitPR are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
+entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## [Unreleased]
+## [0.5.0](https://github.com/cr0cK/babysitPR/releases/tag/v0.5.0) (2026-10-10)
 
 ### Added
 
-- Quick open field in the menu to open an issue or pull request of a watched repository by number, with a configurable keyboard shortcut (Super+Shift+G by default). With a number, it lists only the repositories where that issue or pull request exists.
-- Inline preview of the highlighted issue or pull request: state, author, branches, a CI bar with failed check names, and its description rendered as GitHub-flavored Markdown. The preview scrolls, opens the issue or pull request on click, and opens links clicked inside it.
-- Hover previews for listed pull requests, after a configurable delay (1.5 seconds by default, 0 to disable).
-- Discovery for the authenticated GitHub account and its organization memberships, with manual public-owner entry.
-- Independent all-repository or selected-repository scopes for each enabled owner.
-- Pull request sections grouped by owner, with compact review and CI badges.
+- Quick open field in the menu to open an issue or pull request of a watched repository by
+  number, with a configurable keyboard shortcut (Super+Shift+G by default). With a number, it
+  lists only the repositories where that issue or pull request exists.
+- Inline preview of the highlighted issue or pull request: state, author, branches, a CI bar with
+  failed check names, and its description rendered as GitHub-flavored Markdown. The preview
+  scrolls, opens the issue or pull request on click, and opens links clicked inside it.
+- Hover previews for listed pull requests, after a configurable delay (1.5 seconds by default,
+  0 to disable).
 
 ### Changed
 
 - The pull request list scrolls inside the menu, so long lists no longer run off the screen.
 - gh calls can run concurrently, each with its own timeout, so previews never interrupt a refresh.
-- Pull requests from archived repositories are excluded from every search scope.
-- Owners and selected repositories are queried in separate bounded `gh search prs` commands, then merged into the newest 30 results.
-- Search scopes are no longer tied to a single organization or repository.
 
 ### Fixed
 
-- Migrating v0.2 or v0.3 settings no longer leaves the settings object in delay-apply mode, which silently dropped every later write (notification cache, quick open history) on reload.
+- Pull requests from archived repositories are excluded from every search scope.
+- Migrating v0.2 or v0.3 settings no longer leaves the settings object in delay-apply mode,
+  which silently dropped every later write (notification cache, quick open history) on reload.
 
-## [0.3.0]
+## [0.4.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
 
 ### Added
 
-- Multi-select repository filtering populated with `gh repo list` for a configurable organization or account.
+- Discovery for the authenticated GitHub account and its organization memberships, with manual
+  public-owner entry.
+- Independent all-repository or selected-repository scopes for each enabled owner.
+- Pull request sections grouped by owner, with compact review and CI badges.
+
+### Changed
+
+- Owners and selected repositories are queried in separate bounded `gh search prs` commands,
+  then merged into the newest 30 results.
+- Search scopes are no longer tied to a single organization or repository.
+
+## [0.3.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
+
+### Added
+
+- Multi-select repository filtering populated with `gh repo list` for a configurable organization
+  or account.
 - A single Save preferences button for repository, author, and refresh settings.
 - A bundled neutral pull request icon in the GNOME panel.
 
 ### Changed
 
 - Repository and author filters apply together when preferences are saved.
-- Repository searches inspect up to the 1,000 most recently updated open pull requests for the selected owner.
+- Repository searches inspect up to the 1,000 most recently updated open pull requests for the
+  selected owner.
 
-## [0.2.0]
+## [0.2.0](https://github.com/cr0cK/babysitPR/commit/185fd93) (2026-09-24)
 
 ### Added
 
 - Author filtering, newest-first sorting, and per-PR author, review, and CI summaries.
 
-## [0.1.0]
+## [0.1.0](https://github.com/cr0cK/babysitPR/commit/9bd72f7) (2026-09-23)
 
 ### Added
 

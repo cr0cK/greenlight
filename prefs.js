@@ -346,9 +346,9 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
                     });
                 }
 
-                if (owner.availableRepositories !== null)
+                if (owner.availableRepositories !== null) {
                     updateRepositorySummary(owner);
-                else if (owner.repositories !== null && owner.repositoryRows.size > 0) {
+                } else if (owner.repositories !== null && owner.repositoryRows.size > 0) {
                     repositoryStatus.set_title(owner.repositoryRows.size + ' saved repositories');
                     repositoryStatus.set_subtitle(
                         owner.repositories.length + ' selected · load to refresh availability'
@@ -358,9 +358,8 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
                 repositorySearch.connect('search-changed', () => {
                     const query = repositorySearch.get_text().trim().toLowerCase();
                     const all = allRepositoriesRow.get_active();
-                    for (const [name, choice] of owner.repositoryRows) {
+                    for (const [name, choice] of owner.repositoryRows)
                         choice.row.set_visible(!all && name.toLowerCase().includes(query));
-                    }
                 });
 
                 allRepositoriesRow.connect('notify::active', () => {

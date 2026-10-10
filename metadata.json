@@ -1,11 +1,11 @@
 {
-  "uuid": "babysitpr@alexis",
+  "uuid": "babysitpr@cr0ck.github.io",
   "name": "BabysitPR",
-  "description": "Filter your open pull requests, track review and CI status, and get notified when checks pass.",
+  "description": "Watch your open GitHub pull requests from the top bar: review and CI status, a notification when checks pass, and quick open with inline previews of any issue or pull request.",
   "shell-version": [
     "49"
   ],
+  "url": "https://github.com/cr0cK/babysitPR",
   "settings-schema": "org.gnome.shell.extensions.babysitpr",
-  "version": 5,
   "version-name": "0.5.0"
 }
