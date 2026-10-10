@@ -6,15 +6,24 @@ All notable changes to BabysitPR are documented here.
 
 ### Added
 
+- Quick open field in the menu to open an issue or pull request of a watched repository by number, with a configurable keyboard shortcut (Super+Shift+G by default). With a number, it lists only the repositories where that issue or pull request exists.
+- Inline preview of the highlighted issue or pull request: state, author, branches, a CI bar with failed check names, and its description rendered as GitHub-flavored Markdown. The preview scrolls, opens the issue or pull request on click, and opens links clicked inside it.
+- Hover previews for listed pull requests, after a configurable delay (1.5 seconds by default, 0 to disable).
 - Discovery for the authenticated GitHub account and its organization memberships, with manual public-owner entry.
 - Independent all-repository or selected-repository scopes for each enabled owner.
 - Pull request sections grouped by owner, with compact review and CI badges.
 
 ### Changed
 
+- The pull request list scrolls inside the menu, so long lists no longer run off the screen.
+- gh calls can run concurrently, each with its own timeout, so previews never interrupt a refresh.
 - Pull requests from archived repositories are excluded from every search scope.
 - Owners and selected repositories are queried in separate bounded `gh search prs` commands, then merged into the newest 30 results.
 - Search scopes are no longer tied to a single organization or repository.
+
+### Fixed
+
+- Migrating v0.2 or v0.3 settings no longer leaves the settings object in delay-apply mode, which silently dropped every later write (notification cache, quick open history) on reload.
 
 ## [0.3.0]
 

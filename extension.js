@@ -1,10 +1,13 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -12,6 +15,20 @@ import {
     migrateLegacyOwnerFilters,
     readOwnerFilters,
 } from './filters.js';
+import {
+    MAX_SUGGESTIONS,
+    parseQuickOpenQuery,
+    quickOpenSuggestions,
+    readRecentRepositories,
+    rememberRepository,
+} from './quickopen.js';
+import {parseMarkdown} from './markdown.js';
+import {
+    lookupArguments,
+    parseLookupResponse,
+    parsePreviewResponse,
+    previewArguments,
+} from './preview.js';
 
 const SEARCH_LIMIT = 30;
 const SEARCH_FETCH_LIMIT = SEARCH_LIMIT + 1;
@@ -20,6 +37,27 @@ const MAX_QUERY_LENGTH = 220;
 const FILTER_REFRESH_DELAY_MS = 600;
 const CHECK_FIELDS = 'bucket,name,workflow,state,completedAt,startedAt,link';
 const SEARCH_FIELDS = 'number,title,url,repository,author,isDraft,updatedAt';
+const PREVIEW_DELAY_MS = 350;
+// Pointer sweeps across suggestions should not reflow the menu under the pointer.
+const PREVIEW_FOCUS_DELAY_MS = 150;
+const PREVIEW_CACHE_US = 60 * GLib.USEC_PER_SEC;
+const PREVIEW_BAR_WIDTH = 140;
+const LOOKUP_LIMIT = 20;
+const QUOTE_COLORS = {
+    note: '#4493f8',
+    tip: '#3fb950',
+    important: '#ab7df8',
+    warning: '#d29922',
+    caution: '#f85149',
+};
+
+const PREVIEW_STATES = {
+    open: {label: 'Open', color: '#276746'},
+    draft: {label: 'Draft', color: '#55565e'},
+    merged: {label: 'Merged', color: '#6d3fae'},
+    closed: {label: 'Closed', color: '#922c31'},
+    completed: {label: 'Closed', color: '#6d3fae'},
+};
 
 const STATUS = {
     success: {label: 'Checks green', icon: 'checkbox-checked-symbolic', color: '#26a269'},
@@ -223,6 +261,30 @@ function createBadge(text, background, accessibleName = text) {
     return badge;
 }
 
+/** Identifies a previewable suggestion; previews only exist for github.com URLs. */
+function previewKey(suggestion) {
+    return suggestion?.url?.startsWith('https://github.com/')
+        ? suggestion.repository.toLowerCase() + '#' + suggestion.number
+        : null;
+}
+
+/** St labels ellipsize by default, which silently disables line wrapping. */
+function wrapLabel(label) {
+    label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+    label.clutter_text.line_wrap = true;
+    label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+}
+
+/** Secondary text; the Shell theme has no dim-label class, so opacity does the dimming. */
+function createDimLabel(text, params = {}) {
+    return new St.Label({
+        text,
+        opacity: 170,
+        y_align: Clutter.ActorAlign.CENTER,
+        ...params,
+    });
+}
+
 /** Orders results locally as a fallback when a GitHub host ignores search sorting. */
 function compareUpdatedPullRequests(first, second) {
     const firstTime = Date.parse(first.updatedAt ?? '') || 0;
@@ -240,8 +302,7 @@ export default class BabysitPRExtension extends Extension {
         this._settings = this.getSettings();
         migrateLegacyOwnerFilters(this._settings);
         this._cancellable = new Gio.Cancellable();
-        this._activeProcess = null;
-        this._activeTimeoutId = 0;
+        this._processes = new Map();
         this._loading = false;
         this._error = null;
         this._prs = [];
@@ -269,6 +330,14 @@ export default class BabysitPRExtension extends Extension {
         panelBox.add_child(this._panelLabel);
         this._indicator.add_child(panelBox);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._buildMenu();
+        Main.wm.addKeybinding(
+            'quick-open-shortcut',
+            this._settings,
+            Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+            () => this._indicator.menu.toggle()
+        );
 
         this._settingsSignals = [
             this._settings.connect('changed::refresh-interval', () => this._scheduleRefresh()),
@@ -283,6 +352,7 @@ export default class BabysitPRExtension extends Extension {
 
     disable() {
         this._enabled = false;
+        Main.wm.removeKeybinding('quick-open-shortcut');
         if (this._refreshSourceId) {
             GLib.Source.remove(this._refreshSourceId);
             this._refreshSourceId = 0;
@@ -290,25 +360,46 @@ export default class BabysitPRExtension extends Extension {
         for (const signal of this._settingsSignals ?? [])
             this._settings.disconnect(signal);
         this._settingsSignals = [];
-        if (this._activeTimeoutId) {
-            GLib.Source.remove(this._activeTimeoutId);
-            this._activeTimeoutId = 0;
+        for (const entry of this._processes.values()) {
+            if (entry.timeoutId)
+                GLib.Source.remove(entry.timeoutId);
+            entry.timeoutId = 0;
+            entry.process.force_exit();
         }
+        this._processes.clear();
         if (this._filterRefreshSourceId) {
             GLib.Source.remove(this._filterRefreshSourceId);
             this._filterRefreshSourceId = 0;
         }
         this._hasNoScopes = false;
+        if (this._previewSourceId) {
+            GLib.Source.remove(this._previewSourceId);
+            this._previewSourceId = 0;
+        }
+        this._clearPreviewFocusTimer();
+        this._previewCancellable?.cancel();
+        this._previewCancellable = null;
+        this._previewState = null;
+        this._previewItem = null;
+        this._previewCache = null;
+        this._cancelLookup();
+        this._lookupCache = null;
+        this._setPointerCursor(false);
         this._cancellable?.cancel();
-        this._activeProcess?.force_exit();
         this._indicator?.destroy();
 
         this._settings = null;
         this._indicator = null;
         this._panelIcon = null;
         this._panelLabel = null;
+        this._refreshSection = null;
+        this._quickOpenEntry = null;
+        this._quickOpenSection = null;
+        this._quickOpenItems = [];
+        this._quickOpenSuggestions = [];
+        this._contentSection = null;
+        this._contentScrollView = null;
         this._cancellable = null;
-        this._activeProcess = null;
     }
 
     _scheduleRefresh() {
@@ -352,28 +443,30 @@ export default class BabysitPRExtension extends Extension {
         );
     }
 
-    async _runGh(args) {
+    /** Runs gh concurrently with other calls; cancelling the cancellable stops the process. */
+    async _runGh(args, cancellable = this._cancellable) {
         const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE;
         const launcher = new Gio.SubprocessLauncher({flags});
         launcher.setenv('GH_PROMPT_DISABLED', '1', true);
         const process = launcher.spawnv(['gh', ...args]);
-        this._activeProcess = process;
+        const entry = {process, timeoutId: 0};
+        this._processes.set(process, entry);
 
         // A stalled network request must not permanently block future refreshes.
-        this._activeTimeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, () => {
-            this._activeTimeoutId = 0;
-            if (this._activeProcess === process)
-                process.force_exit();
+        entry.timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, () => {
+            entry.timeoutId = 0;
+            process.force_exit();
             return GLib.SOURCE_REMOVE;
         });
+        const cancelledId = cancellable.connect(() => process.force_exit());
 
         return new Promise((resolve, reject) => {
-            process.communicate_utf8_async(null, this._cancellable, (subprocess, result) => {
-                if (this._activeProcess === subprocess)
-                    this._activeProcess = null;
-                if (this._activeTimeoutId) {
-                    GLib.Source.remove(this._activeTimeoutId);
-                    this._activeTimeoutId = 0;
+            process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
+                this._processes.delete(subprocess);
+                cancellable.disconnect(cancelledId);
+                if (entry.timeoutId) {
+                    GLib.Source.remove(entry.timeoutId);
+                    entry.timeoutId = 0;
                 }
                 try {
                     const [, stdout, stderr] = subprocess.communicate_utf8_finish(result);
@@ -613,20 +706,692 @@ export default class BabysitPRExtension extends Extension {
         this._panelIcon.accessible_name = 'Pull request monitor';
     }
 
+    /** Builds persistent menu sections so refreshes never reset text typed in quick open. */
+    _buildMenu() {
+        const menu = this._indicator.menu;
+        this._refreshSection = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(this._refreshSection);
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        const entryItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        this._quickOpenEntry = new St.Entry({
+            hint_text: 'Open issue or PR: repo #number',
+            can_focus: true,
+            x_expand: true,
+            primary_icon: new St.Icon({
+                icon_name: 'edit-find-symbolic',
+                style_class: 'popup-menu-icon',
+            }),
+        });
+        this._quickOpenEntry.accessible_name = 'Open an issue or pull request by repository and number';
+        entryItem.add_child(this._quickOpenEntry);
+        menu.addMenuItem(entryItem);
+        this._quickOpenSection = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(this._quickOpenSection);
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Only the pull request list scrolls, so the menu fits the screen while quick open,
+        // its preview, and Preferences stay in view. The panel menu caps its height.
+        this._contentSection = new PopupMenu.PopupMenuSection();
+        this._contentScrollView = new St.ScrollView({
+            style_class: 'vfade',
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+        });
+        this._contentScrollView.set_child(this._contentSection.box);
+        this._contentScrollView._delegate = this._contentSection;
+        this._contentSection.actor = this._contentScrollView;
+        menu.addMenuItem(this._contentSection);
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const preferencesItem = new PopupMenu.PopupMenuItem('Preferences…');
+        preferencesItem.connect('activate', () => this.openPreferences());
+        menu.addMenuItem(preferencesItem);
+        this._quickOpenItems = [];
+        this._quickOpenSuggestions = [];
+        this._previewSourceId = 0;
+        this._previewFocusSourceId = 0;
+        this._previewCancellable = null;
+        this._previewState = null;
+        this._previewItem = null;
+        this._previewCache = new Map();
+        this._pullRequestItems = [];
+        this._lookupSourceId = 0;
+        this._lookupCancellable = null;
+        this._lookupState = null;
+        this._lookupCache = new Map();
+
+        const text = this._quickOpenEntry.clutter_text;
+        text.connect('text-changed', () => this._renderQuickOpen());
+        text.connect('activate', () => {
+            const suggestion = this._quickOpenSuggestions.find(candidate => candidate.url);
+            if (suggestion) {
+                this._openQuickOpenSuggestion(suggestion);
+                menu.close();
+            }
+        });
+        text.connect('key-press-event', (_actor, event) => {
+            if (event.get_key_symbol() !== Clutter.KEY_Down || !this._quickOpenItems.length)
+                return Clutter.EVENT_PROPAGATE;
+            this._quickOpenItems[0].grab_key_focus();
+            return Clutter.EVENT_STOP;
+        });
+
+        // Connected after the panel menu manager, so this focus wins over its modal grab.
+        menu.connect('open-state-changed', (_menu, open) => {
+            if (open) {
+                global.stage.set_key_focus(this._quickOpenEntry);
+            } else {
+                this._quickOpenEntry.set_text('');
+                this._setPreviewTarget(null);
+                this._setPointerCursor(false);
+            }
+        });
+    }
+
+    /** Collects repositories quick open can suggest without any network request. */
+    _quickOpenRepositories() {
+        return [
+            ...readRecentRepositories(this._settings),
+            ...this._prs.map(pr => pr.owner + '/' + pr.repositoryName),
+            ...readOwnerFilters(this._settings)
+                .filter(owner => owner.enabled)
+                .flatMap(owner => owner.repositories ?? []),
+        ];
+    }
+
+    _renderQuickOpen() {
+        this._clearPreviewFocusTimer();
+        this._quickOpenSection.removeAll();
+        this._quickOpenItems = [];
+        const text = this._quickOpenEntry.get_text();
+        const {repositoryQuery, number, url} = parseQuickOpenQuery(text);
+        const candidates = quickOpenSuggestions(
+            text,
+            this._quickOpenRepositories(),
+            readRecentRepositories(this._settings),
+            {limit: LOOKUP_LIMIT}
+        );
+
+        // Several repositories could hold the number: list only those where it exists.
+        let lookup = null;
+        if (number !== null && !url && candidates.length > 1)
+            lookup = this._lookupSuggestions(candidates);
+        else
+            this._cancelLookup();
+        this._quickOpenSuggestions = lookup?.status === 'loading'
+            ? []
+            : (lookup?.status === 'ready' ? lookup.suggestions : candidates).slice(0, MAX_SUGGESTIONS);
+        if (!text.trim()) {
+            this._setPreviewTarget(null);
+            return;
+        }
+
+        if (lookup?.status === 'loading' || this._quickOpenSuggestions.length === 0) {
+            this._setPreviewTarget(null);
+            let message;
+            if (lookup?.status === 'loading')
+                message = 'Looking up #' + number + ' in ' + candidates.length + ' repositories…';
+            else if (lookup?.status === 'ready')
+                message = '#' + number + ' not found in ' + candidates.length + ' repositories';
+            else if (repositoryQuery)
+                message = 'No watched repository matches "' + repositoryQuery + '"';
+            else
+                message = 'No watched repositories yet. Type owner/repo #number.';
+            this._quickOpenSection.addMenuItem(new PopupMenu.PopupMenuItem(
+                message,
+                {reactive: false, can_focus: false}
+            ));
+            return;
+        }
+
+        for (const suggestion of this._quickOpenSuggestions) {
+            const actionable = suggestion.url !== null;
+            const item = new PopupMenu.PopupBaseMenuItem({
+                reactive: actionable,
+                can_focus: actionable,
+            });
+            const repository = actionable
+                ? new St.Label({text: suggestion.repository, y_align: Clutter.ActorAlign.CENTER})
+                : createDimLabel(suggestion.repository);
+            repository.x_expand = !suggestion.title;
+            repository.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            item.add_child(repository);
+            if (suggestion.title) {
+                const title = createDimLabel(suggestion.title, {
+                    x_expand: true,
+                    style: 'max-width: 22em; margin-left: 4px;',
+                });
+                title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                item.add_child(title);
+            }
+            if (actionable) {
+                item.add_child(createBadge('#' + suggestion.number, '#3c5268'));
+                if (this._quickOpenItems.length === 0)
+                    item.add_child(createDimLabel('↵'));
+                item.accessible_name = 'Open ' + suggestion.repository + ' #' + suggestion.number;
+                item.connect('activate', () => this._openQuickOpenSuggestion(suggestion));
+                item.connect('key-focus-in', () =>
+                    this._schedulePreviewTarget(suggestion, 'quick-open', PREVIEW_FOCUS_DELAY_MS));
+                item._previewKey = previewKey(suggestion);
+                this._quickOpenItems.push(item);
+            } else {
+                item.add_child(createDimLabel('add a number'));
+            }
+            this._quickOpenSection.addMenuItem(item);
+        }
+        this._setPreviewTarget(this._quickOpenSuggestions.find(candidate => candidate.url) ?? null);
+    }
+
+    _schedulePreviewTarget(suggestion, source, delay) {
+        this._clearPreviewFocusTimer();
+        this._previewFocusSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._previewFocusSourceId = 0;
+            this._setPreviewTarget(suggestion, source);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearPreviewFocusTimer() {
+        if (this._previewFocusSourceId) {
+            GLib.Source.remove(this._previewFocusSourceId);
+            this._previewFocusSourceId = 0;
+        }
+    }
+
+    /**
+     * Keeps the candidates where the number exists, with their titles. Answers from cache when
+     * every candidate is known, otherwise starts one debounced batched request and reports
+     * loading; a failed request falls back to the unfiltered candidates.
+     */
+    _lookupSuggestions(candidates) {
+        const number = candidates[0].number;
+        const now = GLib.get_monotonic_time();
+        const known = candidates.map(candidate => {
+            const entry = this._lookupCache.get(candidate.repository.toLowerCase() + '#' + number);
+            return entry && now - entry.time < PREVIEW_CACHE_US ? entry : null;
+        });
+        if (known.every(Boolean)) {
+            this._cancelLookup();
+            return {
+                status: 'ready',
+                suggestions: candidates
+                    .map((candidate, index) => ({...candidate, title: known[index].title}))
+                    .filter((_candidate, index) => known[index].found),
+            };
+        }
+
+        const key = candidates.map(candidate => candidate.repository.toLowerCase()).join(' ') +
+            '#' + number;
+        if (this._lookupState?.key === key)
+            return {status: this._lookupState.status};
+
+        this._cancelLookup();
+        const state = {key, status: 'loading'};
+        this._lookupState = state;
+        this._lookupSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, PREVIEW_DELAY_MS, () => {
+            this._lookupSourceId = 0;
+            this._runLookup(state, candidates.map(candidate => candidate.repository), number);
+            return GLib.SOURCE_REMOVE;
+        });
+        return {status: 'loading'};
+    }
+
+    async _runLookup(state, repositories, number) {
+        const cancellable = new Gio.Cancellable();
+        this._lookupCancellable = cancellable;
+        try {
+            // gh exits with 1 when any alias is NOT_FOUND but still prints every result.
+            const result = await this._runGh(lookupArguments(repositories, number), cancellable);
+            const time = GLib.get_monotonic_time();
+            for (const {repository, found, title} of parseLookupResponse(result.stdout, repositories))
+                this._lookupCache.set(repository.toLowerCase() + '#' + number, {time, found, title});
+        } catch {
+            if (!cancellable.is_cancelled()) {
+                console.error('BabysitPR: could not look up the issue or pull request number.');
+                state.status = 'error';
+            }
+        }
+
+        if (cancellable.is_cancelled() || this._lookupState !== state)
+            return;
+        this._lookupCancellable = null;
+        this._renderQuickOpen();
+    }
+
+    _cancelLookup() {
+        if (this._lookupSourceId) {
+            GLib.Source.remove(this._lookupSourceId);
+            this._lookupSourceId = 0;
+        }
+        this._lookupCancellable?.cancel();
+        this._lookupCancellable = null;
+        this._lookupState = null;
+    }
+
+    /**
+     * Shows a cached preview at once, or a loading state followed by a debounced gh request.
+     * The source says where the preview goes: under a quick open suggestion or a listed PR.
+     */
+    _setPreviewTarget(suggestion, source = 'quick-open') {
+        const key = previewKey(suggestion);
+        if (key === (this._previewState?.key ?? null) &&
+            (!key || source === this._previewState.source)) {
+            // Rows may have been rebuilt, so put the preview back under its target.
+            this._renderPreview();
+            return;
+        }
+
+        if (this._previewSourceId) {
+            GLib.Source.remove(this._previewSourceId);
+            this._previewSourceId = 0;
+        }
+        this._previewCancellable?.cancel();
+        this._previewCancellable = null;
+
+        const cached = key ? this._previewCache.get(key) : null;
+        if (!key) {
+            this._previewState = null;
+        } else if (cached && GLib.get_monotonic_time() - cached.time < PREVIEW_CACHE_US) {
+            this._previewState = {
+                key,
+                source,
+                suggestion,
+                status: cached.preview ? 'ready' : 'missing',
+                preview: cached.preview,
+            };
+        } else {
+            const state = {key, source, suggestion, status: 'loading', preview: null};
+            this._previewState = state;
+            this._previewSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, PREVIEW_DELAY_MS, () => {
+                this._previewSourceId = 0;
+                this._loadPreview(state);
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+        this._renderPreview();
+    }
+
+    async _loadPreview(state) {
+        const cancellable = new Gio.Cancellable();
+        this._previewCancellable = cancellable;
+        let status = 'error';
+        let preview = null;
+        try {
+            const result = await this._runGh(
+                previewArguments(state.suggestion.repository, state.suggestion.number),
+                cancellable
+            );
+            // gh exits with 1 for NOT_FOUND but still prints the GraphQL response.
+            preview = parsePreviewResponse(result.stdout);
+            status = preview ? 'ready' : 'missing';
+            this._previewCache.set(state.key, {time: GLib.get_monotonic_time(), preview});
+        } catch {
+            if (!cancellable.is_cancelled())
+                console.error('BabysitPR: could not load the issue or pull request preview.');
+        }
+
+        if (cancellable.is_cancelled() || this._previewState !== state)
+            return;
+        this._previewCancellable = null;
+        this._previewState = {...state, status, preview};
+        this._renderPreview();
+    }
+
+    /**
+     * Shows the preview directly under its suggestion or listed pull request, so the pointer
+     * reaches it without crossing other rows. Only the preview item is replaced; a focused row
+     * stays.
+     */
+    _renderPreview() {
+        this._previewItem?.destroy();
+        this._setPointerCursor(false);
+        const state = this._previewState;
+        const inList = state?.source === 'list';
+        const section = inList ? this._contentSection : this._quickOpenSection;
+        const target = (inList ? this._pullRequestItems : this._quickOpenItems)
+            .find(row => row._previewKey === state?.key);
+        if (!state || !target)
+            return;
+
+        // A non-reactive item renders as insensitive, so this one only opts out of activation.
+        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        // A fixed height keeps hover stable: retargeting a lower suggestion lifts it by exactly
+        // the old preview's height, so the pointer lands in the new preview, not on a sibling.
+        const previewStyle = hover => 'border-radius: 10px; width: 36em; height: 20em; ' +
+            'background-color: rgba(127, 127, 127, ' + (hover ? '0.2' : '0.12') + ');';
+        // No vfade: St's fade ignores its offset here and dims the last lines being read.
+        const scrollView = new St.ScrollView({
+            style: previewStyle(false),
+            x_expand: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+        });
+        // Clicks land on the content box, never on the scrollbar, so scrolling stays safe.
+        const box = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            reactive: true,
+            track_hover: true,
+            style: 'spacing: 6px; padding: 10px 12px;',
+        });
+        box.accessible_name = 'Open ' + state.suggestion.repository + ' #' + state.suggestion.number;
+        box.connect('notify::hover', () => {
+            scrollView.style = previewStyle(box.hover);
+            this._setPointerCursor(box.hover);
+        });
+        box.connect('button-release-event', (_actor, event) => {
+            if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+                return Clutter.EVENT_PROPAGATE;
+            this._openQuickOpenSuggestion(state.suggestion);
+            this._indicator.menu.close();
+            return Clutter.EVENT_STOP;
+        });
+        scrollView.set_child(box);
+        item.add_child(scrollView);
+        section.addMenuItem(item, section._getMenuItems().indexOf(target) + 1);
+        this._previewItem = item;
+        item.connect('destroy', () => {
+            if (this._previewItem === item)
+                this._previewItem = null;
+        });
+        if (inList) {
+            // Scroll once the preview has a size. Revealing it lifts its row by at most the
+            // preview height, so the pointer stays on the row or on its preview.
+            const allocationId = item.connect('notify::allocation', () => {
+                if (item.height === 0)
+                    return;
+                item.disconnect(allocationId);
+                ensureActorVisibleInScrollView(this._contentScrollView, item);
+            });
+        }
+
+        const {repository, number} = state.suggestion;
+        if (state.status !== 'ready') {
+            box.add_child(createDimLabel({
+                loading: 'Loading ' + repository + ' #' + number + '…',
+                missing: '#' + number + ' not found in ' + repository,
+                error: 'Preview unavailable. Check gh auth status.',
+            }[state.status]));
+            return;
+        }
+
+        const preview = state.preview;
+        const isPullRequest = preview.kind === 'pull-request';
+        const stateInfo = PREVIEW_STATES[preview.state] ?? PREVIEW_STATES.closed;
+        const metadataLine = new St.BoxLayout({style: 'spacing: 6px;'});
+        metadataLine.add_child(createBadge(stateInfo.label, stateInfo.color));
+        metadataLine.add_child(createDimLabel(isPullRequest ? 'Pull request' : 'Issue'));
+        if (preview.author)
+            metadataLine.add_child(createDimLabel('@' + preview.author));
+        if (!isPullRequest) {
+            metadataLine.add_child(createDimLabel(
+                preview.comments + (preview.comments === 1 ? ' comment' : ' comments')
+            ));
+        }
+        box.add_child(metadataLine);
+
+        const title = new St.Label({text: preview.title, style: 'font-weight: 600;'});
+        wrapLabel(title);
+        box.add_child(title);
+
+        if (isPullRequest) {
+            const branches = createDimLabel(
+                preview.headRefName + ' → ' + preview.baseRefName +
+                ' · +' + preview.additions + ' −' + preview.deletions
+            );
+            branches.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
+            box.add_child(branches);
+            box.add_child(this._createCheckSummary(preview.checks));
+        } else if (preview.labels.length) {
+            const labels = new St.BoxLayout({style: 'spacing: 4px;'});
+            for (const label of preview.labels)
+                labels.add_child(createBadge(label, '#3c5268'));
+            box.add_child(labels);
+        }
+
+        box.add_child(this._createMarkdownBody(parseMarkdown(preview.body, {repository})));
+    }
+
+    /** Lays out parsed Markdown blocks with GitHub-like spacing and structure. */
+    _createMarkdownBody(blocks) {
+        const body = new St.BoxLayout({vertical: true, style: 'spacing: 6px; padding-top: 6px;'});
+        if (blocks.length === 0)
+            body.add_child(createDimLabel('No description.'));
+
+        for (const block of blocks) {
+            if (block.type === 'paragraph') {
+                body.add_child(this._createMarkupLabel(block, 'font-size: 0.95em;'));
+            } else if (block.type === 'heading') {
+                // Like GitHub, the two top levels are larger and underlined by a rule.
+                body.add_child(this._createMarkupLabel(block, block.level <= 2
+                    ? 'font-weight: 700; padding: 4px 0 3px; ' +
+                        'border-bottom: 1px solid rgba(127, 127, 127, 0.3); font-size: ' +
+                        (block.level === 1 ? '1.15em;' : '1.05em;')
+                    : 'font-weight: 700; padding-top: 2px;'));
+            } else if (block.type === 'summary' || block.type === 'list-item') {
+                const row = new St.BoxLayout({
+                    style: 'spacing: 6px; padding-left: ' + 16 * (block.depth ?? 0) + 'px;',
+                });
+                const marker = createDimLabel(block.type === 'summary' ? '▸' : block.marker, {
+                    y_align: Clutter.ActorAlign.START,
+                    style: 'min-width: 1.1em; font-size: 0.95em;',
+                });
+                if (block.checked)
+                    marker.set({opacity: 255, style: 'min-width: 1.1em; color: #26a269;'});
+                row.add_child(marker);
+                const content = this._createMarkupLabel(block,
+                    block.type === 'summary' ? 'font-weight: 600;' : 'font-size: 0.95em;');
+                content.x_expand = true;
+                row.add_child(content);
+                body.add_child(row);
+            } else if (block.type === 'code') {
+                const code = new St.Label({
+                    text: block.text,
+                    style: 'font-family: monospace; font-size: 0.9em; padding: 6px 8px; ' +
+                        'border-radius: 6px; background-color: rgba(127, 127, 127, 0.18);',
+                });
+                wrapLabel(code);
+                body.add_child(code);
+            } else if (block.type === 'quote') {
+                const color = QUOTE_COLORS[block.alert] ?? 'rgba(127, 127, 127, 0.5)';
+                const quote = new St.BoxLayout({
+                    vertical: true,
+                    style: 'spacing: 2px; padding-left: 10px; border-left: 3px solid ' + color + ';',
+                });
+                if (block.title) {
+                    quote.add_child(new St.Label({
+                        text: block.title,
+                        style: 'font-weight: 700; color: ' + color + ';',
+                    }));
+                }
+                if (block.markup) {
+                    const content = this._createMarkupLabel(block, 'font-size: 0.95em;');
+                    content.opacity = block.alert ? 255 : 210;
+                    quote.add_child(content);
+                }
+                body.add_child(quote);
+            } else if (block.type === 'rule') {
+                body.add_child(new St.Widget({
+                    style: 'height: 1px; margin: 4px 0; background-color: rgba(127, 127, 127, 0.35);',
+                }));
+            } else if (block.type === 'table') {
+                const table = new St.BoxLayout({
+                    vertical: true,
+                    style: 'border: 1px solid rgba(127, 127, 127, 0.3); border-radius: 6px;',
+                });
+                block.rows.forEach((cells, rowIndex) => {
+                    const row = new St.BoxLayout({
+                        style: rowIndex === 0
+                            ? 'background-color: rgba(127, 127, 127, 0.15);'
+                            : 'border-top: 1px solid rgba(127, 127, 127, 0.2);',
+                    });
+                    for (const cell of cells) {
+                        const label = this._createMarkupLabel(
+                            rowIndex === 0 ? {...cell, markup: '<b>' + cell.markup + '</b>'} : cell,
+                            'padding: 3px 6px; font-size: 0.9em;'
+                        );
+                        label.x_expand = true;
+                        row.add_child(label);
+                    }
+                    table.add_child(row);
+                });
+                body.add_child(table);
+            } else if (block.type === 'truncated') {
+                body.add_child(createDimLabel('Description truncated. Click to read it on GitHub.'));
+            }
+        }
+        return body;
+    }
+
+    /**
+     * Shows Pango markup from markdown.js. A click on a link opens that link; anywhere else
+     * the click falls through to the preview, which opens the issue or pull request.
+     */
+    _createMarkupLabel({markup, links}, ...styles) {
+        const label = new St.Label({style: styles.join('')});
+        wrapLabel(label);
+        label.clutter_text.set_markup(markup);
+        if (links.length === 0)
+            return label;
+
+        label.reactive = true;
+        label.connect('button-release-event', (_actor, event) => {
+            if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+                return Clutter.EVENT_PROPAGATE;
+            const [stageX, stageY] = event.get_coords();
+            const [inside, x, y] = label.clutter_text.transform_stage_point(stageX, stageY);
+            if (!inside)
+                return Clutter.EVENT_PROPAGATE;
+            // Positions point between characters, so the right half of a link's last
+            // character reports the link's end.
+            const position = label.clutter_text.coords_to_position(x, y);
+            const link = links.find(candidate => position >= candidate.start &&
+                (position < candidate.end || (position === candidate.end && position > candidate.start)));
+            if (!link)
+                return Clutter.EVENT_PROPAGATE;
+            try {
+                Gio.AppInfo.launch_default_for_uri(link.url, null);
+            } catch {
+                console.error('BabysitPR: could not open this link.');
+            }
+            this._indicator.menu.close();
+            return Clutter.EVENT_STOP;
+        });
+        return label;
+    }
+
+    _setPointerCursor(pointer) {
+        if (Boolean(this._pointerCursor) === pointer)
+            return;
+        this._pointerCursor = pointer;
+        global.display.set_cursor(pointer ? Meta.Cursor.POINTER : Meta.Cursor.DEFAULT);
+    }
+
+    /** Renders checks as a proportional bar followed by the names of failing checks. */
+    _createCheckSummary(checks) {
+        const container = new St.BoxLayout({vertical: true, style: 'spacing: 3px;'});
+        if (checks.total === 0) {
+            container.add_child(createDimLabel('No CI checks'));
+            return container;
+        }
+
+        const color = checks.failed > 0
+            ? '#922c31'
+            : checks.pending + checks.unloaded > 0
+                ? '#805d0c'
+                : checks.passed > 0 ? '#276746' : '#55565e';
+        const summaryLine = new St.BoxLayout({style: 'spacing: 8px;'});
+        summaryLine.add_child(createBadge(
+            'CI ' + checks.passed + '/' + checks.total,
+            color,
+            checks.passed + ' of ' + checks.total + ' checks passed'
+        ));
+
+        const bar = new St.BoxLayout({
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'height: 6px; border-radius: 3px; background-color: rgba(127, 127, 127, 0.25);' +
+                ' width: ' + PREVIEW_BAR_WIDTH + 'px;',
+        });
+        // Cumulative rounding keeps the segments exactly as wide as the bar.
+        let filled = 0;
+        let counted = 0;
+        for (const [count, segmentColor] of [
+            [checks.passed, '#26a269'],
+            [checks.failed, '#c01c28'],
+            [checks.pending, '#e5a50a'],
+            [checks.skipped, '#77767b'],
+        ]) {
+            counted += count;
+            const end = Math.round(counted / checks.total * PREVIEW_BAR_WIDTH);
+            if (end > filled) {
+                bar.add_child(new St.Widget({
+                    style: 'height: 6px; width: ' + (end - filled) + 'px; background-color: ' +
+                        segmentColor + ';',
+                }));
+            }
+            filled = end;
+        }
+        summaryLine.add_child(bar);
+
+        for (const [count, label, labelColor] of [
+            [checks.failed, 'failed', '#922c31'],
+            [checks.pending, 'pending', '#805d0c'],
+            [checks.skipped, 'skipped', '#55565e'],
+            [checks.unloaded, 'not loaded', '#55565e'],
+        ]) {
+            if (count > 0)
+                summaryLine.add_child(createBadge(count + ' ' + label, labelColor));
+        }
+        container.add_child(summaryLine);
+
+        for (const name of checks.failedNames) {
+            const failedLine = new St.BoxLayout({style: 'spacing: 6px; padding-left: 2px;'});
+            failedLine.add_child(new St.Icon({
+                icon_name: 'dialog-error-symbolic',
+                icon_size: 12,
+                y_align: Clutter.ActorAlign.CENTER,
+                style: 'color: #c01c28;',
+            }));
+            const failedName = new St.Label({text: name, style: 'font-size: 0.95em;'});
+            failedName.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            failedLine.add_child(failedName);
+            container.add_child(failedLine);
+        }
+        if (checks.hiddenFailedCount > 0)
+            container.add_child(createDimLabel('+' + checks.hiddenFailedCount + ' more failed'));
+        return container;
+    }
+
+    _openQuickOpenSuggestion(suggestion) {
+        try {
+            Gio.AppInfo.launch_default_for_uri(suggestion.url, null);
+        } catch {
+            console.error('BabysitPR: could not open this issue or pull request.');
+            return;
+        }
+        this._settings.set_string('recent-repositories', JSON.stringify(
+            rememberRepository(readRecentRepositories(this._settings), suggestion.repository)
+        ));
+    }
+
     _renderMenu() {
         if (!this._indicator)
             return;
 
-        const menu = this._indicator.menu;
+        this._refreshSection.removeAll();
+        const menu = this._contentSection;
         menu.removeAll();
+        this._pullRequestItems = [];
 
         const refreshItem = new PopupMenu.PopupMenuItem(
             this._loading ? 'Refreshing…' : 'Refresh now',
             {reactive: !this._loading, can_focus: !this._loading}
         );
         refreshItem.connect('activate', () => this._refresh());
-        menu.addMenuItem(refreshItem);
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._refreshSection.addMenuItem(refreshItem);
 
         if (this._error) {
             menu.addMenuItem(new PopupMenu.PopupMenuItem(
@@ -672,10 +1437,13 @@ export default class BabysitPRExtension extends Extension {
             }
         }
 
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const preferencesItem = new PopupMenu.PopupMenuItem('Preferences…');
-        preferencesItem.connect('activate', () => this.openPreferences());
-        menu.addMenuItem(preferencesItem);
+        // A refresh rebuilds the rows: keep a hover preview under its pull request if listed.
+        if (this._previewState?.source === 'list') {
+            if (this._pullRequestItems.some(row => row._previewKey === this._previewState.key))
+                this._renderPreview();
+            else
+                this._setPreviewTarget(null);
+        }
     }
 
     _createPullRequestItem(pr) {
@@ -787,6 +1555,21 @@ export default class BabysitPRExtension extends Extension {
         item.add_child(content);
         item.accessible_name = pr.owner + '/' + pr.repositoryName + ' pull request ' +
             pr.number + ': ' + pr.title + '. ' + checkBadge.accessible_name;
+        const suggestion = {
+            repository: pr.owner + '/' + pr.repositoryName,
+            number: pr.number,
+            url: pr.url,
+        };
+        item._previewKey = previewKey(suggestion);
+        this._pullRequestItems.push(item);
+        item.connect('key-focus-in', () => {
+            ensureActorVisibleInScrollView(this._contentScrollView, item);
+            // Pointer hover moves key focus too, so this covers hovering and arrow keys.
+            const delay = this._settings.get_int('hover-preview-delay');
+            if (delay > 0)
+                this._schedulePreviewTarget(suggestion, 'list', delay);
+        });
+        item.connect('key-focus-out', () => this._clearPreviewFocusTimer());
         item.connect('activate', () => {
             try {
                 Gio.AppInfo.launch_default_for_uri(pr.url, null);

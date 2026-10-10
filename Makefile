@@ -9,10 +9,17 @@ check:
 	node --input-type=module --check < extension.js
 	node --input-type=module --check < prefs.js
 	node --input-type=module --check < filters.js
+	node --input-type=module --check < quickopen.js
+	node --input-type=module --check < preview.js
+	node --input-type=module --check < markdown.js
+	node --test tests/*.test.js
 	mkdir -p $(DIST)
 	gnome-extensions pack --force \
 		--extra-source=babysitpr-pr-symbolic.svg \
 		--extra-source=filters.js \
+		--extra-source=quickopen.js \
+		--extra-source=preview.js \
+		--extra-source=markdown.js \
 		--out-dir $(DIST) .
 
 pack: check

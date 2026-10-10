@@ -10,7 +10,16 @@ Run the repository checks before proposing a change:
 make check
 ~~~
 
-The check validates the GSettings schema, parses all JavaScript modules, and packages the extension. Do not include generated dist/ files in commits.
+The check validates the GSettings schema, parses all JavaScript modules, runs the unit tests in tests/, and packages the extension. Do not include generated dist/ files in commits.
+
+To try the current checkout without touching your desktop session, run it in a windowed GNOME Shell (requires mutter-devel for the devkit):
+
+~~~sh
+scripts/sandbox.sh          # rebuilds, then opens the sandbox window
+scripts/sandbox.sh --reset  # same, from fresh settings
+~~~
+
+The sandbox keeps its extensions and settings in ~/.cache/babysitpr-sandbox (override with BABYSITPR_SANDBOX) on a private D-Bus session. The devkit window starts with a 1280x800 screen and can take about 30 seconds to appear the first time. The sandbox copies the desktop's Num Lock state on each run. Preferences persist between runs. Close the window and run the script again after a code change.
 
 ## Code and documentation style
 

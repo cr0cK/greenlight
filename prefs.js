@@ -110,6 +110,23 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
         const currentInterval = INTERVALS.indexOf(settings.get_int('refresh-interval'));
         intervalRow.set_selected(currentInterval >= 0 ? currentInterval : 2);
 
+        const quickOpenGroup = new Adw.PreferencesGroup({
+            title: 'Quick open and preview',
+            description: 'Open an issue or pull request by repository and number from the menu.',
+        });
+        const shortcutRow = new Adw.EntryRow({
+            title: 'Keyboard shortcut (empty disables it)',
+            text: settings.get_strv('quick-open-shortcut')[0] ?? '',
+        });
+        shortcutRow.connect('changed', () => shortcutRow.remove_css_class('error'));
+        quickOpenGroup.add(shortcutRow);
+        const hoverPreviewRow = Adw.SpinRow.new_with_range(0, 10, 0.5);
+        hoverPreviewRow.set_title('Preview listed pull requests on hover');
+        hoverPreviewRow.set_subtitle('Seconds before the preview opens; 0 turns it off.');
+        hoverPreviewRow.set_digits(1);
+        hoverPreviewRow.set_value(settings.get_int('hover-preview-delay') / 1000);
+        quickOpenGroup.add(hoverPreviewRow);
+
         const ownersGroup = new Adw.PreferencesGroup({
             title: 'Accounts and organizations',
             description: 'Enable owners to monitor, then expand one to select its repositories.',
@@ -546,13 +563,21 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
         saveButton.add_css_class('suggested-action');
         const saveRow = new Adw.ActionRow({
             title: 'Save preferences',
-            subtitle: 'Apply owner, repository, author, and refresh settings together.',
+            subtitle: 'Apply owner, repository, author, refresh, shortcut, and preview settings together.',
         });
         saveRow.add_suffix(saveButton);
         saveRow.set_activatable_widget(saveButton);
         const saveGroup = new Adw.PreferencesGroup();
         saveGroup.add(saveRow);
         saveButton.connect('clicked', () => {
+            const shortcutText = shortcutRow.get_text().trim();
+            const [validShortcut, shortcutKey, shortcutModifiers] = Gtk.accelerator_parse(shortcutText);
+            if (shortcutText && (!validShortcut || shortcutKey === 0)) {
+                shortcutRow.add_css_class('error');
+                shortcutRow.grab_focus();
+                return;
+            }
+
             if (ownerSettingsTouched) {
                 for (const owner of owners.values()) {
                     if (owner.enabled && owner.requiresRepositoryList &&
@@ -574,6 +599,10 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
             const selectedInterval = intervalRow.get_selected();
             if (selectedInterval < INTERVALS.length)
                 settings.set_int('refresh-interval', INTERVALS[selectedInterval]);
+            settings.set_int('hover-preview-delay', Math.round(hoverPreviewRow.get_value() * 1000));
+            settings.set_strv('quick-open-shortcut', shortcutText
+                ? [Gtk.accelerator_name(shortcutKey, shortcutModifiers)]
+                : []);
             settings.apply();
             window.close();
         });
@@ -581,6 +610,7 @@ export default class BabysitPRPreferences extends ExtensionPreferences {
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
+        page.add(quickOpenGroup);
         page.add(ownersGroup);
         page.add(saveGroup);
         window.add(page);

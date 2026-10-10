@@ -128,9 +128,9 @@ export function migrateLegacyOwnerFilters(settings) {
     if (owners.size === 0)
         return;
 
-    settings.delay();
+    // Never delay() here: a GSettings object stays in delay-apply mode after apply(), so every
+    // later write through it (notification cache, quick open history) would never be saved.
     settings.set_string('owner-filters', serializeOwnerFilters([...owners.values()]));
     settings.set_boolean('owner-filters-configured', true);
     settings.set_string('repo-filter', '');
-    settings.apply();
 }

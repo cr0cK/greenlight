@@ -9,6 +9,7 @@ A small GNOME Shell extension that watches your open GitHub pull requests and no
 - Filters pull requests across multiple accounts and organizations, with a separate repository selection for each owner.
 - Groups pull requests by owner and sorts each group by last update, newest first.
 - Opens a pull request in your browser when selected.
+- Opens any issue or pull request of a watched repository from its number, with a configurable keyboard shortcut and an inline preview of its description and CI.
 - Sends a desktop notification when a pull request reaches a new green check run.
 - Lets you set the polling interval from 30 seconds to 10 minutes.
 
@@ -51,6 +52,8 @@ In Preferences, use **Discover** to load the account and organizations available
 
 The menu groups pull requests under their account or organization. Each row puts the title and CI badge on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
 
+Use the quick open field under **Refresh now** to open an issue or pull request by number. Type part of a repository name and the number, such as `plat 42` or `plat#42`, then press Enter. `#42` alone lists only the watched repositories where #42 exists, with its title, `owner/repo#42` works for any repository, and a pasted GitHub URL opens as is. Suggestions come from repositories selected in Preferences, repositories of the pull requests in the menu, and recently opened repositories. Once a number is typed, a panel previews the highlighted suggestion: state, author, branches, a CI bar with failed check names, and the description rendered as GitHub-flavored Markdown. The preview scrolls; click it to open the issue or pull request, or click a link inside it to open that link. It uses one `gh api graphql` request, cached for a minute. Super+Shift+G opens the menu with the field focused; change or clear the shortcut in Preferences. Resting on a listed pull request for 1.5 seconds opens the same preview under it; Preferences sets the delay, and 0 turns it off.
+
 Each pull request row shows its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
 
 BabysitPR searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
@@ -64,7 +67,7 @@ make check
 make pack
 ~~~
 
-The check validates the GSettings schema, parses both JavaScript modules, and builds the GNOME extension bundle in dist/. Node.js is not needed at runtime.
+The check validates the GSettings schema, parses every JavaScript module, runs the quick open and preview unit tests, and builds the GNOME extension bundle in dist/. Node.js is not needed at runtime.
 
 To remove an installed copy:
 
@@ -72,4 +75,4 @@ To remove an installed copy:
 gnome-extensions uninstall babysitpr@alexis
 ~~~
 
-See docs/spec-v0.1.md through docs/spec-v0.4.md for the product contracts, and CHANGELOG.md for release notes.
+See docs/spec-v0.1.md through docs/spec-v0.5.md for the product contracts, and CHANGELOG.md for release notes.

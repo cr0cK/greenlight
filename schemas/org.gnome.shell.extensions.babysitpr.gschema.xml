@@ -42,6 +42,22 @@
       <summary>Pull request author filter</summary>
       <description>GitHub login to monitor; @me is the default and empty includes every author.</description>
     </key>
+    <key name="quick-open-shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>g']]]></default>
+      <summary>Quick open shortcut</summary>
+      <description>Opens the menu with the issue and pull request field focused; empty disables it.</description>
+    </key>
+    <key name="hover-preview-delay" type="i">
+      <default>1500</default>
+      <summary>Hover preview delay</summary>
+      <description>Milliseconds a listed pull request stays hovered or focused before its preview opens; 0 disables hover previews.</description>
+      <range min="0" max="10000"/>
+    </key>
+    <key name="recent-repositories" type="s">
+      <default>'[]'</default>
+      <summary>Recent quick open repositories</summary>
+      <description>JSON list of repositories recently opened from quick open, newest first.</description>
+    </key>
     <key name="state-cache" type="s">
       <default>'{}'</default>
       <summary>Previous pull request state</summary>
