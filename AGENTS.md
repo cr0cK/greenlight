@@ -10,7 +10,7 @@ the code does not tell you.
 |---|---|
 | `extension.js` | Panel indicator, refresh loop, notifications, menu, quick open, previews |
 | `prefs.js` | Adwaita preferences window; every setting is applied by **Save preferences** |
-| `filters.js` | Owner and repository filter storage and legacy settings migration |
+| `filters.js` | Owner and repository filter storage |
 | `quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
 | `preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |

@@ -11,10 +11,7 @@ import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/a
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {
-    migrateLegacyOwnerFilters,
-    readOwnerFilters,
-} from './filters.js';
+import {readOwnerFilters} from './filters.js';
 import {
     MAX_SUGGESTIONS,
     parseQuickOpenQuery,
@@ -138,31 +135,24 @@ function checksFingerprint(checks) {
     return GLib.compute_checksum_for_string(GLib.ChecksumType.SHA256, contents, -1);
 }
 
-/** Parse PR URLs with GLib because GJS does not provide the browser URL global. */
+/** Names the repository for gh --repo, with its host when it is not github.com. */
 function repositoryArgument(pr) {
-    const uri = GLib.Uri.parse(pr.url, GLib.UriFlags.NONE);
-    const host = uri.get_host();
-    const parts = (uri.get_path() ?? '').split('/').filter(Boolean);
-    const pullIndex = parts.findIndex(part => part === 'pull');
-    const fullName = repositoryFullName(pr, parts, pullIndex);
+    const host = GLib.Uri.parse(pr.url, GLib.UriFlags.NONE).get_host();
+    if (!host)
+        throw new Error('Could not determine the pull request host.');
 
-    if (!host || !fullName)
-        throw new Error('Could not determine the pull request repository.');
-
+    const fullName = pr.repository.nameWithOwner;
     return host.toLowerCase() === 'github.com' ? fullName : host + '/' + fullName;
 }
 
-/** Extracts owner/repository from gh search data or its pull request URL. */
-function repositoryFullName(pr, urlParts = null, pullIndex = -1) {
-    const repository = pr.repository;
-    return typeof repository === 'string'
-        ? repository
-        : repository?.nameWithOwner
-            ?? repository?.fullName
-            ?? (repository?.owner?.login && repository?.name
-                ? repository.owner.login + '/' + repository.name
-                : null)
-            ?? (pullIndex >= 2 ? urlParts.slice(0, pullIndex).join('/') : null);
+function openUri(uri) {
+    try {
+        Gio.AppInfo.launch_default_for_uri(uri, null);
+        return true;
+    } catch {
+        console.error('Greenlight: could not open ' + uri);
+        return false;
+    }
 }
 
 /** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */
@@ -300,7 +290,6 @@ export default class GreenlightExtension extends Extension {
     enable() {
         this._enabled = true;
         this._settings = this.getSettings();
-        migrateLegacyOwnerFilters(this._settings);
         this._cancellable = new Gio.Cancellable();
         this._processes = new Map();
         this._loading = false;
@@ -399,6 +388,7 @@ export default class GreenlightExtension extends Extension {
         this._quickOpenSuggestions = [];
         this._contentSection = null;
         this._contentScrollView = null;
+        this._pullRequestItems = [];
         this._cancellable = null;
     }
 
@@ -540,7 +530,7 @@ export default class GreenlightExtension extends Extension {
 
                 const allowedValues = new Set(scope.values.map(value => value.toLowerCase()));
                 for (const row of response) {
-                    const fullName = repositoryFullName(row);
+                    const fullName = row.repository?.nameWithOwner;
                     if (!fullName)
                         continue;
                     const matches = scope.type === 'owners'
@@ -561,12 +551,9 @@ export default class GreenlightExtension extends Extension {
                 if (!this._enabled)
                     return;
 
-                let repo = 'Unknown repository';
+                const [owner, repositoryName] = row.repository.nameWithOwner.split('/');
+                let repo = row.repository.nameWithOwner;
                 let key = repo + '#' + row.number;
-                const fullName = repositoryFullName(row);
-                const nameParts = fullName?.split('/') ?? [];
-                const owner = nameParts.shift() ?? 'Unknown owner';
-                const repositoryName = nameParts.join('/') || 'Unknown repository';
                 try {
                     repo = repositoryArgument(row);
                     key = repo + '#' + row.number;
@@ -703,7 +690,6 @@ export default class GreenlightExtension extends Extension {
             return;
 
         this._panelLabel.text = this._error ? 'PR !' : 'PR ' + this._prs.length;
-        this._panelIcon.accessible_name = 'Pull request monitor';
     }
 
     /** Builds persistent menu sections so refreshes never reset text typed in quick open. */
@@ -1272,11 +1258,7 @@ export default class GreenlightExtension extends Extension {
                 (position < candidate.end || (position === candidate.end && position > candidate.start)));
             if (!link)
                 return Clutter.EVENT_PROPAGATE;
-            try {
-                Gio.AppInfo.launch_default_for_uri(link.url, null);
-            } catch {
-                console.error('Greenlight: could not open this link.');
-            }
+            openUri(link.url);
             this._indicator.menu.close();
             return Clutter.EVENT_STOP;
         });
@@ -1366,12 +1348,8 @@ export default class GreenlightExtension extends Extension {
     }
 
     _openQuickOpenSuggestion(suggestion) {
-        try {
-            Gio.AppInfo.launch_default_for_uri(suggestion.url, null);
-        } catch {
-            console.error('Greenlight: could not open this issue or pull request.');
+        if (!openUri(suggestion.url))
             return;
-        }
         this._settings.set_string('recent-repositories', JSON.stringify(
             rememberRepository(readRecentRepositories(this._settings), suggestion.repository)
         ));
@@ -1561,13 +1539,7 @@ export default class GreenlightExtension extends Extension {
                 this._schedulePreviewTarget(suggestion, 'list', delay);
         });
         item.connect('key-focus-out', () => this._clearPreviewFocusTimer());
-        item.connect('activate', () => {
-            try {
-                Gio.AppInfo.launch_default_for_uri(pr.url, null);
-            } catch {
-                console.error('Greenlight: could not open this pull request.');
-            }
-        });
+        item.connect('activate', () => openUri(pr.url));
         return item;
     }
 }
