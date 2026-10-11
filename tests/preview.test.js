@@ -7,7 +7,7 @@ import {
     parsePreviewResponse,
     previewArguments,
     summarizeRollup,
-} from '../preview.js';
+} from '../src/preview.js';
 
 const pullRequest = (overrides = {}) => JSON.stringify({
     data: {

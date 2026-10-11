@@ -6,16 +6,20 @@ the code does not tell you.
 
 ## Layout
 
-| File | Role |
+Everything that ships lives in `src/`; `make check` packs it into the extension zip and picks up
+new `src/*.js` modules on its own.
+
+| Path | Role |
 |---|---|
-| `extension.js` | Panel indicator, refresh loop, notifications, menu, quick open, previews |
-| `prefs.js` | Adwaita preferences window; every setting is applied by **Save preferences** |
-| `filters.js` | Owner and repository filter storage |
-| `quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
-| `preview.js` | GraphQL queries and check-rollup classification (pure) |
-| `markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
-| `schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
-| `docs/spec-v*.md` | Product contracts, one per minor version |
+| `src/extension.js` | Panel indicator, refresh loop, notifications, menu, quick open, previews |
+| `src/prefs.js` | Adwaita preferences window; every setting is applied by **Save preferences** |
+| `src/filters.js` | Owner and repository filter storage |
+| `src/quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
+| `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
+| `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
+| `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
+| `tests/` | `node --test` suites for the pure modules |
+| `docs/specs/v*.md` | Product contracts, one per minor version |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/gh` |
 
@@ -103,7 +107,7 @@ devkit shows its own monitor, and the panel would land on an invisible one.
 
 - The UUID is `greenlight@cr0ck.github.io`. Never change it casually: changing it makes users
   reinstall.
-- release-please owns `CHANGELOG.md`, `package.json` `version`, and `metadata.json`
+- release-please owns `CHANGELOG.md`, `package.json` `version`, and `src/metadata.json`
   `version-name`. Do not edit them by hand. `metadata.json` must not get an integer `version`:
   extensions.gnome.org sets it.
 - The repository is public: never put session links, local paths, or private organization and
@@ -118,7 +122,7 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   release branch never attach to the PR, so do not switch back.
 - The gitleaks pre-commit hook only scans staged changes. CI scans the full history with a
   checksum-pinned gitleaks binary; bump its version and SHA-256 together.
-- A user-visible change updates README.md and the current `docs/spec-v*.md` in the same PR. When
+- A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
   it changes the menu or the preferences window, run `scripts/screenshots.sh`, look at the new
   images, and commit them; extend `scripts/screenshots/gh` rather than capturing real data.
   Source, docs, and UI strings are in English.
