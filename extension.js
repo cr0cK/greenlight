@@ -1484,18 +1484,9 @@ export default class GreenlightExtension extends Extension {
             y_align: Clutter.ActorAlign.CENTER,
             style: 'spacing: 5px;',
         });
-        const repository = new St.Label({
-            text: pr.repositoryName,
-            style_class: 'dim-label',
-            y_align: Clutter.ActorAlign.CENTER,
-            style: 'max-width: 17em;',
-        });
+        const repository = createDimLabel(pr.repositoryName, {style: 'max-width: 17em;'});
         repository.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-        const authorLabel = new St.Label({
-            text: author,
-            style_class: 'dim-label',
-            y_align: Clutter.ActorAlign.CENTER,
-        });
+        const authorLabel = createDimLabel(author);
         const reviewBadge = createBadge(
             pr.isDraft ? 'Draft' : 'Ready for review',
             pr.isDraft ? '#55565e' : '#315b7e',
