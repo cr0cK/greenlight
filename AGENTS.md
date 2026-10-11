@@ -112,9 +112,10 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   commit release-please reads. `feat` bumps the minor version, `fix` the patch, and breaking
   changes the major version. `docs`, `test`, `build`, `ci`, `chore`, and `style` are hidden
   changelog sections and never trigger a release.
-- Release PRs are opened with GITHUB_TOKEN, which fires no `pull_request` event. `release.yml`
-  dispatches `pr-checks.yml` on the release branch instead; keep that step if you touch either
-  workflow.
+- release-please runs as a GitHub App (`RELEASE_APP_CLIENT_ID` variable,
+  `RELEASE_APP_PRIVATE_KEY` secret), not with GITHUB_TOKEN. GitHub holds `pull_request`
+  workflows on PRs opened by GITHUB_TOKEN for manual approval, and checks dispatched on the
+  release branch never attach to the PR, so do not switch back.
 - The gitleaks pre-commit hook only scans staged changes. CI scans the full history with a
   checksum-pinned gitleaks binary; bump its version and SHA-256 together.
 - A user-visible change updates README.md and the current `docs/spec-v*.md` in the same PR. When
