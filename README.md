@@ -37,12 +37,16 @@ gh auth status
 
 ## Install
 
-Download `greenlight@cr0ck.github.io.shell-extension.zip` from the
-[latest release](https://github.com/cr0cK/greenlight/releases/latest), then install it:
+Download the zip of the [latest release](https://github.com/cr0cK/greenlight/releases/latest) and
+install it:
 
 ~~~sh
-gnome-extensions install --force greenlight@cr0ck.github.io.shell-extension.zip
+curl -fsSLo /tmp/greenlight.zip https://github.com/cr0cK/greenlight/releases/latest/download/greenlight@cr0ck.github.io.shell-extension.zip
+gnome-extensions install --force /tmp/greenlight.zip
 ~~~
+
+The same commands update an existing install. For a specific version, replace `latest/download`
+with `download/vX.Y.Z`.
 
 To install from a checkout instead, run `make install` from the repository root.
 
