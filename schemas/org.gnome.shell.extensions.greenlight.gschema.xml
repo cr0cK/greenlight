@@ -17,26 +17,6 @@
       <summary>Owner filters configured</summary>
       <description>Distinguishes the initial all-accessible scope from an intentionally empty selection.</description>
     </key>
-    <key name="repo-owner" type="s">
-      <default>''</default>
-      <summary>Legacy repository owner</summary>
-      <description>Previous single-owner setting, migrated to owner filters.</description>
-    </key>
-    <key name="selected-repositories" type="s">
-      <default>'[]'</default>
-      <summary>Selected repositories</summary>
-      <description>JSON list of owner/repository names selected in preferences.</description>
-    </key>
-    <key name="repo-selection-configured" type="b">
-      <default>false</default>
-      <summary>Repository selection configured</summary>
-      <description>Distinguishes an unconfigured selection from an intentionally empty selection.</description>
-    </key>
-    <key name="repo-filter" type="s">
-      <default>''</default>
-      <summary>Legacy repository filter</summary>
-      <description>Previous single-repository filter, migrated to the repository selection.</description>
-    </key>
     <key name="author-filter" type="s">
       <default>'@me'</default>
       <summary>Pull request author filter</summary>

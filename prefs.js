@@ -5,11 +5,7 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {
-    migrateLegacyOwnerFilters,
-    readOwnerFilters,
-    serializeOwnerFilters,
-} from './filters.js';
+import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
 const INTERVAL_LABELS = [
@@ -20,13 +16,15 @@ const INTERVAL_LABELS = [
     '10 minutes',
 ];
 
-/** Runs one gh command without a shell and bounds discovery calls to 30 seconds. */
-function runGh(args, state) {
+/**
+ * Runs one gh command without a shell and bounds discovery calls to 30 seconds. Cancelling the
+ * cancellable kills the process.
+ */
+function runGh(args, cancellable) {
     const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE;
     const launcher = new Gio.SubprocessLauncher({flags});
     launcher.setenv('GH_PROMPT_DISABLED', '1', true);
     const process = launcher.spawnv(['gh', ...args]);
-    state.activeProcess = process;
     let timedOut = false;
     let timeoutSourceId = GLib.timeout_add_seconds(
         GLib.PRIORITY_DEFAULT,
@@ -34,16 +32,15 @@ function runGh(args, state) {
         () => {
             timedOut = true;
             timeoutSourceId = 0;
-            if (state.activeProcess === process)
-                process.force_exit();
+            process.force_exit();
             return GLib.SOURCE_REMOVE;
         }
     );
+    const cancelledId = cancellable.connect(() => process.force_exit());
 
     return new Promise((resolve, reject) => {
-        process.communicate_utf8_async(null, state.cancellable, (subprocess, result) => {
-            if (state.activeProcess === subprocess)
-                state.activeProcess = null;
+        process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
+            cancellable.disconnect(cancelledId);
             if (timeoutSourceId) {
                 GLib.Source.remove(timeoutSourceId);
                 timeoutSourceId = 0;
@@ -81,7 +78,6 @@ function repositoryChoices(owner) {
 export default class GreenlightPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
-        migrateLegacyOwnerFilters(settings);
 
         const page = new Adw.PreferencesPage();
         const monitoringGroup = new Adw.PreferencesGroup({
@@ -179,7 +175,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         }
 
         let ownerSettingsTouched = false;
-        let activeProcess = null;
         let cancellable = new Gio.Cancellable();
         let taskGeneration = 0;
         let ghBusy = false;
@@ -437,8 +432,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     'repo', 'list', owner.login,
                     '--limit', '1000',
                     '--json', 'nameWithOwner,visibility',
-                ], {cancellable, get activeProcess() { return activeProcess; },
-                    set activeProcess(process) { activeProcess = process; }});
+                ], cancellable);
                 if (requestGeneration !== taskGeneration)
                     return;
 
@@ -473,15 +467,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         discoverButton.connect('clicked', () => {
             ownerStatus.set_subtitle('Reading the authenticated account and organization memberships…');
             startGhTask(async requestGeneration => {
-                const account = (await runGh(
-                    ['api', 'user', '--jq', '.login'],
-                    {cancellable, get activeProcess() { return activeProcess; },
-                        set activeProcess(process) { activeProcess = process; }}
-                )).trim();
+                const account = (await runGh(['api', 'user', '--jq', '.login'], cancellable)).trim();
                 const organizations = (await runGh(
                     ['api', 'user/orgs', '--paginate', '--jq', '.[].login'],
-                    {cancellable, get activeProcess() { return activeProcess; },
-                        set activeProcess(process) { activeProcess = process; }}
+                    cancellable
                 )).split('\n').map(login => login.trim()).filter(Boolean);
                 if (requestGeneration !== taskGeneration)
                     return;
@@ -618,7 +607,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         window.connect('close-request', () => {
             taskGeneration++;
             cancellable.cancel();
-            activeProcess?.force_exit();
             return false;
         });
     }
