@@ -1,6 +1,6 @@
 {
   "name": "greenlight",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Development tooling for the Greenlight GNOME Shell extension.",
   "license": "MIT",

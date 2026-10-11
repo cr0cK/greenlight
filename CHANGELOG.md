@@ -5,6 +5,13 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.0.1](https://github.com/cr0cK/greenlight/compare/v1.0.0...v1.0.1) (2026-10-11)
+
+
+### Fixed
+
+* dim the repository and author on pull request rows ([#6](https://github.com/cr0cK/greenlight/issues/6)) ([b425700](https://github.com/cr0cK/greenlight/commit/b425700938172248d6c4e4d581947548e3ba99f9))
+
 ## [1.0.0](https://github.com/cr0cK/greenlight/releases/tag/v1.0.0) (2026-10-10)
 
 First public release. BabysitPR is now Greenlight.
