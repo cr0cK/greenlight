@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {parseMarkdown, renderInline} from '../markdown.js';
+import {parseMarkdown, renderInline} from '../src/markdown.js';
 
 const CODE = '<span font_family="monospace" background="#808080" bgalpha="25%">';
 const LINK = '<span foreground="#78aeed">';

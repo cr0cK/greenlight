@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for helping improve Greenlight. By participating, you agree to follow the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+[Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
 ## Development setup
 
@@ -13,6 +13,11 @@ not need it at runtime.
 npm ci                                # ESLint and its plugins
 pre-commit install --install-hooks    # pre-commit and commit-msg hooks
 ~~~
+
+## Layout
+
+Everything that ships lives in `src/`; `make check` packs it into the extension zip. Unit
+tests are in `tests/`, development scripts in `scripts/`, and product contracts in `docs/specs/`.
 
 ## Checks
 
@@ -57,7 +62,7 @@ serves fictional pull requests, so the images never show a real account. It need
 - Use GNOME Shell ES modules and GSettings for extension preferences.
 - Keep subprocess calls as argument arrays; do not pass user or repository data through a shell.
 - Do not add or store GitHub credentials. Use the user's existing gh authentication.
-- Update README.md and the relevant docs/spec-v*.md when a change affects the user-visible
+- Update README.md and the relevant docs/specs/v*.md when a change affects the user-visible
   contract.
 
 ## Commits and pull requests
@@ -77,12 +82,12 @@ follow the same format.
 
 Releases are automated with [release-please](https://github.com/googleapis/release-please).
 Every merge to `main` updates a release pull request that bumps `package.json`, the
-`version-name` in `metadata.json`, and CHANGELOG.md from the commit history: `feat` bumps the
+`version-name` in `src/metadata.json`, and CHANGELOG.md from the commit history: `feat` bumps the
 minor version, `fix` the patch, and breaking changes the major version. `perf`, `refactor`,
 and `revert` also release a patch; `docs`, `test`, `build`, `ci`, `chore`, and `style` never
 trigger a release. Do not edit CHANGELOG.md by hand. Merging the release pull request tags
 `vX.Y.Z`, publishes a GitHub Release, and attaches the installable extension zip. The integer
-`version` field of metadata.json is left to extensions.gnome.org.
+`version` field of src/metadata.json is left to extensions.gnome.org.
 
 release-please opens the release pull request as a GitHub App, so its checks run without manual
 approval. The App needs read and write access to Contents and Pull requests on this repository.

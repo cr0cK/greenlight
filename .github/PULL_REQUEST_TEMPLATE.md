@@ -13,4 +13,4 @@
 - [ ] `npm run lint` passes
 - [ ] `make check` passes
 - [ ] Tried in GNOME Shell (`scripts/sandbox.sh` or a real session), for user-visible changes
-- [ ] `CHANGELOG.md` is left to release-please; README and `docs/spec-v*.md` are updated when the user-visible contract changes
+- [ ] `CHANGELOG.md` is left to release-please; README and `docs/specs/v*.md` are updated when the user-visible contract changes

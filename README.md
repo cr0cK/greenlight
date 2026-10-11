@@ -88,9 +88,9 @@ gnome-extensions uninstall greenlight@cr0ck.github.io
 
 Bug reports, ideas, and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the
 development setup, the checks, and the sandbox that runs the extension in a windowed GNOME Shell.
-Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Report vulnerabilities privately as described in [SECURITY.md](.github/SECURITY.md).
 
-See `docs/spec-v0.1.md` through `docs/spec-v0.5.md` for the product contracts, and
+See [docs/specs/](docs/specs/) for the product contracts, and
 [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License

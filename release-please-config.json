@@ -21,7 +21,7 @@
       "package-name": "greenlight",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        {"type": "json", "path": "metadata.json", "jsonpath": "$['version-name']"}
+        {"type": "json", "path": "src/metadata.json", "jsonpath": "$['version-name']"}
       ]
     }
   }

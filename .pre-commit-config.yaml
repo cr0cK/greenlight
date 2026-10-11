@@ -57,9 +57,9 @@ repos:
 
       - id: gsettings-schema
         name: gsettings schema
-        entry: glib-compile-schemas --strict --dry-run schemas
+        entry: glib-compile-schemas --strict --dry-run src/schemas
         language: system
-        files: ^schemas/
+        files: ^src/schemas/
         pass_filenames: false
 
   - repo: https://github.com/compilerla/conventional-pre-commit

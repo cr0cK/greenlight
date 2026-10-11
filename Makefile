@@ -1,27 +1,22 @@
 .PHONY: check pack install clean
 
 UUID = greenlight@cr0ck.github.io
+SRC = src
 DIST = dist
 BUNDLE = $(DIST)/$(UUID).shell-extension.zip
+MODULES = $(wildcard $(SRC)/*.js)
+# gnome-extensions pack takes extension.js, prefs.js, metadata.json, and schemas/ on its own.
+EXTRA_SOURCES = $(filter-out $(SRC)/extension.js $(SRC)/prefs.js,$(MODULES)) \
+	$(SRC)/greenlight-pr-symbolic.svg LICENSE
 
 check:
-	glib-compile-schemas --strict --dry-run schemas
-	node --input-type=module --check < extension.js
-	node --input-type=module --check < prefs.js
-	node --input-type=module --check < filters.js
-	node --input-type=module --check < quickopen.js
-	node --input-type=module --check < preview.js
-	node --input-type=module --check < markdown.js
+	glib-compile-schemas --strict --dry-run $(SRC)/schemas
+	for module in $(MODULES); do node --check $$module || exit 1; done
 	node --test tests/*.test.js
 	mkdir -p $(DIST)
 	gnome-extensions pack --force \
-		--extra-source=greenlight-pr-symbolic.svg \
-		--extra-source=filters.js \
-		--extra-source=quickopen.js \
-		--extra-source=preview.js \
-		--extra-source=markdown.js \
-		--extra-source=LICENSE \
-		--out-dir $(DIST) .
+		$(addprefix --extra-source=,$(abspath $(EXTRA_SOURCES))) \
+		--out-dir $(DIST) $(SRC)
 
 pack: check
 

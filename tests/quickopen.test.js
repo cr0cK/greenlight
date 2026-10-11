@@ -6,7 +6,7 @@ import {
     quickOpenSuggestions,
     readRecentRepositories,
     rememberRepository,
-} from '../quickopen.js';
+} from '../src/quickopen.js';
 
 const REPOSITORIES = [
     'acme/web-platform',

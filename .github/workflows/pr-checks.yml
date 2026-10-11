@@ -4,9 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  # Release PRs come from GITHUB_TOKEN, which fires no pull_request event; release.yml
-  # dispatches this workflow on the release branch instead, so its checks land on the PR.
-  workflow_dispatch:
 
 permissions:
   contents: read
