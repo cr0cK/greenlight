@@ -80,6 +80,11 @@ Every merge to `main` updates a release pull request that bumps `package.json`, 
 `version-name` in `metadata.json`, and CHANGELOG.md from the commit history: `feat` bumps the
 minor version, `fix` the patch, and breaking changes the major version. `perf`, `refactor`,
 and `revert` also release a patch; `docs`, `test`, `build`, `ci`, `chore`, and `style` never
-trigger a release. Do not edit CHANGELOG.md by hand. Merging the release pull request tags `vX.Y.Z`, publishes a GitHub Release,
-and attaches the installable extension zip. The integer `version` field of metadata.json is left
-to extensions.gnome.org.
+trigger a release. Do not edit CHANGELOG.md by hand. Merging the release pull request tags
+`vX.Y.Z`, publishes a GitHub Release, and attaches the installable extension zip. The integer
+`version` field of metadata.json is left to extensions.gnome.org.
+
+release-please opens the release pull request as a GitHub App, so its checks run without manual
+approval. The App needs read and write access to Contents and Pull requests on this repository.
+Its client ID goes in the `RELEASE_APP_CLIENT_ID` Actions variable and a private key in the
+`RELEASE_APP_PRIVATE_KEY` Actions secret.
