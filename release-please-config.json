@@ -8,7 +8,7 @@
     {"type": "fix", "section": "Fixed"},
     {"type": "perf", "section": "Performance"},
     {"type": "refactor", "section": "Changed"},
-    {"type": "docs", "section": "Documentation"},
+    {"type": "docs", "section": "Documentation", "hidden": true},
     {"type": "revert", "section": "Reverted"},
     {"type": "test", "section": "Testing", "hidden": true},
     {"type": "build", "section": "Build", "hidden": true},

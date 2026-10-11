@@ -33,12 +33,16 @@ jobs:
 
       # GitHub fires no workflow for a PR opened with GITHUB_TOKEN, except a dispatch, so run
       # the PR checks on the release branch; they report on the release PR's head commit.
+      # The PR output is parsed in the shell: GitHub evaluates step env even when the step is
+      # skipped, and fromJSON fails the run on an empty output.
       - name: Run PR checks on the release PR
         if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
-        run: gh workflow run pr-checks.yml --ref "$BRANCH" --repo "$GITHUB_REPOSITORY"
+          PR: ${{ steps.release.outputs.pr }}
+        run: |
+          branch=$(jq -r .headBranchName <<<"$PR")
+          gh workflow run pr-checks.yml --ref "$branch" --repo "$GITHUB_REPOSITORY"
 
   package:
     name: Attach extension zip
