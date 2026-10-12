@@ -601,8 +601,24 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             subtitle_selectable: true,
         });
         versionRow.add_css_class('property');
+        const sourceRow = new Adw.ActionRow({
+            title: 'Source code',
+            subtitle: this.metadata.url,
+            activatable: true,
+        });
+        sourceRow.add_suffix(new Gtk.Image({icon_name: 'adw-external-link-symbolic'}));
+        sourceRow.connect('activated', () => {
+            new Gtk.UriLauncher({uri: this.metadata.url}).launch(window, null, (launcher, result) => {
+                try {
+                    launcher.launch_finish(result);
+                } catch {
+                    console.error('Greenlight: could not open ' + this.metadata.url);
+                }
+            });
+        });
         const aboutGroup = new Adw.PreferencesGroup({title: 'About'});
         aboutGroup.add(versionRow);
+        aboutGroup.add(sourceRow);
 
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
