@@ -23,8 +23,8 @@ body:
     id: version
     attributes:
       label: Greenlight version
-      description: Shown in the Extensions app, or `version-name` in metadata.json.
-      placeholder: 0.5.0
+      description: Shown under About at the bottom of the Greenlight preferences.
+      placeholder: 1.1.0
     validations:
       required: true
   - type: input
