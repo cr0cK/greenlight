@@ -5,6 +5,13 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.1.0](https://github.com/cr0cK/greenlight/compare/v1.0.2...v1.1.0) (2026-10-12)
+
+
+### Added
+
+* show the installed version in the preferences ([#14](https://github.com/cr0cK/greenlight/issues/14)) ([1baed4a](https://github.com/cr0cK/greenlight/commit/1baed4a654d7afa7b9830325270a6cf0c06ccb19))
+
 ## [1.0.2](https://github.com/cr0cK/greenlight/compare/v1.0.1...v1.0.2) (2026-10-11)
 
 
