@@ -120,6 +120,9 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   `RELEASE_APP_PRIVATE_KEY` secret), not with GITHUB_TOKEN. GitHub holds `pull_request`
   workflows on PRs opened by GITHUB_TOKEN for manual approval, and checks dispatched on the
   release branch never attach to the PR, so do not switch back.
+- release-please only rewrites an open release PR when its release notes change. A CI or config
+  fix merged as a hidden type (`chore`, `ci`, ...) never reaches that branch, so its checks keep
+  failing on the old config. Run `gh pr update-branch <release PR>` to merge main into it.
 - The gitleaks pre-commit hook only scans staged changes. CI scans the full history with a
   checksum-pinned gitleaks binary; bump its version and SHA-256 together.
 - A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
