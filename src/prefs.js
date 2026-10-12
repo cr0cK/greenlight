@@ -595,12 +595,22 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             window.close();
         });
 
+        const versionRow = new Adw.ActionRow({
+            title: 'Version',
+            subtitle: this.metadata['version-name'] ?? 'Unknown',
+            subtitle_selectable: true,
+        });
+        versionRow.add_css_class('property');
+        const aboutGroup = new Adw.PreferencesGroup({title: 'About'});
+        aboutGroup.add(versionRow);
+
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
         page.add(quickOpenGroup);
         page.add(ownersGroup);
         page.add(saveGroup);
+        page.add(aboutGroup);
         window.add(page);
         renderOwners();
 
