@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
 import {
+    labelColors,
     lookupArguments,
     parseLookupResponse,
     parsePreviewResponse,
@@ -101,13 +102,27 @@ test('parses an issue preview', () => {
         body: '',
         author: null,
         comments: {totalCount: 3},
-        labels: {nodes: [{name: 'bug'}]},
+        labels: {nodes: [{name: 'bug', color: 'd73a4a'}]},
     }}}}));
     assert.equal(preview.kind, 'issue');
     assert.equal(preview.state, 'completed');
     assert.equal(preview.checks, null);
     assert.equal(preview.comments, 3);
-    assert.deepEqual(preview.labels, ['bug']);
+    assert.deepEqual(preview.labels, [{name: 'bug', color: 'd73a4a'}]);
+});
+
+test('reads pull request labels and defaults to none', () => {
+    const labels = {nodes: [{name: 'dependencies', color: '0366d6'}]};
+    assert.deepEqual(parsePreviewResponse(pullRequest({labels})).labels,
+        [{name: 'dependencies', color: '0366d6'}]);
+    assert.deepEqual(parsePreviewResponse(pullRequest()).labels, []);
+});
+
+test('picks readable label badge colors', () => {
+    assert.deepEqual(labelColors('0366D6'), {background: '#0366d6', foreground: '#ffffff'});
+    assert.deepEqual(labelColors('16e2e2'), {background: '#16e2e2', foreground: '#1f2328'});
+    for (const color of [undefined, null, '', 'fff', '#0366d6', 'zzzzzz'])
+        assert.deepEqual(labelColors(color), {background: '#3c5268', foreground: '#ffffff'});
 });
 
 test('returns null for missing numbers and repositories, throws otherwise', () => {

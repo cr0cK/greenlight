@@ -21,6 +21,7 @@ import {
 } from './quickopen.js';
 import {parseMarkdown} from './markdown.js';
 import {
+    labelColors,
     lookupArguments,
     parseLookupResponse,
     parsePreviewResponse,
@@ -33,7 +34,9 @@ const MAX_QUERY_QUALIFIERS = 16;
 const MAX_QUERY_LENGTH = 220;
 const FILTER_REFRESH_DELAY_MS = 600;
 const CHECK_FIELDS = 'bucket,name,workflow,state,completedAt,startedAt,link';
-const SEARCH_FIELDS = 'number,title,url,repository,author,isDraft,updatedAt';
+const SEARCH_FIELDS = 'number,title,url,repository,author,isDraft,updatedAt,labels';
+// Labels beyond this count collapse into a +N badge, so the title keeps its room.
+const ROW_LABEL_LIMIT = 3;
 const PREVIEW_DELAY_MS = 350;
 // Pointer sweeps across suggestions should not reflow the menu under the pointer.
 const PREVIEW_FOCUS_DELAY_MS = 150;
@@ -240,14 +243,22 @@ function groupPullRequestsByOwner(pullRequests) {
 }
 
 /** Creates a compact semantic badge with a high-contrast label for CI and review metadata. */
-function createBadge(text, background, accessibleName = text) {
+function createBadge(text, background, accessibleName = text, foreground = '#ffffff') {
     const badge = new St.Label({
         text,
         y_align: Clutter.ActorAlign.CENTER,
         style: 'padding: 1px 6px; border-radius: 6px; background-color: ' + background +
-            '; color: #ffffff; font-size: 0.9em; font-weight: 600;',
+            '; color: ' + foreground + '; font-size: 0.9em; font-weight: 600;',
     });
     badge.accessible_name = accessibleName;
+    return badge;
+}
+
+/** Creates a badge in the label's GitHub color; long names ellipsize. */
+function createLabelBadge(label) {
+    const {background, foreground} = labelColors(label.color);
+    const badge = createBadge(label.name, background, 'Label ' + label.name, foreground);
+    badge.style += ' max-width: 12em;';
     return badge;
 }
 
@@ -701,7 +712,7 @@ export default class GreenlightExtension extends Extension {
 
         const entryItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         this._quickOpenEntry = new St.Entry({
-            hint_text: 'Open issue or PR: repo #number',
+            hint_text: 'Open issue or PR: repo #42, owner/repo#42, #42 or URL',
             can_focus: true,
             x_expand: true,
             primary_icon: new St.Icon({
@@ -1123,6 +1134,15 @@ export default class GreenlightExtension extends Extension {
         wrapLabel(title);
         box.add_child(title);
 
+        if (preview.labels.length) {
+            // Clutter.FlowLayout allocated these badges with no height, so they share one line
+            // and ellipsize when they do not fit the preview's fixed width.
+            const labels = new St.BoxLayout({style: 'spacing: 4px;'});
+            for (const label of preview.labels)
+                labels.add_child(createLabelBadge(label));
+            box.add_child(labels);
+        }
+
         if (isPullRequest) {
             const branches = createDimLabel(
                 preview.headRefName + ' → ' + preview.baseRefName +
@@ -1131,11 +1151,6 @@ export default class GreenlightExtension extends Extension {
             branches.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
             box.add_child(branches);
             box.add_child(this._createCheckSummary(preview.checks));
-        } else if (preview.labels.length) {
-            const labels = new St.BoxLayout({style: 'spacing: 4px;'});
-            for (const label of preview.labels)
-                labels.add_child(createBadge(label, '#3c5268'));
-            box.add_child(labels);
         }
 
         box.add_child(this._createMarkdownBody(parseMarkdown(preview.body, {repository})));
@@ -1517,13 +1532,24 @@ export default class GreenlightExtension extends Extension {
         );
 
         titleLine.add_child(number);
+        const labels = pr.labels ?? [];
+        for (const label of labels.slice(0, ROW_LABEL_LIMIT))
+            titleLine.add_child(createLabelBadge(label));
+        if (labels.length > ROW_LABEL_LIMIT) {
+            const hidden = labels.slice(ROW_LABEL_LIMIT).map(label => label.name);
+            titleLine.add_child(createBadge(
+                '+' + hidden.length, '#55565e', 'Labels ' + hidden.join(', ')
+            ));
+        }
         titleLine.add_child(title);
         titleLine.add_child(checkBadge);
         content.add_child(titleLine);
         content.add_child(metadataLine);
         item.add_child(content);
         item.accessible_name = pr.owner + '/' + pr.repositoryName + ' pull request ' +
-            pr.number + ': ' + pr.title + '. ' + checkBadge.accessible_name;
+            pr.number + ': ' + pr.title + '. ' +
+            (labels.length ? 'Labels ' + labels.map(label => label.name).join(', ') + '. ' : '') +
+            checkBadge.accessible_name;
         const suggestion = {
             repository: pr.owner + '/' + pr.repositoryName,
             number: pr.number,

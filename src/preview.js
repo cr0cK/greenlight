@@ -1,4 +1,5 @@
 const PREVIEW_FAILED_NAMES = 3;
+const LABEL_FALLBACK_COLOR = '#3c5268';
 
 /** Reads an issue or pull request with its latest check rollup in one GraphQL request. */
 export const PREVIEW_QUERY = `
@@ -10,11 +11,12 @@ query($owner: String!, $name: String!, $number: Int!) {
         title state stateReason body
         author { login }
         comments { totalCount }
-        labels(first: 6) { nodes { name } }
+        labels(first: 6) { nodes { name color } }
       }
       ... on PullRequest {
         title state isDraft body headRefName baseRefName additions deletions
         author { login }
+        labels(first: 6) { nodes { name color } }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
           totalCount
           nodes {
@@ -79,6 +81,20 @@ export function parseLookupResponse(stdout, repositories) {
         const node = data['r' + index]?.issueOrPullRequest;
         return {repository, found: Boolean(node), title: node?.title ?? null};
     });
+}
+
+/**
+ * Maps a GitHub label color, six hex digits without '#', to badge colors. Light labels get dark
+ * text; a missing or malformed color falls back to the neutral badge.
+ */
+export function labelColors(color) {
+    if (!/^[0-9a-f]{6}$/i.test(color ?? ''))
+        return {background: LABEL_FALLBACK_COLOR, foreground: '#ffffff'};
+
+    const [red, green, blue] = [0, 2, 4].map(index => parseInt(color.slice(index, index + 2), 16));
+    // Perceived brightness (ITU-R BT.601) on a 0-255 scale.
+    const light = (red * 299 + green * 587 + blue * 114) / 1000 > 150;
+    return {background: '#' + color.toLowerCase(), foreground: light ? '#1f2328' : '#ffffff'};
 }
 
 /**
@@ -162,7 +178,7 @@ export function parsePreviewResponse(stdout) {
         additions: node.additions ?? 0,
         deletions: node.deletions ?? 0,
         comments: node.comments?.totalCount ?? 0,
-        labels: (node.labels?.nodes ?? []).map(label => label.name),
+        labels: (node.labels?.nodes ?? []).map(({name, color}) => ({name, color})),
         checks,
         body: node.body ?? '',
     };
