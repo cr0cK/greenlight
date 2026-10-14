@@ -15,7 +15,7 @@ A small GNOME Shell extension that watches your open GitHub pull requests and gi
 
 - Shows your open pull requests in the GNOME top bar menu.
 - Shows each pull request's labels, author, draft/review status, CI pass count, and failure count.
-- Filters pull requests across multiple accounts and organizations, with a separate repository selection for each owner.
+- Filters pull requests across multiple accounts and organizations: all of an owner's repositories, all except a few, or only a selection.
 - Groups pull requests by owner and sorts each group by last update, newest first.
 - Opens a pull request in your browser when selected.
 - Opens any issue or pull request of a watched repository from its number, with a configurable keyboard shortcut and an inline preview of its description and CI.
@@ -66,7 +66,7 @@ The panel indicator shows how many pull requests Greenlight is monitoring, up to
   <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, hover preview delay, and owners" width="70%">
 </p>
 
-In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner to monitor all of its repositories or load and select a subset; each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. The **About** group at the bottom shows the installed version and links to this repository. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
+In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner and pick **All**, **All except…**, or **Only…** under **Repositories**. **All except…** keeps new repositories monitored and lists the loaded repositories to turn off the ones to skip; **Only…** monitors just the repositories turned on. A switch on always means monitored, so changing between the two keeps the current choice and only changes what happens to new repositories. Each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. The **About** group at the bottom shows the installed version and links to this repository. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
 
 The menu groups pull requests under their account or organization. Each row puts the number, labels, title, and CI badge on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
 
@@ -74,7 +74,7 @@ Use the quick open field under **Refresh now** to open an issue or pull request 
 
 Each pull request row shows its labels in their GitHub colors, its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
 
-Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
+Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. An owner with exclusions gets its own command with `-repo:` terms; exclusions that do not fit in the query are filtered from the results instead, and the search fetches more results until the owner's share is complete, so counts stay exact. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 

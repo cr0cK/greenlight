@@ -11,7 +11,7 @@ import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/a
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {readOwnerFilters} from './filters.js';
+import {nextSearchLimit, readOwnerFilters, searchScopes} from './filters.js';
 import {
     MAX_SUGGESTIONS,
     parseQuickOpenQuery,
@@ -30,8 +30,6 @@ import {
 
 const SEARCH_LIMIT = 30;
 const SEARCH_FETCH_LIMIT = SEARCH_LIMIT + 1;
-const MAX_QUERY_QUALIFIERS = 16;
-const MAX_QUERY_LENGTH = 220;
 const FILTER_REFRESH_DELAY_MS = 600;
 const CHECK_FIELDS = 'bucket,name,workflow,state,completedAt,startedAt,link';
 const SEARCH_FIELDS = 'number,title,url,repository,author,isDraft,updatedAt,labels';
@@ -158,51 +156,6 @@ function openUri(uri) {
     }
 }
 
-/** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */
-function chunkSearchFilters(values, qualifier, fixedQueryLength) {
-    const chunks = [];
-    let current = [];
-    let currentLength = fixedQueryLength;
-
-    for (const value of values) {
-        const qualifierLength = qualifier.length + value.length + (current.length > 0 ? 1 : 0);
-        if (current.length > 0 && (current.length >= MAX_QUERY_QUALIFIERS ||
-            currentLength + qualifierLength > MAX_QUERY_LENGTH)) {
-            chunks.push(current);
-            current = [];
-            currentLength = fixedQueryLength;
-        }
-        current.push(value);
-        currentLength += qualifier.length + value.length + (current.length > 1 ? 1 : 0);
-    }
-
-    if (current.length > 0)
-        chunks.push(current);
-    return chunks;
-}
-
-/** Produces non-overlapping all-owner and selected-repository search scopes. */
-function searchScopes(settings, authorFilter) {
-    if (!settings.get_boolean('owner-filters-configured'))
-        return [{type: 'all', values: []}];
-
-    const owners = readOwnerFilters(settings).filter(owner => owner.enabled);
-    const allOwners = owners
-        .filter(owner => owner.repositories === null)
-        .map(owner => owner.login);
-    const repositories = [...new Set(owners
-        .filter(owner => owner.repositories !== null)
-        .flatMap(owner => owner.repositories))];
-    const fixedQueryLength = 24 + (authorFilter ? 7 + authorFilter.length : 0);
-
-    return [
-        ...chunkSearchFilters(allOwners, 'org:', fixedQueryLength)
-            .map(values => ({type: 'owners', values})),
-        ...chunkSearchFilters(repositories, 'repo:', fixedQueryLength)
-            .map(values => ({type: 'repositories', values})),
-    ];
-}
-
 /** Gives filter changes a stable notification baseline independent of UI row order. */
 function filterSignature(settings) {
     const owners = readOwnerFilters(settings)
@@ -214,6 +167,8 @@ function filterSignature(settings) {
             repositories: owner.repositories === null
                 ? null
                 : [...owner.repositories].map(name => name.toLowerCase()).sort(),
+            excludedRepositories: owner.excludedRepositories
+                .map(name => name.toLowerCase()).sort(),
         }));
     return JSON.stringify({
         configured: settings.get_boolean('owner-filters-configured'),
@@ -504,13 +459,16 @@ export default class GreenlightExtension extends Extension {
         this._renderMenu();
 
         const authorFilter = this._settings.get_string('author-filter').trim();
-        const scopes = searchScopes(this._settings, authorFilter);
+        const scopes = this._settings.get_boolean('owner-filters-configured')
+            ? searchScopes(readOwnerFilters(this._settings), authorFilter)
+            : [{type: 'all', values: [], excluded: [], hidden: []}];
         const hasNoScopes = this._settings.get_boolean('owner-filters-configured') &&
             scopes.length === 0;
         const currentFilterSignature = filterSignature(this._settings);
 
         try {
             const searchRowsByKey = new Map();
+            let truncatedSearch = false;
             for (const scope of scopes) {
                 const searchArgs = ['search', 'prs'];
                 if (authorFilter)
@@ -527,36 +485,56 @@ export default class GreenlightExtension extends Extension {
                     '--state', 'open',
                     '--sort', 'updated',
                     '--order', 'desc',
-                    '--limit', String(SEARCH_FETCH_LIMIT),
                     '--json', SEARCH_FIELDS
                 );
-
-                const search = await this._runGh(searchArgs);
-                if (search.exitCode !== 0)
-                    throw new Error('gh search prs failed');
-
-                const response = JSON.parse(search.stdout);
-                if (!Array.isArray(response))
-                    throw new Error('gh search prs returned an unexpected response');
+                // Exclusions are query terms; `--` keeps gh from reading them as flags.
+                const queryTerms = scope.excluded.length > 0
+                    ? ['--', ...scope.excluded.map(name => '-repo:' + name)]
+                    : [];
 
                 const allowedValues = new Set(scope.values.map(value => value.toLowerCase()));
-                for (const row of response) {
-                    const fullName = row.repository?.nameWithOwner;
-                    if (!fullName)
-                        continue;
-                    const matches = scope.type === 'owners'
-                        ? allowedValues.has(fullName.split('/')[0].toLowerCase())
-                        : scope.type === 'repositories'
-                            ? allowedValues.has(fullName.toLowerCase())
-                            : true;
-                    if (matches)
-                        searchRowsByKey.set(fullName.toLowerCase() + '#' + row.number, row);
+                const hidden = new Set(scope.hidden.map(name => name.toLowerCase()));
+                let limit = SEARCH_FETCH_LIMIT;
+                let rows;
+                while (limit !== null) {
+                    const search = await this._runGh(
+                        [...searchArgs, '--limit', String(limit), ...queryTerms]
+                    );
+                    if (search.exitCode !== 0)
+                        throw new Error('gh search prs failed');
+
+                    const response = JSON.parse(search.stdout);
+                    if (!Array.isArray(response))
+                        throw new Error('gh search prs returned an unexpected response');
+
+                    rows = response.filter(row => {
+                        const fullName = row.repository?.nameWithOwner?.toLowerCase();
+                        if (!fullName || hidden.has(fullName))
+                            return false;
+                        return scope.type === 'owners'
+                            ? allowedValues.has(fullName.split('/')[0])
+                            : scope.type === 'repositories'
+                                ? allowedValues.has(fullName)
+                                : true;
+                    });
+                    // Exclusions that did not fit in the query are filtered here, so a full
+                    // page can come back short; fetch more until the scope fills its share.
+                    const next = hidden.size > 0
+                        ? nextSearchLimit(limit, response.length, rows.length, SEARCH_FETCH_LIMIT)
+                        : null;
+                    if (next === null && response.length === limit && rows.length < SEARCH_FETCH_LIMIT)
+                        truncatedSearch = true;
+                    limit = next;
+                }
+                for (const row of rows) {
+                    const fullName = row.repository.nameWithOwner.toLowerCase();
+                    searchRowsByKey.set(fullName + '#' + row.number, row);
                 }
             }
 
             const searchRows = [...searchRowsByKey.values()];
             searchRows.sort(compareUpdatedPullRequests);
-            const hasMorePullRequests = searchRows.length > SEARCH_LIMIT;
+            const hasMorePullRequests = searchRows.length > SEARCH_LIMIT || truncatedSearch;
             const snapshot = [];
             for (const row of searchRows.slice(0, SEARCH_LIMIT)) {
                 if (!this._enabled)

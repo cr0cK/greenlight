@@ -8,6 +8,14 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
+// Repository scope modes, in ComboRow order.
+const REPOSITORY_MODES = ['all', 'except', 'only'];
+const REPOSITORY_MODE_LABELS = ['All', 'All except…', 'Only…'];
+const REPOSITORY_MODE_HINTS = {
+    all: 'Every repository, including new ones.',
+    except: 'New repositories are monitored. Turn off the ones to skip.',
+    only: 'Only the repositories turned on. New repositories are skipped.',
+};
 const INTERVAL_LABELS = [
     '30 seconds',
     '1 minute',
@@ -60,14 +68,42 @@ function runGh(args, cancellable) {
     });
 }
 
+/** Reads which way a saved owner scope goes. */
+function repositoryMode(owner) {
+    if (owner.repositories !== null)
+        return 'only';
+    return owner.excludedRepositories.length > 0 ? 'except' : 'all';
+}
+
+/** Tells whether a repository row starts on, which always means monitored. */
+function isMonitored(owner, name) {
+    if (owner.mode === 'only')
+        return owner.repositories.includes(name);
+    return !owner.excludedRepositories.includes(name);
+}
+
+/** Keeps the saved scope of the selected mode only, in the shape filters.js stores. */
+function savedOwner(owner) {
+    return {
+        login: owner.login,
+        kind: owner.kind,
+        enabled: owner.enabled,
+        repositories: owner.mode === 'only' ? owner.repositories : null,
+        excludedRepositories: owner.mode === 'except' ? owner.excludedRepositories : [],
+    };
+}
+
 /** Keeps repository choices grouped under their owner, including saved names no longer visible to gh. */
 function repositoryChoices(owner) {
+    const saved = owner.mode === 'only'
+        ? owner.repositories
+        : owner.mode === 'except' ? owner.excludedRepositories : [];
     const available = owner.availableRepositories;
     if (available === null)
-        return (owner.repositories ?? []).map(name => ({name, available: false}));
+        return saved.map(name => ({name, available: false}));
 
     const choices = new Map(available.map(repository => [repository.name, repository]));
-    for (const name of owner.repositories ?? []) {
+    for (const name of saved) {
         if (!choices.has(name))
             choices.set(name, {name, visibility: '', available: false});
     }
@@ -165,9 +201,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         for (const owner of readOwnerFilters(settings)) {
             owners.set(owner.login.toLowerCase(), {
                 ...owner,
+                mode: repositoryMode(owner),
+                repositories: owner.repositories ?? [],
                 availableRepositories: null,
                 repositoryListLoaded: false,
-                selectAllOnNextLoad: false,
                 requiresRepositoryList: false,
                 repositoryRows: new Map(),
                 ghStatus: '',
@@ -196,23 +233,30 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 : owner.kind === 'organization'
                     ? 'Organization'
                     : 'GitHub owner';
-            const scope = owner.repositories === null
-                ? 'All repositories'
-                : owner.repositories.length + ' selected repositories';
+            const noun = names => names.length === 1 ? ' repository' : ' repositories';
+            const {repositories, excludedRepositories: excluded} = owner;
+            const scope = owner.mode === 'only'
+                ? repositories.length + ' selected' + noun(repositories)
+                : owner.mode === 'except' && excluded.length > 0
+                    ? 'All except ' + excluded.length + noun(excluded)
+                    : 'All repositories';
             owner.row.set_subtitle(
                 kind + ' · ' + (owner.enabled ? 'Monitoring' : 'Paused') + ' · ' + scope
             );
         };
 
+        /** Reads the switches back into the list of the current mode; a switch on is monitored. */
         const updateRepositorySummary = owner => {
-            const count = owner.repositoryRows.size;
-            const selected = [...owner.repositoryRows.values()]
-                .filter(choice => choice.row.get_active()).length;
-            owner.repositoryStatus.set_title(count + ' repositories');
-            owner.repositoryStatus.set_subtitle(selected + ' selected');
-            if (owner.repositories !== null) {
-                owner.repositories = [...owner.repositoryRows.entries()]
-                    .filter(([, choice]) => choice.row.get_active())
+            const entries = [...owner.repositoryRows.entries()];
+            const monitored = entries.filter(([, choice]) => choice.row.get_active())
+                .map(([name]) => name);
+            owner.repositoryStatus.set_title(entries.length + ' repositories');
+            owner.repositoryStatus.set_subtitle(monitored.length + ' monitored');
+            if (owner.mode === 'only') {
+                owner.repositories = monitored;
+            } else if (owner.mode === 'except') {
+                owner.excludedRepositories = entries
+                    .filter(([, choice]) => !choice.row.get_active())
                     .map(([name]) => name);
             }
             updateOwnerSubtitle(owner);
@@ -279,12 +323,13 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     updateGhButtons();
                 });
 
-                const allRepositoriesRow = new Adw.SwitchRow({
-                    title: 'All repositories',
-                    subtitle: 'Automatically include new repositories for this owner.',
-                    active: owner.repositories === null,
+                const modeRow = new Adw.ComboRow({
+                    title: 'Repositories',
+                    subtitle: REPOSITORY_MODE_HINTS[owner.mode],
+                    model: Gtk.StringList.new(REPOSITORY_MODE_LABELS),
+                    selected: REPOSITORY_MODES.indexOf(owner.mode),
                 });
-                row.add_row(allRepositoriesRow);
+                row.add_row(modeRow);
 
                 const loadRow = new Adw.ActionRow({
                     title: 'Repository selection',
@@ -315,7 +360,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 owner.repositoryStatus = repositoryStatus;
                 row.add_row(repositoryStatus);
 
-                const allRepositories = allRepositoriesRow.get_active();
+                const allRepositories = owner.mode === 'all';
                 loadRow.set_visible(!allRepositories);
                 searchRow.set_visible(!allRepositories && owner.repositoryListLoaded);
                 repositoryStatus.set_visible(!allRepositories);
@@ -330,7 +375,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     const repositoryRow = new Adw.SwitchRow({
                         title: repositoryName || name,
                         subtitle,
-                        active: owner.repositories === null || owner.repositories.includes(name),
+                        active: isMonitored(owner, name),
                     });
                     repositoryRow.set_visible(!allRepositories);
                     row.add_row(repositoryRow);
@@ -343,37 +388,46 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
                 if (owner.availableRepositories !== null) {
                     updateRepositorySummary(owner);
-                } else if (owner.repositories !== null && owner.repositoryRows.size > 0) {
+                } else if (owner.mode !== 'all' && owner.repositoryRows.size > 0) {
                     repositoryStatus.set_title(owner.repositoryRows.size + ' saved repositories');
                     repositoryStatus.set_subtitle(
-                        owner.repositories.length + ' selected · load to refresh availability'
+                        (owner.mode === 'only'
+                            ? owner.repositories.length + ' selected'
+                            : owner.excludedRepositories.length + ' excluded') +
+                        ' · load to refresh availability'
                     );
                 }
 
                 repositorySearch.connect('search-changed', () => {
                     const query = repositorySearch.get_text().trim().toLowerCase();
-                    const all = allRepositoriesRow.get_active();
+                    const all = owner.mode === 'all';
                     for (const [name, choice] of owner.repositoryRows)
                         choice.row.set_visible(!all && name.toLowerCase().includes(query));
                 });
 
-                allRepositoriesRow.connect('notify::active', () => {
-                    const all = allRepositoriesRow.get_active();
-                    if (all) {
-                        owner.repositories = null;
-                        owner.selectAllOnNextLoad = false;
-                        owner.requiresRepositoryList = false;
+                // Switches keep their state across modes; only the rule for new repositories
+                // changes. Leaving All turns every switch on.
+                modeRow.connect('notify::selected', () => {
+                    const mode = REPOSITORY_MODES[modeRow.get_selected()] ?? 'all';
+                    const previousMode = owner.mode;
+                    owner.mode = mode;
+                    const all = mode === 'all';
+                    const loaded = owner.availableRepositories !== null;
+                    if (all || previousMode === 'all') {
+                        owner.repositories = [];
+                        owner.excludedRepositories = [];
                         for (const choice of owner.repositoryRows.values())
                             choice.row.set_active(true);
-                    } else if (owner.repositories === null) {
-                        owner.selectAllOnNextLoad = owner.availableRepositories === null;
-                        owner.requiresRepositoryList = owner.availableRepositories === null;
-                        owner.repositories = owner.availableRepositories !== null
-                            ? [...owner.availableRepositories.map(repository => repository.name)]
-                            : [];
                     }
+                    // Without the list, the new mode's selection can only be derived from the
+                    // old one once the list loads, and saving waits for it.
+                    owner.requiresRepositoryList = !all && !loaded &&
+                        (previousMode !== 'all' || mode === 'only');
+                    if (!all && loaded)
+                        updateRepositorySummary(owner);
 
                     ownerSettingsTouched = true;
+                    modeRow.set_subtitle(REPOSITORY_MODE_HINTS[mode]);
                     loadRow.set_visible(!all);
                     searchRow.set_visible(!all && owner.repositoryListLoaded);
                     repositoryStatus.set_visible(!all);
@@ -448,11 +502,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     }))
                     .sort((first, second) => first.name.localeCompare(second.name));
                 owner.repositoryListLoaded = true;
-                owner.requiresRepositoryList = false;
                 owner.ghStatus = owner.availableRepositories.length + ' repositories loaded';
-                if (owner.selectAllOnNextLoad) {
-                    owner.repositories = owner.availableRepositories.map(repository => repository.name);
-                    owner.selectAllOnNextLoad = false;
+                if (owner.requiresRepositoryList) {
+                    // Keeps the monitored set of the mode the user switched from.
+                    const names = owner.availableRepositories.map(repository => repository.name);
+                    if (owner.mode === 'only') {
+                        owner.repositories = names
+                            .filter(name => !owner.excludedRepositories.includes(name));
+                    } else if (owner.mode === 'except') {
+                        owner.excludedRepositories = names
+                            .filter(name => !owner.repositories.includes(name));
+                    }
+                    owner.requiresRepositoryList = false;
                 }
                 renderOwners();
             }, () => {
@@ -493,10 +554,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         owners.set(key, {
                             ...candidate,
                             enabled: firstDiscovery,
-                            repositories: null,
+                            mode: 'all',
+                            repositories: [],
+                            excludedRepositories: [],
                             availableRepositories: null,
                             repositoryListLoaded: false,
-                            selectAllOnNextLoad: false,
                             requiresRepositoryList: false,
                             repositoryRows: new Map(),
                             ghStatus: '',
@@ -531,10 +593,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 login,
                 kind: 'owner',
                 enabled: true,
-                repositories: null,
+                mode: 'all',
+                repositories: [],
+                excludedRepositories: [],
                 availableRepositories: null,
                 repositoryListLoaded: false,
-                selectAllOnNextLoad: false,
                 requiresRepositoryList: false,
                 repositoryRows: new Map(),
                 ghStatus: '',
@@ -580,7 +643,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             settings.delay();
             if (ownerSettingsTouched) {
-                settings.set_string('owner-filters', serializeOwnerFilters([...owners.values()]));
+                settings.set_string('owner-filters',
+                    serializeOwnerFilters([...owners.values()].map(savedOwner)));
                 settings.set_boolean('owner-filters-configured', true);
             }
             settings.set_string('author-filter', authorEntry.get_text().trim());

@@ -60,7 +60,7 @@ gs org.gnome.desktop.interface color-scheme "'prefer-dark'"
 EXT=org.gnome.shell.extensions.greenlight
 gs $EXT author-filter "''"
 gs $EXT owner-filters-configured true
-gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null}]'
+gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null,"excludedRepositories":["octocat/hello-world"]}]'
 
 gnome-shell --headless --wayland --no-x11 --wayland-display="$WAYLAND_DISPLAY" \
     --virtual-monitor 1280x800 >"$WORK/shell.log" 2>&1 &
