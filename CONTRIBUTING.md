@@ -54,6 +54,8 @@ scripts/screenshots.sh      # rewrites docs/screenshots/*.png
 
 It runs a headless GNOME Shell with `scripts/screenshots/gh`, a stand-in for the GitHub CLI that
 serves fictional pull requests, so the images never show a real account. It needs ImageMagick.
+It crops `menu.png` and `quick-open.png` to the same size, because the README shows them side by
+side at the same width; keep any new menu capture in that set.
 
 ## Code and documentation style
 

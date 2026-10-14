@@ -7,14 +7,14 @@
 A small GNOME Shell extension that watches your open GitHub pull requests and gives you the green light when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="44%">
-  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="54%">
+  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="49%">
+  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="49%">
 </p>
 
 ## Features
 
 - Shows your open pull requests in the GNOME top bar menu.
-- Shows each pull request's author, draft/review status, CI pass count, and failure count.
+- Shows each pull request's labels, author, draft/review status, CI pass count, and failure count.
 - Filters pull requests across multiple accounts and organizations, with a separate repository selection for each owner.
 - Groups pull requests by owner and sorts each group by last update, newest first.
 - Opens a pull request in your browser when selected.
@@ -68,11 +68,11 @@ The panel indicator shows how many pull requests Greenlight is monitoring, up to
 
 In Preferences, use **Discover** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login. Expand an owner to monitor all of its repositories or load and select a subset; each owner keeps its own repository selection. The **Save preferences** button applies owners, repositories, author, and refresh interval together. The **About** group at the bottom shows the installed version and links to this repository. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
 
-The menu groups pull requests under their account or organization. Each row puts the title and CI badge on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
+The menu groups pull requests under their account or organization. Each row puts the number, labels, title, and CI badge on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
 
-Use the quick open field under **Refresh now** to open an issue or pull request by number. Type part of a repository name and the number, such as `plat 42` or `plat#42`, then press Enter. `#42` alone lists only the watched repositories where #42 exists, with its title, `owner/repo#42` works for any repository, and a pasted GitHub URL opens as is. Suggestions come from repositories selected in Preferences, repositories of the pull requests in the menu, and recently opened repositories. Once a number is typed, a panel previews the highlighted suggestion: state, author, branches, a CI bar with failed check names, and the description rendered as GitHub-flavored Markdown. The preview scrolls; click it to open the issue or pull request, or click a link inside it to open that link. It uses one `gh api graphql` request, cached for a minute. Super+Shift+G opens the menu with the field focused; change or clear the shortcut in Preferences. Resting on a listed pull request for 1.5 seconds opens the same preview under it; Preferences sets the delay, and 0 turns it off.
+Use the quick open field under **Refresh now** to open an issue or pull request by number. Type part of a repository name and the number, such as `plat 42` or `plat#42`, then press Enter. `#42` alone lists only the watched repositories where #42 exists, with its title, `owner/repo#42` works for any repository, and a pasted GitHub URL opens as is. Suggestions come from repositories selected in Preferences, repositories of the pull requests in the menu, and recently opened repositories. Once a number is typed, a panel previews the highlighted suggestion: state, author, labels, branches, a CI bar with failed check names, and the description rendered as GitHub-flavored Markdown. The preview scrolls; click it to open the issue or pull request, or click a link inside it to open that link. It uses one `gh api graphql` request, cached for a minute. Super+Shift+G opens the menu with the field focused; change or clear the shortcut in Preferences. Resting on a listed pull request for 1.5 seconds opens the same preview under it; Preferences sets the delay, and 0 turns it off.
 
-Each pull request row shows its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
+Each pull request row shows its labels in their GitHub colors, its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
 
 Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 

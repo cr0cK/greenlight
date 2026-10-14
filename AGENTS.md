@@ -128,6 +128,8 @@ devkit shows its own monitor, and the panel would land on an invisible one.
 - A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
   it changes the menu or the preferences window, run `scripts/screenshots.sh`, look at the new
   images, and commit them; extend `scripts/screenshots/gh` rather than capturing real data.
+  The README shows the menu screenshots side by side at equal widths, so `crop_menus` gives them
+  one size; a new menu capture joins that call, and its `<img>` gets the same `width`.
   Source, docs, and UI strings are in English.
 - A defect found outside the task at hand becomes a GitHub issue with its reproduction, not a
   wider PR.

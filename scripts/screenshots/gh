@@ -15,6 +15,12 @@ PULL_REQUESTS = [
     ('octocat/dotfiles', 12, 'Switch the prompt to starship', 'octocat', False, 'pass'),
 ]
 
+LABELS = {
+    142: [('enhancement', 'a2eeef'), ('ui', '5319e7')],
+    87: [('bug', 'd73a4a'), ('backend', '0e8a16'), ('reliability', 'fbca04'), ('webhooks', 'c5def5')],
+    12: [('chore', 'ededed')],
+}
+
 CHECKS = {
     'pass': [('lint', 'pass'), ('unit tests', 'pass'), ('e2e', 'pass'), ('build', 'pass')],
     'fail': [('lint', 'pass'), ('unit tests', 'fail'), ('build', 'pass')],
@@ -55,6 +61,10 @@ def fields(args):
     return dict(pair for pair in pairs if len(pair) == 2)
 
 
+def labels(number):
+    return [{'name': name, 'color': color} for name, color in LABELS.get(number, [])]
+
+
 def search(args):
     repositories = {repository.lower() for repository in option(args, '--repo')}
     owners = {owner.lower() for owner in option(args, '--owner')}
@@ -71,6 +81,7 @@ def search(args):
             'author': {'login': author},
             'isDraft': draft,
             'updatedAt': f'2026-10-10T{12 - index:02d}:00:00Z',
+            'labels': labels(number),
         })
     print(json.dumps(rows))
 
@@ -127,6 +138,7 @@ def preview(values):
         'additions': 214,
         'deletions': 37,
         'author': {'login': pr[3]},
+        'labels': {'nodes': labels(pr[1])},
         'commits': {'nodes': [{'commit': {'statusCheckRollup': {'contexts': {
             'totalCount': len(contexts), 'nodes': contexts}}}}]},
     }}}}))
