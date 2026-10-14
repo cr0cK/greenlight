@@ -90,19 +90,33 @@ wait_for() {
     exit 1
 }
 
-# Captures the panel strip above the open menu, from the menu's left edge to the screen edge.
+# Captures the whole screen with the menu open, and widens MENU_LEFT and MENU_BOTTOM, the edges
+# that crop_menus later applies to every menu capture.
+MENU_LEFT=999999
+MENU_BOTTOM=0
 capture_menu() {
     local area
     wait_for "Main.layoutManager._startingUp === false && !${STATE}._indicator.menu.actor.get_transition('opacity')"
     sleep 0.5
     area=$(shell_eval "const a = ${STATE}._indicator.menu.actor;
-        const [x, y] = a.get_transformed_position(); const [w, h] = a.get_transformed_size();
-        const left = Math.max(0, Math.floor(x) - 24);
-        [left, 0, global.stage.width - left, Math.ceil(y + h) + 24].join(' ')")
-    read -r x y w h <<<"$area"
+        const [x, y] = a.get_transformed_position(); const [, h] = a.get_transformed_size();
+        [Math.max(0, Math.floor(x) - 24), Math.min(global.stage.height, Math.ceil(y + h) + 24),
+         global.stage.width, global.stage.height].join(' ')")
+    read -r left bottom width height <<<"$area"
+    ((left < MENU_LEFT)) && MENU_LEFT=$left
+    ((bottom > MENU_BOTTOM)) && MENU_BOTTOM=$bottom
     gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Screenshot \
-        --method org.gnome.Shell.Screenshot.ScreenshotArea "$x" "$y" "$w" "$h" false \
+        --method org.gnome.Shell.Screenshot.ScreenshotArea 0 0 "$width" "$height" false \
         "$OUT/$1" >/dev/null
+}
+
+# The README shows the menu captures side by side, so they share one size: the panel strip from
+# the leftmost menu edge to the screen edge, down to the lowest menu bottom.
+crop_menus() {
+    for image in "$@"; do
+        magick "$OUT/$image" -crop "+${MENU_LEFT}+0" -crop "x${MENU_BOTTOM}+0+0" +repage \
+            "$OUT/$image"
+    done
 }
 
 wait_for "Main.extensionManager.lookup('$UUID')?.state === 1"
@@ -116,6 +130,7 @@ shell_eval "${STATE}._quickOpenEntry.set_text('web 142')" >/dev/null
 wait_for "${STATE}._previewState?.status === 'ready' && !!${STATE}._previewItem"
 capture_menu quick-open.png
 shell_eval "${STATE}._indicator.menu.close()" >/dev/null
+crop_menus menu.png quick-open.png
 
 gnome-extensions prefs "$UUID"
 # The preferences service can wait on portal timeouts before it shows its window.

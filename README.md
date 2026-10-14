@@ -7,8 +7,8 @@
 A small GNOME Shell extension that watches your open GitHub pull requests and gives you the green light when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="44%">
-  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="54%">
+  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="49%">
+  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="49%">
 </p>
 
 ## Features
