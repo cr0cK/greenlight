@@ -730,6 +730,8 @@ export default class GreenlightExtension extends Extension {
         this._previewCancellable = null;
         this._previewState = null;
         this._previewItem = null;
+        // Monotonic time before which a list preview must not scroll into view.
+        this._previewRevealTime = 0;
         this._previewCache = new Map();
         this._pullRequestItems = [];
         this._lookupSourceId = 0;
@@ -1090,12 +1092,27 @@ export default class GreenlightExtension extends Extension {
                 return Clutter.EVENT_STOP;
             });
             // Scroll once the preview has a size. Revealing it lifts its row by at most the
-            // preview height, so the pointer stays on the row or on its preview.
+            // preview height, so the pointer stays on the row or on its preview. After a click,
+            // wait out the double-click time so a second click still lands on the row.
+            let revealSourceId = 0;
             const allocationId = item.connect('notify::allocation', () => {
                 if (item.height === 0)
                     return;
                 item.disconnect(allocationId);
-                ensureActorVisibleInScrollView(this._contentScrollView, item);
+                const waitMs = Math.ceil((this._previewRevealTime - GLib.get_monotonic_time()) / 1000);
+                if (waitMs <= 0) {
+                    ensureActorVisibleInScrollView(this._contentScrollView, item);
+                    return;
+                }
+                revealSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, waitMs, () => {
+                    revealSourceId = 0;
+                    ensureActorVisibleInScrollView(this._contentScrollView, item);
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+            item.connect('destroy', () => {
+                if (revealSourceId)
+                    GLib.Source.remove(revealSourceId);
             });
         }
 
@@ -1537,6 +1554,27 @@ export default class GreenlightExtension extends Extension {
         }
         titleLine.add_child(title);
         titleLine.add_child(checkBadge);
+
+        const openPullRequest = () => {
+            openUri(pr.url);
+            this._indicator.menu.close();
+        };
+        const openButton = new St.Button({
+            child: new St.Icon({
+                gicon: Gio.FileIcon.new(this.dir.get_child('greenlight-open-symbolic.svg')),
+                icon_size: 14,
+            }),
+            y_align: Clutter.ActorAlign.CENTER,
+            track_hover: true,
+            accessible_name: 'Open pull request ' + pr.number + ' on GitHub',
+        });
+        // The Shell theme has no hover style for a bare button, so the hover tint is inline.
+        const openButtonStyle = hover => 'padding: 3px 5px; border-radius: 6px; ' +
+            'background-color: rgba(127, 127, 127, ' + (hover ? '0.3' : '0') + ');';
+        openButton.style = openButtonStyle(false);
+        openButton.connect('notify::hover', () => (openButton.style = openButtonStyle(openButton.hover)));
+        openButton.connect('clicked', openPullRequest);
+        titleLine.add_child(openButton);
         content.add_child(titleLine);
         content.add_child(metadataLine);
         item.add_child(content);
@@ -1553,11 +1591,12 @@ export default class GreenlightExtension extends Extension {
         this._pullRequestItems.push(item);
         item.connect('key-focus-in', () => ensureActorVisibleInScrollView(this._contentScrollView, item));
         // Every activate signal closes the menu, so the row handles its own: a click or Space
-        // toggles the preview and keeps the menu open; a double click or Enter opens the pull
-        // request, as does a click on the preview.
+        // toggles the preview and keeps the menu open; the open button, a double click, Enter,
+        // or a click on the preview opens the pull request.
         let lastClickTime = 0;
         item.activate = event => {
             let open;
+            this._previewRevealTime = 0;
             if (event?.type() === Clutter.EventType.KEY_PRESS) {
                 open = event.get_key_symbol() !== Clutter.KEY_space;
             } else {
@@ -1565,11 +1604,11 @@ export default class GreenlightExtension extends Extension {
                 const doubleClickUs = Clutter.Settings.get_default().double_click_time * 1000;
                 open = now - lastClickTime <= doubleClickUs;
                 lastClickTime = open ? 0 : now;
+                this._previewRevealTime = now + doubleClickUs;
             }
 
             if (open) {
-                openUri(pr.url);
-                this._indicator.menu.close();
+                openPullRequest();
             } else {
                 const shown = this._previewState?.source === 'list' &&
                     this._previewState.key === item._previewKey;

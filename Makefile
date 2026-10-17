@@ -7,7 +7,7 @@ BUNDLE = $(DIST)/$(UUID).shell-extension.zip
 MODULES = $(wildcard $(SRC)/*.js)
 # gnome-extensions pack takes extension.js, prefs.js, metadata.json, and schemas/ on its own.
 EXTRA_SOURCES = $(filter-out $(SRC)/extension.js $(SRC)/prefs.js,$(MODULES)) \
-	$(SRC)/greenlight-pr-symbolic.svg LICENSE
+	$(SRC)/greenlight-pr-symbolic.svg $(SRC)/greenlight-open-symbolic.svg LICENSE
 
 check:
 	glib-compile-schemas --strict --dry-run $(SRC)/schemas
