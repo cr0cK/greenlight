@@ -2,7 +2,8 @@
 """Stand-in for the GitHub CLI that serves fictional data, so screenshots show no real account.
 
 It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo list, gh api
-users/<login>, and the gh api graphql reachability, lookup, and preview queries.
+user, user/orgs, and users/<login>, and the gh api graphql reachability, lookup, and preview
+queries.
 """
 import json
 import sys
@@ -188,6 +189,10 @@ def main(args):
         if 'login0' in values or 'owner0' in values:
             return reachability(values)
         return lookup(values) if 'o0' in values else preview(values)
+    elif args[:2] == ['api', 'user']:
+        print('octocat')
+    elif args[:2] == ['api', 'user/orgs']:
+        print('acme\nocto-org')
     elif args[:1] == ['api'] and args[1].startswith('users/'):
         return user(args[1].split('/', 1)[1])
     else:
