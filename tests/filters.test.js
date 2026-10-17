@@ -52,6 +52,30 @@ test('merges duplicate owners into the wider scope', () => {
     assert.deepEqual(mixed.excludedRepositories, ['acme/b']);
 });
 
+test('keeps a paused duplicate from widening an enabled owner', () => {
+    const merge = (...owners) => normalizeOwnerFilters(owners)[0];
+    for (const owners of [
+        [{login: 'acme', enabled: true, repositories: ['acme/web']},
+            {login: 'acme', enabled: false, repositories: null}],
+        [{login: 'acme', enabled: false, repositories: null},
+            {login: 'acme', enabled: true, repositories: ['acme/web']}],
+    ]) {
+        const merged = merge(...owners);
+        assert.equal(merged.enabled, true);
+        assert.deepEqual(merged.repositories, ['acme/web']);
+    }
+    const paused = merge(
+        {login: 'acme', enabled: false, repositories: ['acme/web']},
+        {login: 'acme', enabled: false, repositories: ['ACME/web', 'acme/api']}
+    );
+    assert.equal(paused.enabled, false);
+    assert.deepEqual(paused.repositories, ['acme/web', 'acme/api']);
+    assert.deepEqual(merge(
+        {login: 'acme', repositories: null, excludedRepositories: ['acme/Web']},
+        {login: 'acme', repositories: ['ACME/web']}
+    ).excludedRepositories, []);
+});
+
 test('serializes exclusions in a stable order', () => {
     const saved = JSON.parse(serializeOwnerFilters([
         owner('acme', {excludedRepositories: ['acme/web', 'acme/api']}),
