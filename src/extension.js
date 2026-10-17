@@ -735,6 +735,9 @@ export default class GreenlightExtension extends Extension {
         this._previewItem = null;
         // Monotonic time before which a list preview must not scroll into view.
         this._previewRevealTime = 0;
+        // Whether the list still has to scroll a newly opened preview into view. Refreshes
+        // re-render it too, and must not pull the list back after the user scrolled away.
+        this._previewReveal = false;
         this._previewCache = new Map();
         this._pullRequestItems = [];
         this._lookupSourceId = 0;
@@ -969,6 +972,7 @@ export default class GreenlightExtension extends Extension {
         }
         this._previewCancellable?.cancel();
         this._previewCancellable = null;
+        this._previewReveal = Boolean(key);
 
         const cached = key ? this._previewCache.get(key) : null;
         if (!key) {
@@ -1099,18 +1103,25 @@ export default class GreenlightExtension extends Extension {
             // preview height, so the pointer stays on the row or on its preview. After a click,
             // wait out the double-click time so a second click still lands on the row.
             let revealSourceId = 0;
+            const reveal = () => {
+                this._previewReveal = false;
+                ensureActorVisibleInScrollView(this._contentScrollView, item);
+            };
             const allocationId = item.connect('notify::allocation', () => {
                 if (item.height === 0)
                     return;
                 item.disconnect(allocationId);
+                if (!this._previewReveal)
+                    return;
                 const waitMs = Math.ceil((this._previewRevealTime - GLib.get_monotonic_time()) / 1000);
                 if (waitMs <= 0) {
-                    ensureActorVisibleInScrollView(this._contentScrollView, item);
+                    reveal();
                     return;
                 }
+                // A render before the timeout replaces this item; the flag stays set for it.
                 revealSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, waitMs, () => {
                     revealSourceId = 0;
-                    ensureActorVisibleInScrollView(this._contentScrollView, item);
+                    reveal();
                     return GLib.SOURCE_REMOVE;
                 });
             });
