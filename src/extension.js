@@ -1593,6 +1593,12 @@ export default class GreenlightExtension extends Extension {
         item._previewKey = previewKey(suggestion);
         this._pullRequestItems.push(item);
         item.connect('key-focus-in', () => ensureActorVisibleInScrollView(this._contentScrollView, item));
+        // Hover covers the row's children, so the open icon gets the pointer cursor too.
+        item.connect('notify::hover', () => this._setPointerCursor(item.hover));
+        item.connect('destroy', () => {
+            if (item.hover)
+                this._setPointerCursor(false);
+        });
         // Every activate signal closes the menu, so the row handles its own: a click or Space
         // toggles the preview and keeps the menu open; the open button, a double click, Enter,
         // or a click on the preview opens the pull request.
