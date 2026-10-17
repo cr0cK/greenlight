@@ -1073,6 +1073,22 @@ export default class GreenlightExtension extends Extension {
                 this._previewItem = null;
         });
         if (inList) {
+            // The preview's scroll view takes every wheel event, even at its ends or with
+            // nothing to scroll, which traps the list behind it: hand those to the list.
+            scrollView.connect('scroll-event', (_actor, event) => {
+                const direction = event.get_scroll_direction();
+                const delta = direction === Clutter.ScrollDirection.SMOOTH
+                    ? event.get_scroll_delta()[1]
+                    : {[Clutter.ScrollDirection.UP]: -1, [Clutter.ScrollDirection.DOWN]: 1}[direction];
+                if (!delta)
+                    return Clutter.EVENT_PROPAGATE;
+
+                const {value, lower, upper, page_size: pageSize} = scrollView.vadjustment;
+                if (delta < 0 ? value > lower : value < upper - pageSize)
+                    return Clutter.EVENT_PROPAGATE;
+                this._contentScrollView.emit('scroll-event', event);
+                return Clutter.EVENT_STOP;
+            });
             // Scroll once the preview has a size. Revealing it lifts its row by at most the
             // preview height, so the pointer stays on the row or on its preview.
             const allocationId = item.connect('notify::allocation', () => {
@@ -1408,7 +1424,7 @@ export default class GreenlightExtension extends Extension {
             }
         }
 
-        // A refresh rebuilds the rows: keep a hover preview under its pull request if listed.
+        // A refresh rebuilds the rows: keep an open preview under its pull request if listed.
         if (this._previewState?.source === 'list') {
             if (this._pullRequestItems.some(row => row._previewKey === this._previewState.key))
                 this._renderPreview();
@@ -1535,15 +1551,31 @@ export default class GreenlightExtension extends Extension {
         };
         item._previewKey = previewKey(suggestion);
         this._pullRequestItems.push(item);
-        item.connect('key-focus-in', () => {
-            ensureActorVisibleInScrollView(this._contentScrollView, item);
-            // Pointer hover moves key focus too, so this covers hovering and arrow keys.
-            const delay = this._settings.get_int('hover-preview-delay');
-            if (delay > 0)
-                this._schedulePreviewTarget(suggestion, 'list', delay);
-        });
-        item.connect('key-focus-out', () => this._clearPreviewFocusTimer());
-        item.connect('activate', () => openUri(pr.url));
+        item.connect('key-focus-in', () => ensureActorVisibleInScrollView(this._contentScrollView, item));
+        // Every activate signal closes the menu, so the row handles its own: a click or Space
+        // toggles the preview and keeps the menu open; a double click or Enter opens the pull
+        // request, as does a click on the preview.
+        let lastClickTime = 0;
+        item.activate = event => {
+            let open;
+            if (event?.type() === Clutter.EventType.KEY_PRESS) {
+                open = event.get_key_symbol() !== Clutter.KEY_space;
+            } else {
+                const now = GLib.get_monotonic_time();
+                const doubleClickUs = Clutter.Settings.get_default().double_click_time * 1000;
+                open = now - lastClickTime <= doubleClickUs;
+                lastClickTime = open ? 0 : now;
+            }
+
+            if (open) {
+                openUri(pr.url);
+                this._indicator.menu.close();
+            } else {
+                const shown = this._previewState?.source === 'list' &&
+                    this._previewState.key === item._previewKey;
+                this._setPreviewTarget(shown ? null : suggestion, 'list');
+            }
+        };
         return item;
     }
 }
