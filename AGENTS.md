@@ -16,6 +16,7 @@ new `src/*.js` modules on its own.
 | `src/filters.js` | Owner and repository filter storage |
 | `src/quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
 | `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
+| `src/github.js` | gh failure explanations and the owner reachability query (pure) |
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `tests/` | `node --test` suites for the pure modules |

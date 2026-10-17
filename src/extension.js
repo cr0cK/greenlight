@@ -11,7 +11,8 @@ import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/a
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {nextSearchLimit, readOwnerFilters, searchScopes} from './filters.js';
+import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} from './filters.js';
+import {describeGhFailure, parseReachability, reachabilityArguments} from './github.js';
 import {
     MAX_SUGGESTIONS,
     parseQuickOpenQuery,
@@ -156,6 +157,13 @@ function openUri(uri) {
     }
 }
 
+/** Carries a failed gh result to the refresh error handler, which explains it to the user. */
+function ghFailure(result) {
+    const error = new Error('gh exited with ' + result.exitCode);
+    error.ghResult = result;
+    return error;
+}
+
 /** Gives filter changes a stable notification baseline independent of UI row order. */
 function filterSignature(settings) {
     const owners = readOwnerFilters(settings)
@@ -231,6 +239,22 @@ function wrapLabel(label) {
     label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
 }
 
+/** A static row with an icon and wrapped text, for errors and warnings under Refresh now. */
+function createNoticeItem(iconName, color, text) {
+    const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+    item.add_child(new St.Icon({
+        icon_name: iconName,
+        style_class: 'popup-menu-icon',
+        style: 'color: ' + color + ';',
+        y_align: Clutter.ActorAlign.START,
+    }));
+    const label = new St.Label({text, x_expand: true, style: 'max-width: 34em;'});
+    wrapLabel(label);
+    item.add_child(label);
+    item.accessible_name = text;
+    return item;
+}
+
 /** Secondary text; the Shell theme has no dim-label class, so opacity does the dimming. */
 function createDimLabel(text, params = {}) {
     return new St.Label({
@@ -260,6 +284,8 @@ export default class GreenlightExtension extends Extension {
         this._processes = new Map();
         this._loading = false;
         this._error = null;
+        // Owners and repositories the last check could not find, shown under Refresh now.
+        this._unreachable = [];
         this._prs = [];
         this._hasMorePullRequests = false;
         this._hasNoScopes = false;
@@ -459,14 +485,31 @@ export default class GreenlightExtension extends Extension {
         this._renderMenu();
 
         const authorFilter = this._settings.get_string('author-filter').trim();
-        const scopes = this._settings.get_boolean('owner-filters-configured')
-            ? searchScopes(readOwnerFilters(this._settings), authorFilter)
-            : [{type: 'all', values: [], excluded: [], hidden: []}];
-        const hasNoScopes = this._settings.get_boolean('owner-filters-configured') &&
-            scopes.length === 0;
+        const configured = this._settings.get_boolean('owner-filters-configured');
+        const owners = configured
+            ? readOwnerFilters(this._settings).filter(owner => owner.enabled)
+            : [];
         const currentFilterSignature = filterSignature(this._settings);
 
         try {
+            // A search naming only missing owners or repositories fails as a whole, and one
+            // naming some of them silently skips them: check them first, and report them.
+            let unreachable = {owners: [], repositories: []};
+            if (owners.length > 0) {
+                const check = reachabilityArguments(owners);
+                const result = await this._runGh(check.args);
+                try {
+                    unreachable = parseReachability(result.stdout, check.logins, check.repositories);
+                } catch {
+                    throw ghFailure(result);
+                }
+            }
+            const scopes = configured
+                ? searchScopes(withoutUnreachable(owners, unreachable), authorFilter)
+                : [{type: 'all', values: [], excluded: [], hidden: []}];
+            // Owners that exist but select no repository; missing ones get their own notice.
+            const hasNoScopes = configured && searchScopes(owners, authorFilter).length === 0;
+
             const searchRowsByKey = new Map();
             let truncatedSearch = false;
             for (const scope of scopes) {
@@ -501,7 +544,7 @@ export default class GreenlightExtension extends Extension {
                         [...searchArgs, '--limit', String(limit), ...queryTerms]
                     );
                     if (search.exitCode !== 0)
-                        throw new Error('gh search prs failed');
+                        throw ghFailure(search);
 
                     const response = JSON.parse(search.stdout);
                     if (!Array.isArray(response))
@@ -600,16 +643,21 @@ export default class GreenlightExtension extends Extension {
             }
 
             this._updateNotificationCache(snapshot, currentFilterSignature);
+            this._unreachable = [...unreachable.owners, ...unreachable.repositories];
             this._prs = snapshot;
             this._hasMorePullRequests = hasMorePullRequests;
             this._hasNoScopes = hasNoScopes;
-        } catch {
+        } catch (error) {
             if (!this._enabled)
                 return;
 
-            this._error = 'Could not refresh pull requests. Check that gh is installed ' +
-                'and authenticated (gh auth status).';
-            console.error('Greenlight: failed to read pull requests.');
+            if (error.ghResult)
+                this._error = describeGhFailure(error.ghResult).message;
+            else if (!GLib.find_program_in_path('gh'))
+                this._error = 'gh is not installed or not on PATH. Install the GitHub CLI, then refresh.';
+            else
+                this._error = 'Could not refresh pull requests. Check gh auth status in a terminal.';
+            console.error('Greenlight: failed to read pull requests: ' + this._error);
         } finally {
             if (this._enabled) {
                 this._loading = false;
@@ -1412,11 +1460,12 @@ export default class GreenlightExtension extends Extension {
         refreshItem.connect('activate', () => this._refresh());
         this._refreshSection.addMenuItem(refreshItem);
 
-        if (this._error) {
-            menu.addMenuItem(new PopupMenu.PopupMenuItem(
-                this._error,
-                {reactive: false, can_focus: false}
-            ));
+        if (this._error)
+            this._refreshSection.addMenuItem(createNoticeItem('dialog-error-symbolic', '#e66100', this._error));
+        if (this._unreachable.length > 0) {
+            this._refreshSection.addMenuItem(createNoticeItem('dialog-warning-symbolic', '#cd9309',
+                'Not found on GitHub or not visible to gh: ' + this._unreachable.join(', ') +
+                '. Remove or pause them in Preferences.'));
         }
 
         if (this._prs.length === 0 && this._loading) {

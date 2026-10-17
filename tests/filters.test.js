@@ -6,6 +6,7 @@ import {
     normalizeOwnerFilters,
     searchScopes,
     serializeOwnerFilters,
+    withoutUnreachable,
 } from '../src/filters.js';
 
 const owner = (login, overrides = {}) => ({
@@ -89,4 +90,15 @@ test('refetches a filtered search until it fills its share', () => {
     assert.equal(nextSearchLimit(31, 31, 12, 31), 124);
     assert.equal(nextSearchLimit(496, 496, 2, 31), 1000);
     assert.equal(nextSearchLimit(1000, 1000, 2, 31), null);
+});
+
+test('drops owners and selected repositories gh cannot find', () => {
+    const kept = withoutUnreachable([
+        owner('acme', {repositories: ['acme/web', 'acme/old']}),
+        owner('Gone'),
+        owner('hub', {repositories: ['hub/old']}),
+        owner('octo'),
+    ], {owners: ['gone'], repositories: ['ACME/old', 'hub/old']});
+    assert.deepEqual(kept.map(entry => [entry.login, entry.repositories]),
+        [['acme', ['acme/web']], ['octo', null]]);
 });
