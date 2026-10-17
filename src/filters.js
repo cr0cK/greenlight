@@ -178,3 +178,21 @@ export function nextSearchLimit(limit, received, kept, wanted) {
         return null;
     return Math.min(limit * 4, MAX_SEARCH_LIMIT);
 }
+
+/**
+ * Drops the owners and selected repositories gh can no longer find, so one missing account or
+ * repository does not fail the whole search. An owner left with no selected repository goes too.
+ */
+export function withoutUnreachable(owners, unreachable) {
+    const logins = new Set(unreachable.owners.map(login => login.toLowerCase()));
+    const repositories = new Set(unreachable.repositories.map(name => name.toLowerCase()));
+    return owners
+        .filter(owner => !logins.has(owner.login.toLowerCase()))
+        .map(owner => owner.repositories === null
+            ? owner
+            : {
+                ...owner,
+                repositories: owner.repositories.filter(name => !repositories.has(name.toLowerCase())),
+            })
+        .filter(owner => owner.repositories === null || owner.repositories.length > 0);
+}

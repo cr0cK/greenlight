@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stand-in for the GitHub CLI that serves fictional data, so screenshots show no real account.
 
-It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo list, and the
-gh api graphql lookup and preview queries.
+It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo list, gh api
+users/<login>, and the gh api graphql reachability, lookup, and preview queries.
 """
 import json
 import sys
@@ -120,6 +120,32 @@ def lookup(values):
     print(json.dumps({'data': data}))
 
 
+def reachability(values):
+    owners = set(REPOSITORIES) | {pr[0].split('/')[0] for pr in PULL_REQUESTS}
+    repositories = {name for names in REPOSITORIES.values() for name in names}
+    data = {}
+    index = 0
+    while f'login{index}' in values:
+        login = values[f'login{index}']
+        data[f'o{index}'] = {'login': login} if login in owners else None
+        index += 1
+    index = 0
+    while f'owner{index}' in values:
+        name = values[f'owner{index}'] + '/' + values[f'name{index}']
+        data[f'r{index}'] = {'id': name} if name in repositories else None
+        index += 1
+    print(json.dumps({'data': data}))
+    return 1 if None in data.values() else 0
+
+
+def user(login):
+    if login not in REPOSITORIES:
+        print('gh: Not Found (HTTP 404)', file=sys.stderr)
+        return 1
+    print('User' if login == 'octocat' else 'Organization')
+    return 0
+
+
 def preview(values):
     pr = find(values['owner'] + '/' + values['name'], int(values['number']))
     if not pr:
@@ -159,7 +185,11 @@ def main(args):
                           for name in REPOSITORIES.get(args[2], [])]))
     elif args[:2] == ['api', 'graphql']:
         values = fields(args)
+        if 'login0' in values or 'owner0' in values:
+            return reachability(values)
         return lookup(values) if 'o0' in values else preview(values)
+    elif args[:1] == ['api'] and args[1].startswith('users/'):
+        return user(args[1].split('/', 1)[1])
     else:
         print('screenshot gh: unsupported call: ' + ' '.join(args[:3]), file=sys.stderr)
         return 1

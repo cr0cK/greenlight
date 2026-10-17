@@ -6,6 +6,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
+import {describeGhFailure} from './github.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
 // Repository scope modes, in ComboRow order.
@@ -55,11 +56,18 @@ function runGh(args, cancellable) {
             }
 
             try {
-                const [, stdout] = subprocess.communicate_utf8_finish(result);
+                const [, stdout, stderr] = subprocess.communicate_utf8_finish(result);
                 if (timedOut)
                     throw new Error('gh request timed out');
-                if (!subprocess.get_if_exited() || subprocess.get_exit_status() !== 0)
-                    throw new Error('gh command failed');
+                if (!subprocess.get_if_exited() || subprocess.get_exit_status() !== 0) {
+                    // Callers that explain failures read the exit code and message.
+                    const error = new Error('gh command failed');
+                    error.ghResult = {
+                        exitCode: subprocess.get_if_exited() ? subprocess.get_exit_status() : -1,
+                        stderr: stderr ?? '',
+                    };
+                    throw error;
+                }
                 resolve(stdout ?? '');
             } catch (error) {
                 reject(error);
@@ -215,12 +223,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         let taskGeneration = 0;
         let ghBusy = false;
         let saveButton = null;
-        let ghButtons = [discoverButton];
+        let ghButtons = [discoverButton, addButton];
 
         const updateOwnerStatus = (message = '') => {
             const activeCount = [...owners.values()].filter(owner => owner.enabled).length;
             ownerStatus.set_title(
-                owners.size + ' owners · ' + activeCount + ' enabled'
+                owners.size + (owners.size === 1 ? ' owner · ' : ' owners · ') + activeCount + ' enabled'
             );
             ownerStatus.set_subtitle(message ||
                 'Choose the account and organizations whose pull requests should appear.');
@@ -280,7 +288,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 }
             }
 
-            ghButtons = [discoverButton];
+            ghButtons = [discoverButton, addButton];
             const orderedOwners = [...owners.values()].sort((first, second) => {
                 const rank = owner => owner.kind === 'user'
                     ? 0
@@ -306,6 +314,22 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     tooltip_text: 'Include this owner in monitoring',
                 });
                 row.add_action(enabledSwitch);
+                const removeButton = new Gtk.Button({
+                    icon_name: 'user-trash-symbolic',
+                    valign: Gtk.Align.CENTER,
+                    tooltip_text: 'Remove this owner',
+                });
+                removeButton.add_css_class('flat');
+                row.add_action(removeButton);
+                // Removal, like every change here, only applies on Save preferences.
+                removeButton.connect('clicked', () => {
+                    // renderOwners() only takes out rows of owners still listed.
+                    ownersGroup.remove(owner.row);
+                    owners.delete(owner.login.toLowerCase());
+                    ownerSettingsTouched = true;
+                    renderOwners();
+                    updateOwnerStatus(owner.login + ' will be removed when you save.');
+                });
                 enabledSwitch.connect('notify::active', () => {
                     owner.enabled = enabledSwitch.get_active();
                     row.set_enable_expansion(owner.enabled);
@@ -467,9 +491,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             try {
                 await task(requestGeneration);
-            } catch {
+            } catch (error) {
                 if (requestGeneration === taskGeneration)
-                    onError();
+                    onError(error);
             } finally {
                 if (requestGeneration === taskGeneration) {
                     ghBusy = false;
@@ -599,24 +623,42 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 return;
             }
 
-            owners.set(key, {
-                login,
-                kind: 'owner',
-                enabled: true,
-                mode: 'all',
-                repositories: [],
-                excludedRepositories: [],
-                availableRepositories: null,
-                repositoryListLoaded: false,
-                requiresRepositoryList: false,
-                selectionBase: null,
-                repositoryRows: new Map(),
-                ghStatus: '',
+            // A mistyped login would fail every search, so check it exists before adding it.
+            if (ghBusy)
+                return;
+            updateOwnerStatus('Checking ' + login + ' on GitHub…');
+            startGhTask(async requestGeneration => {
+                const type = (await runGh(['api', 'users/' + login, '--jq', '.type'], cancellable)).trim();
+                if (requestGeneration !== taskGeneration || owners.has(key))
+                    return;
+
+                owners.set(key, {
+                    login,
+                    kind: {User: 'user', Organization: 'organization'}[type] ?? 'owner',
+                    enabled: true,
+                    mode: 'all',
+                    repositories: [],
+                    excludedRepositories: [],
+                    availableRepositories: null,
+                    repositoryListLoaded: false,
+                    requiresRepositoryList: false,
+                    selectionBase: null,
+                    repositoryRows: new Map(),
+                    ghStatus: '',
+                });
+                ownerEntry.set_text('');
+                ownerSettingsTouched = true;
+                renderOwners();
+                owners.get(key).row.set_expanded(true);
+                updateOwnerStatus(login + ' added.');
+            }, error => {
+                const result = error?.ghResult;
+                updateOwnerStatus(/HTTP 404|Not Found/i.test(result?.stderr ?? '')
+                    ? 'No GitHub account or organization is named ' + login + '.'
+                    : result
+                        ? describeGhFailure(result).message
+                        : 'Could not check ' + login + '. Check that gh is installed and authenticated.');
             });
-            ownerEntry.set_text('');
-            ownerSettingsTouched = true;
-            renderOwners();
-            owners.get(key).row.set_expanded(true);
         };
         addButton.connect('clicked', addOwner);
         ownerEntry.connect('activate', addOwner);
