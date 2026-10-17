@@ -90,18 +90,14 @@ function isMonitored(owner, name) {
     return !owner.excludedRepositories.includes(name);
 }
 
-/**
- * Keeps the saved scope of the selected mode only, in the shape filters.js stores. A paused
- * owner can be saved before its list loads; it then keeps the selection it had.
- */
+/** Keeps the saved scope of the selected mode only, in the shape filters.js stores. */
 function savedOwner(owner) {
-    const mode = owner.requiresRepositoryList ? owner.selectionBase : owner.mode;
     return {
         login: owner.login,
         kind: owner.kind,
         enabled: owner.enabled,
-        repositories: mode === 'only' ? owner.repositories : null,
-        excludedRepositories: mode === 'except' ? owner.excludedRepositories : [],
+        repositories: owner.mode === 'only' ? owner.repositories : null,
+        excludedRepositories: owner.mode === 'except' ? owner.excludedRepositories : [],
     };
 }
 
@@ -167,11 +163,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
         const ownersGroup = new Adw.PreferencesGroup({
             title: 'Accounts and organizations',
-            description: 'Enable owners to monitor, then expand one to select its repositories.',
+            description: 'Each owner gets its own block below: discover its repositories, ' +
+                'choose what to monitor, then pick repositories.',
         });
         const discoverRow = new Adw.ActionRow({
-            title: 'Discover from gh',
-            subtitle: 'Load the authenticated account and its organization memberships.',
+            title: 'Discover accounts',
+            subtitle: 'Your gh account and the organizations it belongs to.',
         });
         const discoverButton = new Gtk.Button({
             label: 'Discover',
@@ -183,8 +180,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         ownersGroup.add(discoverRow);
 
         const addRow = new Adw.ActionRow({
-            title: 'Add another owner',
-            subtitle: 'Add any public organization or account by its GitHub login.',
+            title: 'Add an owner',
+            subtitle: 'Any public organization or account, by its GitHub login.',
         });
         const ownerEntry = new Gtk.Entry({
             placeholder_text: 'organization or username',
@@ -198,283 +195,262 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         ownersGroup.add(addRow);
 
         const ownerStatus = new Adw.ActionRow({
-            title: 'No owners loaded',
-            subtitle: 'Discover your gh account or add an owner to create a scoped list.',
+            title: 'No owners yet',
+            subtitle: 'Discover your gh account or add an owner.',
         });
         ownersGroup.add(ownerStatus);
 
-        const owners = new Map();
-        for (const owner of readOwnerFilters(settings)) {
-            owners.set(owner.login.toLowerCase(), {
-                ...owner,
-                mode: repositoryMode(owner),
-                repositories: owner.repositories ?? [],
-                availableRepositories: null,
-                repositoryListLoaded: false,
-                requiresRepositoryList: false,
-                selectionBase: null,
-                repositoryRows: new Map(),
-                ghStatus: '',
-            });
-        }
+        /**
+         * UI state of one owner; the repository list stays null until its Discover runs. A new
+         * owner, from Add or Discover accounts, watches all its repositories.
+         */
+        const createOwner = (owner, enabled) => ({
+            login: owner.login,
+            kind: owner.kind,
+            enabled,
+            mode: repositoryMode({repositories: null, excludedRepositories: [], ...owner}),
+            repositories: owner.repositories ?? [],
+            excludedRepositories: owner.excludedRepositories ?? [],
+            availableRepositories: null,
+            ghStatus: '',
+            listExpanded: false,
+            repositoryRows: new Map(),
+        });
+
+        const kindRank = owner => owner.kind === 'user' ? 0 : owner.kind === 'organization' ? 1 : 2;
+        // Map order is block order: saved owners sorted, added ones first, discovered ones last.
+        let owners = new Map(readOwnerFilters(settings)
+            .sort((first, second) => kindRank(first) - kindRank(second) ||
+                first.login.localeCompare(second.login))
+            .map(owner => [owner.login.toLowerCase(), createOwner(owner, owner.enabled)]));
+        const ownerGroups = [];
 
         let ownerSettingsTouched = false;
         let cancellable = new Gio.Cancellable();
         let taskGeneration = 0;
         let ghBusy = false;
         let saveButton = null;
-        let ghButtons = [discoverButton, addButton];
 
         const updateOwnerStatus = (message = '') => {
             const activeCount = [...owners.values()].filter(owner => owner.enabled).length;
-            ownerStatus.set_title(
-                owners.size + (owners.size === 1 ? ' owner · ' : ' owners · ') + activeCount + ' enabled'
-            );
-            ownerStatus.set_subtitle(message ||
-                'Choose the account and organizations whose pull requests should appear.');
+            ownerStatus.set_title(owners.size === 0
+                ? 'No owners yet'
+                : owners.size + (owners.size === 1 ? ' owner · ' : ' owners · ') + activeCount + ' enabled');
+            ownerStatus.set_subtitle(message || (owners.size === 0
+                ? 'Discover your gh account or add an owner.'
+                : 'Pull requests of enabled owners appear in the menu.'));
         };
 
-        const updateOwnerSubtitle = owner => {
+        const ownerDescription = owner => {
             const kind = owner.kind === 'user'
                 ? 'Personal account'
-                : owner.kind === 'organization'
-                    ? 'Organization'
-                    : 'GitHub owner';
+                : owner.kind === 'organization' ? 'Organization' : 'GitHub owner';
             const noun = names => names.length === 1 ? ' repository' : ' repositories';
             const {repositories, excludedRepositories: excluded} = owner;
-            // Until a pending conversion loads its list, the kept selection is the base one.
-            const mode = owner.requiresRepositoryList ? owner.selectionBase : owner.mode;
-            const scope = mode === 'only'
+            const scope = owner.mode === 'only'
                 ? repositories.length + ' selected' + noun(repositories)
-                : mode === 'except' && excluded.length > 0
+                : owner.mode === 'except' && excluded.length > 0
                     ? 'All except ' + excluded.length + noun(excluded)
                     : 'All repositories';
-            owner.row.set_subtitle(
-                kind + ' · ' + (owner.enabled ? 'Monitoring' : 'Paused') + ' · ' + scope
-            );
+            return kind + ' · ' + (owner.enabled ? 'Monitoring' : 'Paused') + ' · ' + scope;
         };
 
         /** Reads the switches back into the list of the current mode; a switch on is monitored. */
-        const updateRepositorySummary = owner => {
+        const syncSelection = owner => {
             const entries = [...owner.repositoryRows.entries()];
-            const monitored = entries.filter(([, choice]) => choice.row.get_active())
-                .map(([name]) => name);
-            owner.repositoryStatus.set_title(entries.length + ' repositories');
-            owner.repositoryStatus.set_subtitle(monitored.length + ' monitored');
+            const monitored = entries.filter(([, row]) => row.get_active()).map(([name]) => name);
             if (owner.mode === 'only') {
                 owner.repositories = monitored;
             } else if (owner.mode === 'except') {
                 owner.excludedRepositories = entries
-                    .filter(([, choice]) => !choice.row.get_active())
+                    .filter(([, row]) => !row.get_active())
                     .map(([name]) => name);
             }
-            updateOwnerSubtitle(owner);
+            owner.listRow?.set_title(monitored.length + ' of ' + entries.length + ' monitored');
+            owner.group?.set_description(ownerDescription(owner));
         };
 
         const updateGhButtons = () => {
-            for (const button of ghButtons)
-                button.set_sensitive(!ghBusy);
+            const ownerButtons = [...owners.values()].map(owner => owner.discoverButton);
+            for (const button of [discoverButton, addButton, ...ownerButtons])
+                button?.set_sensitive(!ghBusy);
             if (saveButton)
                 saveButton.set_sensitive(!ghBusy);
         };
 
-        /** Rebuilds owner expanders while keeping their selection and expansion state. */
-        const renderOwners = () => {
-            ownersGroup.remove(ownerStatus);
-            for (const owner of owners.values()) {
-                if (owner.row) {
-                    owner.expanded = owner.row.get_expanded();
-                    ownersGroup.remove(owner.row);
-                }
-            }
+        /** Creates an owner's block with its header; fillOwnerGroup() builds its rows. */
+        const createOwnerGroup = owner => {
+            const group = new Adw.PreferencesGroup({title: owner.login});
+            owner.group = group;
+            owner.groupRows = [];
 
-            ghButtons = [discoverButton, addButton];
-            const orderedOwners = [...owners.values()].sort((first, second) => {
-                const rank = owner => owner.kind === 'user'
-                    ? 0
-                    : owner.kind === 'organization' ? 1 : 2;
-                return rank(first) - rank(second) || first.login.localeCompare(second.login);
+            const header = new Gtk.Box({spacing: 6, valign: Gtk.Align.CENTER});
+            const removeButton = new Gtk.Button({
+                icon_name: 'user-trash-symbolic',
+                valign: Gtk.Align.CENTER,
+                tooltip_text: 'Remove this owner',
+            });
+            removeButton.add_css_class('flat');
+            const enabledSwitch = new Gtk.Switch({
+                active: owner.enabled,
+                valign: Gtk.Align.CENTER,
+                tooltip_text: 'Include this owner in monitoring',
+            });
+            header.append(removeButton);
+            header.append(enabledSwitch);
+            group.set_header_suffix(header);
+
+            enabledSwitch.connect('notify::active', () => {
+                owner.enabled = enabledSwitch.get_active();
+                ownerSettingsTouched = true;
+                owner.syncEnabled();
+                group.set_description(ownerDescription(owner));
+                updateOwnerStatus();
+            });
+            // Removal, like every change here, only applies on Save preferences.
+            removeButton.connect('clicked', () => {
+                owners.delete(owner.login.toLowerCase());
+                page.remove(group);
+                ownerSettingsTouched = true;
+                updateOwnerStatus(owner.login + ' will be removed when you save.');
             });
 
-            for (const owner of orderedOwners) {
-                // A paused owner has no repository choices to make, so it does not expand.
-                const row = new Adw.ExpanderRow({
-                    title: owner.login,
-                    enable_expansion: owner.enabled,
-                });
-                owner.row = row;
-                row.set_expanded(owner.expanded ?? false);
-                row.connect('notify::expanded', () => {
-                    owner.expanded = row.get_expanded();
-                });
-                owner.repositoryRows = new Map();
-                const enabledSwitch = new Gtk.Switch({
-                    active: owner.enabled,
-                    valign: Gtk.Align.CENTER,
-                    tooltip_text: 'Include this owner in monitoring',
-                });
-                row.add_action(enabledSwitch);
-                const removeButton = new Gtk.Button({
-                    icon_name: 'user-trash-symbolic',
-                    valign: Gtk.Align.CENTER,
-                    tooltip_text: 'Remove this owner',
-                });
-                removeButton.add_css_class('flat');
-                row.add_action(removeButton);
-                // Removal, like every change here, only applies on Save preferences.
-                removeButton.connect('clicked', () => {
-                    // renderOwners() only takes out rows of owners still listed.
-                    ownersGroup.remove(owner.row);
-                    owners.delete(owner.login.toLowerCase());
-                    ownerSettingsTouched = true;
-                    renderOwners();
-                    updateOwnerStatus(owner.login + ' will be removed when you save.');
-                });
-                enabledSwitch.connect('notify::active', () => {
-                    owner.enabled = enabledSwitch.get_active();
-                    row.set_enable_expansion(owner.enabled);
-                    ownerSettingsTouched = true;
-                    updateOwnerSubtitle(owner);
-                    updateOwnerStatus();
-                });
+            fillOwnerGroup(owner);
+            return group;
+        };
 
-                const modeRow = new Adw.ComboRow({
-                    title: 'Repositories',
-                    subtitle: REPOSITORY_MODE_HINTS[owner.mode],
-                    model: Gtk.StringList.new(REPOSITORY_MODE_LABELS),
-                    selected: REPOSITORY_MODES.indexOf(owner.mode),
-                });
-                row.add_row(modeRow);
+        /**
+         * (Re)builds an owner's rows in place, so the page keeps its scroll position:
+         * (1) discover the owner's repositories, (2) choose what to monitor once they are known,
+         * (3) turn repositories on or off. A paused owner's rows are greyed out.
+         */
+        function fillOwnerGroup(owner) {
+            const group = owner.group;
+            for (const row of owner.groupRows.splice(0))
+                group.remove(row);
+            const loaded = owner.availableRepositories !== null;
+            group.set_description(ownerDescription(owner));
+            owner.repositoryRows = new Map();
 
-                const loadRow = new Adw.ActionRow({
-                    title: 'Repository selection',
-                    subtitle: owner.ghStatus || 'Load repositories to choose a subset.',
-                });
-                const loadButton = new Gtk.Button({
-                    label: 'Load repositories',
-                    valign: Gtk.Align.CENTER,
-                });
-                loadRow.add_suffix(loadButton);
-                loadRow.set_activatable_widget(loadButton);
-                row.add_row(loadRow);
-                ghButtons.push(loadButton);
+            const discoverRepositoriesRow = new Adw.ActionRow({
+                title: 'Repositories',
+                subtitle: owner.ghStatus || (loaded
+                    ? owner.availableRepositories.length + ' found'
+                    : 'Not loaded yet. Discover them to choose some.'),
+            });
+            const discoverRepositoriesButton = new Gtk.Button({
+                label: 'Discover',
+                valign: Gtk.Align.CENTER,
+            });
+            discoverRepositoriesRow.add_suffix(discoverRepositoriesButton);
+            discoverRepositoriesRow.set_activatable_widget(discoverRepositoriesButton);
+            discoverRepositoriesButton.set_sensitive(!ghBusy);
+            owner.discoverButton = discoverRepositoriesButton;
+            group.add(discoverRepositoriesRow);
 
-                const searchRow = new Adw.ActionRow({title: 'Filter repositories'});
-                const repositorySearch = new Gtk.SearchEntry({
-                    placeholder_text: 'Repository name',
-                    width_chars: 22,
-                    valign: Gtk.Align.CENTER,
-                });
-                searchRow.add_suffix(repositorySearch);
-                row.add_row(searchRow);
+            // Choosing which repositories needs them listed, so the mode waits for Discover.
+            const modeRow = new Adw.ComboRow({
+                title: 'Monitor',
+                subtitle: loaded
+                    ? REPOSITORY_MODE_HINTS[owner.mode]
+                    : REPOSITORY_MODE_HINTS[owner.mode] + ' Discover the repositories to change it.',
+                model: Gtk.StringList.new(REPOSITORY_MODE_LABELS),
+                selected: REPOSITORY_MODES.indexOf(owner.mode),
+                sensitive: loaded,
+            });
+            group.add(modeRow);
 
-                const repositoryStatus = new Adw.ActionRow({
-                    title: 'Repositories not loaded',
-                    subtitle: 'Load the list to choose individual repositories.',
-                });
-                owner.repositoryStatus = repositoryStatus;
-                row.add_row(repositoryStatus);
+            const listRow = new Adw.ExpanderRow({
+                title: '',
+                visible: loaded && owner.mode !== 'all',
+                expanded: owner.listExpanded,
+            });
+            owner.listRow = listRow;
+            listRow.connect('notify::expanded', () => {
+                owner.listExpanded = listRow.get_expanded();
+            });
+            const searchRow = new Adw.ActionRow({title: 'Filter repositories'});
+            const repositorySearch = new Gtk.SearchEntry({
+                placeholder_text: 'Repository name',
+                width_chars: 22,
+                valign: Gtk.Align.CENTER,
+            });
+            searchRow.add_suffix(repositorySearch);
+            listRow.add_row(searchRow);
+            group.add(listRow);
 
-                const allRepositories = owner.mode === 'all';
-                loadRow.set_visible(!allRepositories);
-                searchRow.set_visible(!allRepositories && owner.repositoryListLoaded);
-                repositoryStatus.set_visible(!allRepositories);
-
-                const choices = repositoryChoices(owner);
-                for (const choice of choices) {
+            if (loaded) {
+                for (const choice of repositoryChoices(owner)) {
                     const name = choice.name;
-                    const repositoryName = name.slice(owner.login.length + 1);
-                    const subtitle = choice.visibility
-                        ? choice.visibility.toLowerCase()
-                        : choice.available ? '' : 'Saved selection not currently visible to gh';
                     const repositoryRow = new Adw.SwitchRow({
-                        title: repositoryName || name,
-                        subtitle,
+                        title: name.slice(owner.login.length + 1) || name,
+                        subtitle: choice.visibility
+                            ? choice.visibility.toLowerCase()
+                            : choice.available ? '' : 'Saved, but not visible to gh',
                         active: isMonitored(owner, name),
                     });
-                    repositoryRow.set_visible(!allRepositories && !owner.requiresRepositoryList);
-                    row.add_row(repositoryRow);
-                    owner.repositoryRows.set(name, {row: repositoryRow, available: choice.available});
+                    listRow.add_row(repositoryRow);
+                    owner.repositoryRows.set(name, repositoryRow);
                     repositoryRow.connect('notify::active', () => {
                         ownerSettingsTouched = true;
-                        updateRepositorySummary(owner);
+                        syncSelection(owner);
                     });
                 }
-
-                if (owner.availableRepositories !== null) {
-                    updateRepositorySummary(owner);
-                } else if (owner.mode !== 'all' && owner.repositoryRows.size > 0) {
-                    repositoryStatus.set_title(owner.repositoryRows.size + ' saved repositories');
-                    repositoryStatus.set_subtitle(
-                        (owner.mode === 'only'
-                            ? owner.repositories.length + ' selected'
-                            : owner.excludedRepositories.length + ' excluded') +
-                        ' · load to refresh availability'
-                    );
-                }
-
-                repositorySearch.connect('search-changed', () => {
-                    const query = repositorySearch.get_text().trim().toLowerCase();
-                    const hidden = owner.mode === 'all' || owner.requiresRepositoryList;
-                    for (const [name, choice] of owner.repositoryRows)
-                        choice.row.set_visible(!hidden && name.toLowerCase().includes(query));
-                });
-
-                // Switches keep their state across modes; only the rule for new repositories
-                // changes. Leaving All turns every switch on.
-                modeRow.connect('notify::selected', () => {
-                    const mode = REPOSITORY_MODES[modeRow.get_selected()] ?? 'all';
-                    const previousMode = owner.mode;
-                    owner.mode = mode;
-                    const all = mode === 'all';
-                    const loaded = owner.availableRepositories !== null;
-                    if (all || previousMode === 'all') {
-                        owner.repositories = [];
-                        owner.excludedRepositories = [];
-                        for (const choice of owner.repositoryRows.values())
-                            choice.row.set_active(true);
-                    }
-                    if (loaded) {
-                        owner.selectionBase = null;
-                        owner.requiresRepositoryList = false;
-                    } else {
-                        // Without the list, the monitored set stays the one of the base mode:
-                        // everything when leaving All, else the first list mode switched from.
-                        // It is converted once the list loads, and saving waits for it.
-                        if (all)
-                            owner.selectionBase = null;
-                        else if (previousMode === 'all')
-                            owner.selectionBase = 'except';
-                        else
-                            owner.selectionBase ??= previousMode;
-                        owner.requiresRepositoryList = owner.selectionBase !== null &&
-                            owner.selectionBase !== mode;
-                    }
-                    if (!all && loaded)
-                        updateRepositorySummary(owner);
-
-                    ownerSettingsTouched = true;
-                    modeRow.set_subtitle(REPOSITORY_MODE_HINTS[mode]);
-                    loadRow.set_visible(!all);
-                    searchRow.set_visible(!all && owner.repositoryListLoaded);
-                    repositoryStatus.set_visible(!all);
-                    // Switches stay hidden until a pending conversion has its list.
-                    const query = repositorySearch.get_text().trim().toLowerCase();
-                    const hidden = all || owner.requiresRepositoryList;
-                    for (const [name, choice] of owner.repositoryRows)
-                        choice.row.set_visible(!hidden && name.toLowerCase().includes(query));
-                    updateOwnerSubtitle(owner);
-                    updateOwnerStatus();
-                    if (!all && owner.availableRepositories === null)
-                        loadRepositories(owner);
-                });
-
-                loadButton.connect('clicked', () => loadRepositories(owner));
-                updateOwnerSubtitle(owner);
-                ownersGroup.add(row);
+                syncSelection(owner);
             }
 
-            ownersGroup.add(ownerStatus);
+            repositorySearch.connect('search-changed', () => {
+                const query = repositorySearch.get_text().trim().toLowerCase();
+                for (const [name, row] of owner.repositoryRows)
+                    row.set_visible(name.toLowerCase().includes(query));
+            });
+
+            // Switches keep their state between All except and Only; only the rule for new
+            // repositories changes. Leaving All turns every switch on.
+            modeRow.connect('notify::selected', () => {
+                const mode = REPOSITORY_MODES[modeRow.get_selected()] ?? 'all';
+                if (mode === owner.mode)
+                    return;
+                const previousMode = owner.mode;
+                owner.mode = mode;
+                if (mode === 'all' || previousMode === 'all') {
+                    owner.repositories = [];
+                    owner.excludedRepositories = [];
+                    for (const row of owner.repositoryRows.values())
+                        row.set_active(true);
+                }
+                syncSelection(owner);
+                ownerSettingsTouched = true;
+                modeRow.set_subtitle(REPOSITORY_MODE_HINTS[mode]);
+                listRow.set_visible(mode !== 'all');
+                if (mode !== 'all')
+                    listRow.set_expanded(true);
+            });
+
+            owner.groupRows = [discoverRepositoriesRow, modeRow, listRow];
+            owner.syncEnabled = () => {
+                for (const row of owner.groupRows)
+                    row.set_sensitive(owner.enabled && (row !== modeRow || loaded));
+            };
+            owner.syncEnabled();
+            discoverRepositoriesButton.connect('clicked', () => loadRepositories(owner));
+        }
+
+        /** Lays the owner blocks out in order, between the owners group and the Save group. */
+        const renderOwners = () => {
+            for (const group of ownerGroups.splice(0))
+                page.remove(group);
+            page.remove(saveGroup);
+            page.remove(aboutGroup);
+
+            for (const owner of owners.values()) {
+                const group = owner.group ?? createOwnerGroup(owner);
+                ownerGroups.push(group);
+                page.add(group);
+            }
+
+            page.add(saveGroup);
+            page.add(aboutGroup);
             updateOwnerStatus();
             updateGhButtons();
         };
@@ -506,9 +482,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         function loadRepositories(owner) {
             if (ghBusy)
                 return;
-            owner.ghStatus = 'Loading repositories…';
-            owner.row.set_subtitle(owner.login + ' · Loading repositories…');
-            owner.repositoryStatus?.set_subtitle('Running gh repo list for ' + owner.login + '.');
+            owner.ghStatus = 'Running gh repo list for ' + owner.login + '…';
+            fillOwnerGroup(owner);
 
             startGhTask(async requestGeneration => {
                 const output = await runGh([
@@ -530,28 +505,13 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         available: true,
                     }))
                     .sort((first, second) => first.name.localeCompare(second.name));
-                owner.repositoryListLoaded = true;
-                owner.ghStatus = owner.availableRepositories.length + ' repositories loaded';
-                if (owner.requiresRepositoryList) {
-                    // Keeps the monitored set of the base mode, now that it can be listed.
-                    const names = owner.availableRepositories.map(repository => repository.name);
-                    const monitored = owner.selectionBase === 'only'
-                        ? names.filter(name => owner.repositories.includes(name))
-                        : names.filter(name => !owner.excludedRepositories.includes(name));
-                    if (owner.mode === 'only')
-                        owner.repositories = monitored;
-                    else
-                        owner.excludedRepositories = names.filter(name => !monitored.includes(name));
-                    owner.requiresRepositoryList = false;
-                }
-                owner.selectionBase = null;
-                renderOwners();
-            }, () => {
-                owner.ghStatus = 'Could not load repositories. Check gh auth status.';
-                owner.repositoryStatus?.set_title('Could not load repositories');
-                owner.repositoryStatus?.set_subtitle(owner.ghStatus);
-                if (owner.row)
-                    owner.row.set_subtitle(owner.login + ' · ' + owner.ghStatus);
+                owner.ghStatus = '';
+                fillOwnerGroup(owner);
+            }, error => {
+                owner.ghStatus = error?.ghResult
+                    ? describeGhFailure(error.ghResult).message
+                    : 'Could not list the repositories. Check that gh is installed and authenticated.';
+                fillOwnerGroup(owner);
             });
         }
 
@@ -581,19 +541,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         if (existing.kind === 'owner')
                             existing.kind = candidate.kind;
                     } else {
-                        owners.set(key, {
-                            ...candidate,
-                            enabled: firstDiscovery,
-                            mode: 'all',
-                            repositories: [],
-                            excludedRepositories: [],
-                            availableRepositories: null,
-                            repositoryListLoaded: false,
-                            requiresRepositoryList: false,
-                            selectionBase: null,
-                            repositoryRows: new Map(),
-                            ghStatus: '',
-                        });
+                        owners.set(key, createOwner(candidate, firstDiscovery));
                     }
                 }
 
@@ -615,9 +563,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             }
             const key = login.toLowerCase();
             if (owners.has(key)) {
-                const existing = owners.get(key);
-                existing.row.set_expanded(true);
-                updateOwnerStatus(existing.enabled
+                updateOwnerStatus(owners.get(key).enabled
                     ? login + ' is already listed.'
                     : login + ' is already listed but paused; turn it on to choose its repositories.');
                 return;
@@ -632,24 +578,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 if (requestGeneration !== taskGeneration || owners.has(key))
                     return;
 
-                owners.set(key, {
-                    login,
-                    kind: {User: 'user', Organization: 'organization'}[type] ?? 'owner',
-                    enabled: true,
-                    mode: 'all',
-                    repositories: [],
-                    excludedRepositories: [],
-                    availableRepositories: null,
-                    repositoryListLoaded: false,
-                    requiresRepositoryList: false,
-                    selectionBase: null,
-                    repositoryRows: new Map(),
-                    ghStatus: '',
-                });
+                // A new owner's block comes first, where the user is looking.
+                const kind = {User: 'user', Organization: 'organization'}[type] ?? 'owner';
+                owners = new Map([[key, createOwner({login, kind}, true)], ...owners]);
                 ownerEntry.set_text('');
                 ownerSettingsTouched = true;
                 renderOwners();
-                owners.get(key).row.set_expanded(true);
                 updateOwnerStatus(login + ' added.');
             }, error => {
                 const result = error?.ghResult;
@@ -680,18 +614,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 shortcutRow.add_css_class('error');
                 shortcutRow.grab_focus();
                 return;
-            }
-
-            if (ownerSettingsTouched) {
-                for (const owner of owners.values()) {
-                    if (owner.enabled && owner.requiresRepositoryList &&
-                        !owner.repositoryListLoaded) {
-                        owner.row.set_expanded(true);
-                        owner.ghStatus = 'Load repositories before saving a custom selection.';
-                        owner.row.set_subtitle(owner.login + ' · ' + owner.ghStatus);
-                        return;
-                    }
-                }
             }
 
             settings.delay();
