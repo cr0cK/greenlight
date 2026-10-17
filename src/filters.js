@@ -55,24 +55,30 @@ export function normalizeOwnerFilters(filters) {
             continue;
         }
 
-        // Duplicates merge into the wider scope: a repository stays excluded only if no
-        // duplicate watches it.
-        existing.enabled = existing.enabled || owner.enabled;
-        if (existing.repositories === null || owner.repositories === null) {
+        if (existing.enabled !== owner.enabled) {
+            // A paused duplicate must not widen what the enabled one watches.
+            if (owner.enabled) {
+                existing.enabled = true;
+                existing.repositories = owner.repositories;
+                existing.excludedRepositories = owner.excludedRepositories;
+            }
+        } else if (existing.repositories === null || owner.repositories === null) {
+            // Duplicates merge into the wider scope: a repository stays excluded only if no
+            // duplicate watches it.
             const [all, other] = existing.repositories === null
                 ? [existing, owner]
                 : [owner, existing];
+            const has = (names, name) => names.some(entry => entry.toLowerCase() === name.toLowerCase());
             existing.excludedRepositories = all.excludedRepositories.filter(name =>
                 other.repositories === null
-                    ? other.excludedRepositories.includes(name)
-                    : !other.repositories.includes(name)
+                    ? has(other.excludedRepositories, name)
+                    : !has(other.repositories, name)
             );
             existing.repositories = null;
         } else {
-            existing.repositories = [...new Set([
-                ...existing.repositories,
-                ...owner.repositories,
-            ])];
+            existing.repositories = ownerRepositories(
+                [...existing.repositories, ...owner.repositories], key
+            );
         }
         if (existing.kind === 'owner' && owner.kind !== 'owner')
             existing.kind = owner.kind;
