@@ -3,11 +3,19 @@ const MAX_QUERY_LENGTH = 220;
 // gh search returns at most 1000 results, whatever the limit asked.
 const MAX_SEARCH_LIMIT = 1000;
 
-/** Keeps the unique strings of a saved list that name a repository of this owner. */
+/**
+ * Keeps the strings of a saved list that name a repository of this owner, once each whatever
+ * their case, since GitHub names are case-insensitive.
+ */
 function ownerRepositories(names, key) {
-    return [...new Set(names.filter(repository =>
-        typeof repository === 'string' && repository.toLowerCase().startsWith(key + '/')
-    ))];
+    const unique = new Map();
+    for (const repository of names) {
+        if (typeof repository !== 'string' || !repository.toLowerCase().startsWith(key + '/'))
+            continue;
+        if (!unique.has(repository.toLowerCase()))
+            unique.set(repository.toLowerCase(), repository);
+    }
+    return [...unique.values()];
 }
 
 /**

@@ -1026,7 +1026,8 @@ export default class GreenlightExtension extends Extension {
      */
     _renderPreview() {
         this._previewItem?.destroy();
-        this._setPointerCursor(false);
+        // Rendering happens under a resting pointer, so keep the cursor a hovered row asked for.
+        this._setPointerCursor(this._pullRequestItems.some(row => row.hover));
         const state = this._previewState;
         const inList = state?.source === 'list';
         const section = inList ? this._contentSection : this._quickOpenSection;
