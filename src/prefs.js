@@ -288,7 +288,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             });
 
             for (const owner of orderedOwners) {
-                const row = new Adw.ExpanderRow({title: owner.login});
+                // A paused owner has no repository choices to make, so it does not expand.
+                const row = new Adw.ExpanderRow({
+                    title: owner.login,
+                    enable_expansion: owner.enabled,
+                });
                 owner.row = row;
                 row.set_expanded(owner.expanded ?? false);
                 row.connect('notify::expanded', () => {
@@ -303,24 +307,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 row.add_action(enabledSwitch);
                 enabledSwitch.connect('notify::active', () => {
                     owner.enabled = enabledSwitch.get_active();
+                    row.set_enable_expansion(owner.enabled);
                     ownerSettingsTouched = true;
                     updateOwnerSubtitle(owner);
                     updateOwnerStatus();
-                });
-
-                const removeButton = new Gtk.Button({
-                    label: 'Remove',
-                    valign: Gtk.Align.CENTER,
-                    tooltip_text: 'Remove this owner from preferences',
-                });
-                row.add_action(removeButton);
-                removeButton.connect('clicked', () => {
-                    ownersGroup.remove(owner.row);
-                    owners.delete(owner.login.toLowerCase());
-                    ownerSettingsTouched = true;
-                    renderOwners();
-                    updateOwnerStatus();
-                    updateGhButtons();
                 });
 
                 const modeRow = new Adw.ComboRow({
