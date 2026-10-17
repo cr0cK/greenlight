@@ -68,10 +68,14 @@ def labels(number):
 def search(args):
     repositories = {repository.lower() for repository in option(args, '--repo')}
     owners = {owner.lower() for owner in option(args, '--owner')}
+    excluded = {term[len('-repo:'):].lower() for term in args[args.index('--') + 1:]
+                if term.startswith('-repo:')} if '--' in args else set()
     rows = []
     for index, (repository, number, title, author, draft, _) in enumerate(PULL_REQUESTS):
         owner = repository.split('/')[0]
         if repository.lower() not in repositories and owner.lower() not in owners:
+            continue
+        if repository.lower() in excluded:
             continue
         rows.append({
             'number': number,
@@ -83,7 +87,7 @@ def search(args):
             'updatedAt': f'2026-10-10T{12 - index:02d}:00:00Z',
             'labels': labels(number),
         })
-    print(json.dumps(rows))
+    print(json.dumps(rows[:int((option(args, '--limit') or [1000])[0])]))
 
 
 def checks(args):
