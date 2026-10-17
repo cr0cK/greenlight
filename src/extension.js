@@ -714,6 +714,9 @@ export default class GreenlightExtension extends Extension {
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             overlay_scrollbars: true,
         });
+        // The overlay scrollbar is drawn over the last pixels of the rows, next to their open
+        // icon; this gutter keeps it clear of the rows and lines them up with the quick open field.
+        this._contentSection.box.style = 'padding-right: 12px;';
         this._contentScrollView.set_child(this._contentSection.box);
         this._contentScrollView._delegate = this._contentSection;
         this._contentSection.actor = this._contentScrollView;
