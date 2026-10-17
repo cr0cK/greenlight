@@ -30,6 +30,13 @@ test('reads exclusions only for owners watching every repository', () => {
     assert.deepEqual(legacy.excludedRepositories, []);
 });
 
+test('keeps one spelling of a repository whatever its case', () => {
+    const [owner] = normalizeOwnerFilters([
+        {login: 'acme', repositories: null, excludedRepositories: ['acme/Web', 'ACME/web', 'acme/api']},
+    ]);
+    assert.deepEqual(owner.excludedRepositories, ['acme/Web', 'acme/api']);
+});
+
 test('merges duplicate owners into the wider scope', () => {
     const merge = (...owners) => normalizeOwnerFilters(owners)[0];
     assert.deepEqual(merge(

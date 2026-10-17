@@ -82,14 +82,18 @@ function isMonitored(owner, name) {
     return !owner.excludedRepositories.includes(name);
 }
 
-/** Keeps the saved scope of the selected mode only, in the shape filters.js stores. */
+/**
+ * Keeps the saved scope of the selected mode only, in the shape filters.js stores. A paused
+ * owner can be saved before its list loads; it then keeps the selection it had.
+ */
 function savedOwner(owner) {
+    const mode = owner.requiresRepositoryList ? owner.selectionBase : owner.mode;
     return {
         login: owner.login,
         kind: owner.kind,
         enabled: owner.enabled,
-        repositories: owner.mode === 'only' ? owner.repositories : null,
-        excludedRepositories: owner.mode === 'except' ? owner.excludedRepositories : [],
+        repositories: mode === 'only' ? owner.repositories : null,
+        excludedRepositories: mode === 'except' ? owner.excludedRepositories : [],
     };
 }
 
@@ -200,6 +204,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 availableRepositories: null,
                 repositoryListLoaded: false,
                 requiresRepositoryList: false,
+                selectionBase: null,
                 repositoryRows: new Map(),
                 ghStatus: '',
             });
@@ -229,9 +234,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     : 'GitHub owner';
             const noun = names => names.length === 1 ? ' repository' : ' repositories';
             const {repositories, excludedRepositories: excluded} = owner;
-            const scope = owner.mode === 'only'
+            // Until a pending conversion loads its list, the kept selection is the base one.
+            const mode = owner.requiresRepositoryList ? owner.selectionBase : owner.mode;
+            const scope = mode === 'only'
                 ? repositories.length + ' selected' + noun(repositories)
-                : owner.mode === 'except' && excluded.length > 0
+                : mode === 'except' && excluded.length > 0
                     ? 'All except ' + excluded.length + noun(excluded)
                     : 'All repositories';
             owner.row.set_subtitle(
@@ -361,7 +368,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         subtitle,
                         active: isMonitored(owner, name),
                     });
-                    repositoryRow.set_visible(!allRepositories);
+                    repositoryRow.set_visible(!allRepositories && !owner.requiresRepositoryList);
                     row.add_row(repositoryRow);
                     owner.repositoryRows.set(name, {row: repositoryRow, available: choice.available});
                     repositoryRow.connect('notify::active', () => {
@@ -384,9 +391,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
                 repositorySearch.connect('search-changed', () => {
                     const query = repositorySearch.get_text().trim().toLowerCase();
-                    const all = owner.mode === 'all';
+                    const hidden = owner.mode === 'all' || owner.requiresRepositoryList;
                     for (const [name, choice] of owner.repositoryRows)
-                        choice.row.set_visible(!all && name.toLowerCase().includes(query));
+                        choice.row.set_visible(!hidden && name.toLowerCase().includes(query));
                 });
 
                 // Switches keep their state across modes; only the rule for new repositories
@@ -403,10 +410,22 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         for (const choice of owner.repositoryRows.values())
                             choice.row.set_active(true);
                     }
-                    // Without the list, the new mode's selection can only be derived from the
-                    // old one once the list loads, and saving waits for it.
-                    owner.requiresRepositoryList = !all && !loaded &&
-                        (previousMode !== 'all' || mode === 'only');
+                    if (loaded) {
+                        owner.selectionBase = null;
+                        owner.requiresRepositoryList = false;
+                    } else {
+                        // Without the list, the monitored set stays the one of the base mode:
+                        // everything when leaving All, else the first list mode switched from.
+                        // It is converted once the list loads, and saving waits for it.
+                        if (all)
+                            owner.selectionBase = null;
+                        else if (previousMode === 'all')
+                            owner.selectionBase = 'except';
+                        else
+                            owner.selectionBase ??= previousMode;
+                        owner.requiresRepositoryList = owner.selectionBase !== null &&
+                            owner.selectionBase !== mode;
+                    }
                     if (!all && loaded)
                         updateRepositorySummary(owner);
 
@@ -415,9 +434,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     loadRow.set_visible(!all);
                     searchRow.set_visible(!all && owner.repositoryListLoaded);
                     repositoryStatus.set_visible(!all);
+                    // Switches stay hidden until a pending conversion has its list.
                     const query = repositorySearch.get_text().trim().toLowerCase();
+                    const hidden = all || owner.requiresRepositoryList;
                     for (const [name, choice] of owner.repositoryRows)
-                        choice.row.set_visible(!all && name.toLowerCase().includes(query));
+                        choice.row.set_visible(!hidden && name.toLowerCase().includes(query));
                     updateOwnerSubtitle(owner);
                     updateOwnerStatus();
                     if (!all && owner.availableRepositories === null)
@@ -488,17 +509,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 owner.repositoryListLoaded = true;
                 owner.ghStatus = owner.availableRepositories.length + ' repositories loaded';
                 if (owner.requiresRepositoryList) {
-                    // Keeps the monitored set of the mode the user switched from.
+                    // Keeps the monitored set of the base mode, now that it can be listed.
                     const names = owner.availableRepositories.map(repository => repository.name);
-                    if (owner.mode === 'only') {
-                        owner.repositories = names
-                            .filter(name => !owner.excludedRepositories.includes(name));
-                    } else if (owner.mode === 'except') {
-                        owner.excludedRepositories = names
-                            .filter(name => !owner.repositories.includes(name));
-                    }
+                    const monitored = owner.selectionBase === 'only'
+                        ? names.filter(name => owner.repositories.includes(name))
+                        : names.filter(name => !owner.excludedRepositories.includes(name));
+                    if (owner.mode === 'only')
+                        owner.repositories = monitored;
+                    else
+                        owner.excludedRepositories = names.filter(name => !monitored.includes(name));
                     owner.requiresRepositoryList = false;
                 }
+                owner.selectionBase = null;
                 renderOwners();
             }, () => {
                 owner.ghStatus = 'Could not load repositories. Check gh auth status.';
@@ -544,6 +566,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                             availableRepositories: null,
                             repositoryListLoaded: false,
                             requiresRepositoryList: false,
+                            selectionBase: null,
                             repositoryRows: new Map(),
                             ghStatus: '',
                         });
@@ -568,8 +591,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             }
             const key = login.toLowerCase();
             if (owners.has(key)) {
-                owners.get(key).row.set_expanded(true);
-                updateOwnerStatus(login + ' is already listed.');
+                const existing = owners.get(key);
+                existing.row.set_expanded(true);
+                updateOwnerStatus(existing.enabled
+                    ? login + ' is already listed.'
+                    : login + ' is already listed but paused; turn it on to choose its repositories.');
                 return;
             }
 
@@ -583,6 +609,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 availableRepositories: null,
                 repositoryListLoaded: false,
                 requiresRepositoryList: false,
+                selectionBase: null,
                 repositoryRows: new Map(),
                 ghStatus: '',
             });
