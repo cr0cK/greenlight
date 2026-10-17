@@ -83,11 +83,16 @@ function repositoryMode(owner) {
     return owner.excludedRepositories.length > 0 ? 'except' : 'all';
 }
 
+/** Finds a repository in a saved list; GitHub names are case-insensitive. */
+function includesRepository(names, name) {
+    return names.some(candidate => candidate.toLowerCase() === name.toLowerCase());
+}
+
 /** Tells whether a repository row starts on, which always means monitored. */
 function isMonitored(owner, name) {
     if (owner.mode === 'only')
-        return owner.repositories.includes(name);
-    return !owner.excludedRepositories.includes(name);
+        return includesRepository(owner.repositories, name);
+    return !includesRepository(owner.excludedRepositories, name);
 }
 
 /** Keeps the saved scope of the selected mode only, in the shape filters.js stores. */
@@ -110,10 +115,10 @@ function repositoryChoices(owner) {
     if (available === null)
         return saved.map(name => ({name, available: false}));
 
-    const choices = new Map(available.map(repository => [repository.name, repository]));
+    const choices = new Map(available.map(repository => [repository.name.toLowerCase(), repository]));
     for (const name of saved) {
-        if (!choices.has(name))
-            choices.set(name, {name, visibility: '', available: false});
+        if (!choices.has(name.toLowerCase()))
+            choices.set(name.toLowerCase(), {name, visibility: '', available: false});
     }
     return [...choices.values()];
 }
@@ -288,14 +293,17 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const removeButton = new Gtk.Button({
                 icon_name: 'user-trash-symbolic',
                 valign: Gtk.Align.CENTER,
-                tooltip_text: 'Remove this owner',
+                tooltip_text: 'Remove ' + owner.login,
             });
             removeButton.add_css_class('flat');
             const enabledSwitch = new Gtk.Switch({
                 active: owner.enabled,
                 valign: Gtk.Align.CENTER,
-                tooltip_text: 'Include this owner in monitoring',
+                tooltip_text: 'Monitor ' + owner.login,
             });
+            // Icon and switch alone do not say which owner they act on.
+            removeButton.update_property([Gtk.AccessibleProperty.LABEL], ['Remove ' + owner.login]);
+            enabledSwitch.update_property([Gtk.AccessibleProperty.LABEL], ['Monitor ' + owner.login]);
             header.append(removeButton);
             header.append(enabledSwitch);
             group.set_header_suffix(header);
@@ -310,6 +318,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             // Removal, like every change here, only applies on Save preferences.
             removeButton.connect('clicked', () => {
                 owners.delete(owner.login.toLowerCase());
+                ownerGroups.splice(ownerGroups.indexOf(group), 1);
                 page.remove(group);
                 ownerSettingsTouched = true;
                 updateOwnerStatus(owner.login + ' will be removed when you save.');
@@ -538,8 +547,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     const key = candidate.login.toLowerCase();
                     const existing = owners.get(key);
                     if (existing) {
-                        if (existing.kind === 'owner')
+                        if (existing.kind === 'owner') {
                             existing.kind = candidate.kind;
+                            existing.group?.set_description(ownerDescription(existing));
+                        }
                     } else {
                         owners.set(key, createOwner(candidate, firstDiscovery));
                     }
