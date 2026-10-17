@@ -5,6 +5,23 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.2.0](https://github.com/cr0cK/greenlight/compare/v1.1.0...v1.2.0) (2026-10-17)
+
+
+### Added
+
+* explain gh errors and missing owners under Refresh now ([#24](https://github.com/cr0cK/greenlight/issues/24)) ([57da40d](https://github.com/cr0cK/greenlight/commit/57da40d04dd860a3cae19a4ace3b1c768db790ee))
+* give each owner its own block with discover, mode, and repositories ([#27](https://github.com/cr0cK/greenlight/issues/27)) ([2f45cde](https://github.com/cr0cK/greenlight/commit/2f45cde7ac5ec4ecf7b745391b4ff2a3ae10457d))
+* open list previews on click instead of hover ([#22](https://github.com/cr0cK/greenlight/issues/22)) ([e09a79d](https://github.com/cr0cK/greenlight/commit/e09a79d2813a493d0f82494592cda4da09ccc2e7))
+* show pull request labels ([#18](https://github.com/cr0cK/greenlight/issues/18)) ([664cf99](https://github.com/cr0cK/greenlight/commit/664cf9968b0639b72868feb77942f00b0b1d8e02))
+* watch all repositories of an owner except a few ([#20](https://github.com/cr0cK/greenlight/issues/20)) ([1d94ec7](https://github.com/cr0cK/greenlight/commit/1d94ec71df542ad085379a8dfa57d58f00f9d49e))
+
+
+### Fixed
+
+* keep a paused duplicate owner from widening an enabled one ([#28](https://github.com/cr0cK/greenlight/issues/28)) ([f0f11da](https://github.com/cr0cK/greenlight/commit/f0f11da3e6f4ed7846566f7db1d8402957354411))
+* keep repository selections and the cursor right in edge cases ([#23](https://github.com/cr0cK/greenlight/issues/23)) ([6bfe94c](https://github.com/cr0cK/greenlight/commit/6bfe94ce195a17d71e6ba087df7a5bcc16789120))
+
 ## [1.1.0](https://github.com/cr0cK/greenlight/compare/v1.0.2...v1.1.0) (2026-10-12)
 
 
