@@ -1,29 +1,34 @@
 /**
  * Explains a failed gh call in words a user can act on. gh exits with 4 when it has no
- * authentication; the other cases are only told apart by their message.
+ * authentication; the other cases are only told apart by their message. `detail` keeps gh's own
+ * first error line for the log: it tells a primary rate limit from a secondary one, and names
+ * the endpoint.
  */
 export function describeGhFailure({exitCode, stderr}) {
     const text = stderr ?? '';
+    const detail = text.split('\n').map(part => part.trim()).find(Boolean) ?? null;
     if (exitCode === 4 || /gh auth login|HTTP 401|bad credentials/i.test(text)) {
         return {
             kind: 'auth',
             message: 'gh is not signed in to GitHub. Run gh auth login in a terminal, then refresh.',
+            detail,
         };
     }
     if (/rate limit/i.test(text)) {
         return {
             kind: 'rate-limit',
             message: 'GitHub rate limit reached. Greenlight tries again at the next refresh.',
+            detail,
         };
     }
     if (/could not resolve|no such host|dial tcp|connection refused|network is unreachable|timeout|TLS/i
         .test(text))
-        return {kind: 'network', message: 'Could not reach GitHub. Check the network connection.'};
+        return {kind: 'network', message: 'Could not reach GitHub. Check the network connection.', detail};
 
-    const line = text.split('\n').map(part => part.trim()).find(Boolean);
     return {
         kind: 'other',
-        message: line ? 'gh failed: ' + line : 'gh failed with exit code ' + exitCode + '.',
+        message: detail ? 'gh failed: ' + detail : 'gh failed with exit code ' + exitCode + '.',
+        detail,
     };
 }
 

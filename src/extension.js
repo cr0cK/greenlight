@@ -239,8 +239,11 @@ function wrapLabel(label) {
     label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
 }
 
-/** A static row with an icon and wrapped text, for errors and warnings under Refresh now. */
-function createNoticeItem(iconName, color, text) {
+/**
+ * A static row with an icon and wrapped text, for errors and warnings under Refresh now. An
+ * optional detail, such as gh's own error line, goes dimmed under the text.
+ */
+function createNoticeItem(iconName, color, text, detail = null) {
     const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
     item.add_child(new St.Icon({
         icon_name: iconName,
@@ -248,10 +251,17 @@ function createNoticeItem(iconName, color, text) {
         style: 'color: ' + color + ';',
         y_align: Clutter.ActorAlign.START,
     }));
-    const label = new St.Label({text, x_expand: true, style: 'max-width: 34em;'});
+    const box = new St.BoxLayout({vertical: true, x_expand: true, style: 'spacing: 2px;'});
+    const label = new St.Label({text, style: 'max-width: 34em;'});
     wrapLabel(label);
-    item.add_child(label);
-    item.accessible_name = text;
+    box.add_child(label);
+    if (detail) {
+        const detailLabel = createDimLabel(detail, {style: 'max-width: 34em; font-size: smaller;'});
+        wrapLabel(detailLabel);
+        box.add_child(detailLabel);
+    }
+    item.add_child(box);
+    item.accessible_name = detail ? text + ' ' + detail : text;
     return item;
 }
 
@@ -284,6 +294,8 @@ export default class GreenlightExtension extends Extension {
         this._processes = new Map();
         this._loading = false;
         this._error = null;
+        // gh's own error line for the failure above, shown dimmed under it.
+        this._errorDetail = null;
         // Owners and repositories the last check could not find, shown under Refresh now.
         this._unreachable = [];
         this._prs = [];
@@ -482,6 +494,7 @@ export default class GreenlightExtension extends Extension {
 
         this._loading = true;
         this._error = null;
+        this._errorDetail = null;
         this._renderMenu();
 
         const authorFilter = this._settings.get_string('author-filter').trim();
@@ -651,13 +664,19 @@ export default class GreenlightExtension extends Extension {
             if (!this._enabled)
                 return;
 
-            if (error.ghResult)
-                this._error = describeGhFailure(error.ghResult).message;
-            else if (!GLib.find_program_in_path('gh'))
+            if (error.ghResult) {
+                const failure = describeGhFailure(error.ghResult);
+                this._error = failure.message;
+                // The other kind already quotes gh's line in its message.
+                if (failure.kind !== 'other' && failure.detail)
+                    this._errorDetail = 'gh: ' + failure.detail;
+            } else if (!GLib.find_program_in_path('gh')) {
                 this._error = 'gh is not installed or not on PATH. Install the GitHub CLI, then refresh.';
-            else
+            } else {
                 this._error = 'Could not refresh pull requests. Check gh auth status in a terminal.';
-            console.error('Greenlight: failed to read pull requests: ' + this._error);
+            }
+            console.error('Greenlight: failed to read pull requests: ' + this._error +
+                (this._errorDetail ? ' ' + this._errorDetail : ''));
         } finally {
             if (this._enabled) {
                 this._loading = false;
@@ -1460,8 +1479,10 @@ export default class GreenlightExtension extends Extension {
         refreshItem.connect('activate', () => this._refresh());
         this._refreshSection.addMenuItem(refreshItem);
 
-        if (this._error)
-            this._refreshSection.addMenuItem(createNoticeItem('dialog-error-symbolic', '#e66100', this._error));
+        if (this._error) {
+            this._refreshSection.addMenuItem(createNoticeItem('dialog-error-symbolic', '#e66100',
+                this._error, this._errorDetail));
+        }
         if (this._unreachable.length > 0) {
             this._refreshSection.addMenuItem(createNoticeItem('dialog-warning-symbolic', '#cd9309',
                 'Not found on GitHub or not visible to gh: ' + this._unreachable.join(', ') +

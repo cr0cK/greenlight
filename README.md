@@ -76,7 +76,7 @@ Each pull request row shows its labels in their GitHub colors, its author, Draft
 
 Each refresh first checks, in one `gh api graphql` request, that the enabled owners and selected repositories still exist; any that do not are skipped and listed under **Refresh now**, with the rest still searched. Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. An owner with exclusions gets its own command with `-repo:` terms; exclusions that do not fit in the query are filtered from the results instead, and the search fetches more results until the owner's share is complete, so counts stay exact. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
-When a refresh fails, a row under **Refresh now** says why: `gh` missing from `PATH`, `gh` not signed in (run `gh auth login`), GitHub unreachable, or the rate limit; the last pull requests stay listed.
+When a refresh fails, a row under **Refresh now** says why: `gh` missing from `PATH`, `gh` not signed in (run `gh auth login`), GitHub unreachable, or the rate limit; the last pull requests stay listed. A dimmed line under the row quotes gh's own message, for example to tell a primary rate limit from a secondary one; the shell log keeps it too (`journalctl --user -b | grep Greenlight`).
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 
