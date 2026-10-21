@@ -9,11 +9,16 @@ test('explains gh failures by cause', () => {
     assert.equal(describeGhFailure({exitCode: 1, stderr: 'API rate limit exceeded'}).kind, 'rate-limit');
     assert.equal(describeGhFailure({
         exitCode: 1,
+        stderr: 'HTTP 403: You have exceeded a secondary rate limit.\nmore',
+    }).detail, 'HTTP 403: You have exceeded a secondary rate limit.');
+    assert.equal(describeGhFailure({
+        exitCode: 1,
         stderr: 'error connecting to api.github.com\ndial tcp: lookup api.github.com: no such host',
     }).kind, 'network');
     assert.deepEqual(describeGhFailure({exitCode: 1, stderr: '\n  Something odd\nmore'}),
-        {kind: 'other', message: 'gh failed: Something odd'});
-    assert.equal(describeGhFailure({exitCode: 2, stderr: ''}).message, 'gh failed with exit code 2.');
+        {kind: 'other', message: 'gh failed: Something odd', detail: 'Something odd'});
+    assert.deepEqual(describeGhFailure({exitCode: 2, stderr: ''}),
+        {kind: 'other', message: 'gh failed with exit code 2.', detail: null});
 });
 
 test('checks owners and selected repositories in one query, through variables', () => {

@@ -651,13 +651,20 @@ export default class GreenlightExtension extends Extension {
             if (!this._enabled)
                 return;
 
-            if (error.ghResult)
-                this._error = describeGhFailure(error.ghResult).message;
-            else if (!GLib.find_program_in_path('gh'))
+            let detail = null;
+            if (error.ghResult) {
+                const failure = describeGhFailure(error.ghResult);
+                this._error = failure.message;
+                // The other kind already quotes gh's line in its message.
+                if (failure.kind !== 'other')
+                    detail = failure.detail;
+            } else if (!GLib.find_program_in_path('gh')) {
                 this._error = 'gh is not installed or not on PATH. Install the GitHub CLI, then refresh.';
-            else
+            } else {
                 this._error = 'Could not refresh pull requests. Check gh auth status in a terminal.';
-            console.error('Greenlight: failed to read pull requests: ' + this._error);
+            }
+            console.error('Greenlight: failed to read pull requests: ' + this._error +
+                (detail ? ' gh: ' + detail : ''));
         } finally {
             if (this._enabled) {
                 this._loading = false;
