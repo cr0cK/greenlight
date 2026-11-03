@@ -26,7 +26,7 @@ The initial refresh establishes a baseline, so pull requests that are already gr
 
 ## Requirements
 
-- GNOME Shell 49
+- GNOME Shell 49 or 50
 - GitHub CLI (gh), authenticated for the account and host you want to monitor
 
 Check the GitHub CLI session with:
