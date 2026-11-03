@@ -5,6 +5,14 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.2.1](https://github.com/cr0cK/greenlight/compare/v1.2.0...v1.2.1) (2026-11-03)
+
+
+### Fixed
+
+* show gh's own message when a refresh fails ([#30](https://github.com/cr0cK/greenlight/issues/30)) ([aec9197](https://github.com/cr0cK/greenlight/commit/aec919768526bc1bd7ad1b5673bd758c97d5f777))
+* support GNOME Shell 50 ([#33](https://github.com/cr0cK/greenlight/issues/33)) ([1a6d475](https://github.com/cr0cK/greenlight/commit/1a6d475615b455e568bcd46c950868e93b89c989))
+
 ## [1.2.0](https://github.com/cr0cK/greenlight/compare/v1.1.0...v1.2.0) (2026-10-17)
 
 
