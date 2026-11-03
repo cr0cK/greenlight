@@ -43,7 +43,7 @@ glib-compile-schemas "$GSETTINGS_SCHEMA_DIR"
 # Eval and Screenshot refuse callers outside unsafe mode; this throwaway extension enables it.
 cat > "$EXTENSIONS/unsafe@screenshots/metadata.json" <<'JSON'
 {"uuid": "unsafe@screenshots", "name": "Unsafe mode", "description": "Screenshots only",
- "shell-version": ["49"]}
+ "shell-version": ["49", "50"]}
 JSON
 cat > "$EXTENSIONS/unsafe@screenshots/extension.js" <<'JS'
 export default class {

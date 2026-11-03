@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents working on Greenlight, a GNOME Shell 49 extension that monitors GitHub pull
+Guidance for AI agents working on Greenlight, a GNOME Shell 49 and 50 extension that monitors GitHub pull
 requests through the `gh` CLI. Read CONTRIBUTING.md for the human workflow; this file holds what
 the code does not tell you.
 

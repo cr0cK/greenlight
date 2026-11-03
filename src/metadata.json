@@ -3,7 +3,8 @@
   "name": "Greenlight",
   "description": "Watch your open GitHub pull requests from the top bar: review and CI status, a notification when checks pass, and quick open with inline previews of any issue or pull request.",
   "shell-version": [
-    "49"
+    "49",
+    "50"
   ],
   "url": "https://github.com/cr0cK/greenlight",
   "settings-schema": "org.gnome.shell.extensions.greenlight",
