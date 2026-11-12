@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Stand-in for Claude Code that serves fictional quota data, so screenshots show no real account.
+
+It answers only `claude -p /usage ... --output-format json`, the call Greenlight makes.
+"""
+import datetime
+import json
+import sys
+
+if sys.argv[1:3] != ['-p', '/usage']:
+    sys.exit('Unsupported claude call: ' + ' '.join(sys.argv[1:]))
+
+
+def reset(delta, with_date):
+    # Thirty seconds of margin keep the countdown on the same minute while the menu renders.
+    moment = datetime.datetime.now(datetime.timezone.utc) + delta + datetime.timedelta(seconds=30)
+    clock = moment.strftime('%I:%M%p').lstrip('0').lower()
+    return (moment.strftime('%b %d, ').replace(' 0', ' ') if with_date else '') + clock + ' (UTC)'
+
+
+result = '\n'.join([
+    'You are currently using your subscription to power your Claude Code usage',
+    '',
+    'Current session: 38% used · resets ' + reset(datetime.timedelta(hours=2, minutes=10), False),
+    'Current week (all models): 61% used · resets ' + reset(datetime.timedelta(days=1, hours=19), True),
+    'Current week (Fable): 9% used · resets ' + reset(datetime.timedelta(days=1, hours=19), True),
+])
+print(json.dumps({'type': 'result', 'is_error': False, 'num_turns': 0, 'total_cost_usd': 0,
+                  'result': result}))

@@ -17,12 +17,14 @@ new `src/*.js` modules on its own.
 | `src/quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
 | `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |
+| `src/quotas.js` | Agent quota parsing, labels, pace, and notification periods (pure) |
+| `src/agents.js` | Finds and runs the claude and codex CLIs for quotas; shared by extension and prefs |
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `tests/` | `node --test` suites for the pure modules |
 | `docs/specs/<CODE>.md` | Specs by topic, with their index in `docs/specs/README.md` and mockups in `docs/specs/mockups/` |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
-| `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/gh` |
+| `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/` (gh, claude, codex) |
 
 The pure modules import nothing from `gi://`, so `node --test` covers them. Keep new logic there
 when it can live without GNOME APIs.
@@ -103,6 +105,19 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   the data. Parse stdout before trusting the exit code.
 - Quick open makes no network call to open a number. GitHub redirects `/issues/<n>` to
   `/pull/<n>`.
+
+## Agent quota calls
+
+- Never read, store, or send an agent credential. Anthropic's terms forbid third-party apps to
+  collect or intermediate Claude.ai tokens, so quotas come from the unmodified CLIs:
+  `claude -p /usage` (with `--no-session-persistence` and `disableAllHooks`, it costs no tokens)
+  and `codex app-server` `account/rateLimits/read`.
+- GNOME Shell's `PATH` usually lacks `~/.local/bin`, where both CLIs install; `findCli` looks
+  there too.
+- `codex app-server` quits as soon as stdin closes, before answering: write the three messages
+  at once, keep stdin open, and stop the process after the response with id 2.
+- Signed out or on an API key, `claude -p /usage` still exits 0 and prints session costs; only
+  the `You are currently using your subscription` first line means quotas follow.
 
 ## Versions, releases, and docs
 

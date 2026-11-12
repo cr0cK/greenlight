@@ -21,6 +21,16 @@ import {
     rememberRepository,
 } from './quickopen.js';
 import {parseMarkdown} from './markdown.js';
+import {readQuota} from './agents.js';
+import {
+    PROVIDERS,
+    formatAge,
+    formatReset,
+    notificationTitle,
+    paceFraction,
+    readQuotaCache,
+    trackPeriods,
+} from './quotas.js';
 import {
     labelColors,
     lookupArguments,
@@ -42,6 +52,9 @@ const PREVIEW_FOCUS_DELAY_MS = 150;
 const PREVIEW_CACHE_US = 60 * GLib.USEC_PER_SEC;
 const PREVIEW_BAR_WIDTH = 140;
 const LOOKUP_LIMIT = 20;
+const QUOTA_BAR_WIDTH = 160;
+// Opening the menu refreshes quotas last tried longer ago than this.
+const QUOTA_STALE_SECONDS = 300;
 const QUOTE_COLORS = {
     note: '#4493f8',
     tip: '#3fb950',
@@ -303,6 +316,12 @@ export default class GreenlightExtension extends Extension {
         this._hasNoScopes = false;
         this._filterRefreshSourceId = 0;
         this._refreshAfterCurrent = false;
+        // Per provider: last windows and readAt, status, message, and the refresh in flight.
+        this._quotaState = {};
+        this._quotaNotified = [];
+        this._quotaSourceId = 0;
+        this._quotaShown = false;
+        this._loadQuotaCache();
 
         this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
         this._indicator.accessible_name = 'Greenlight';
@@ -337,10 +356,17 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::owner-filters', () => this._scheduleFilterRefresh()),
             this._settings.connect('changed::owner-filters-configured', () => this._scheduleFilterRefresh()),
             this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
+            ...Object.entries(PROVIDERS).map(([provider, {setting}]) =>
+                this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
+            this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
+            this._settings.connect('changed::agent-quota-threshold', () => this._renderQuotas()),
         ];
         this._renderMenu();
+        this._renderQuotas();
         this._refresh();
         this._scheduleRefresh();
+        this._refreshQuotas();
+        this._scheduleQuotaRefresh();
     }
 
     disable() {
@@ -353,6 +379,13 @@ export default class GreenlightExtension extends Extension {
         for (const signal of this._settingsSignals ?? [])
             this._settings.disconnect(signal);
         this._settingsSignals = [];
+        if (this._quotaSourceId) {
+            GLib.Source.remove(this._quotaSourceId);
+            this._quotaSourceId = 0;
+        }
+        for (const state of Object.values(this._quotaState ?? {}))
+            state.cancellable?.cancel();
+        this._quotaState = null;
         for (const entry of this._processes.values()) {
             if (entry.timeoutId)
                 GLib.Source.remove(entry.timeoutId);
@@ -392,6 +425,8 @@ export default class GreenlightExtension extends Extension {
         this._quickOpenSuggestions = [];
         this._contentSection = null;
         this._contentScrollView = null;
+        this._quotaSection = null;
+        this._quotaSeparator = null;
         this._pullRequestItems = [];
         this._cancellable = null;
     }
@@ -690,6 +725,257 @@ export default class GreenlightExtension extends Extension {
         }
     }
 
+    _quotaEnabled(provider) {
+        return this._settings.get_boolean(PROVIDERS[provider].setting);
+    }
+
+    /** Shows the last readings at once; the first refresh after startup replaces them. */
+    _loadQuotaCache() {
+        const cache = readQuotaCache(this._settings.get_string('agent-quota-cache'));
+        this._quotaNotified = cache.notified;
+        for (const [provider, entry] of Object.entries(cache.providers)) {
+            if (this._quotaEnabled(provider))
+                this._quotaState[provider] = {status: 'ok', ...entry};
+        }
+    }
+
+    _saveQuotaCache() {
+        const providers = {};
+        for (const [provider, state] of Object.entries(this._quotaState)) {
+            if (state.windows)
+                providers[provider] = {windows: state.windows, readAt: state.readAt};
+        }
+        this._settings.set_string('agent-quota-cache',
+            JSON.stringify({providers, notified: this._quotaNotified}));
+    }
+
+    _scheduleQuotaRefresh() {
+        if (!this._enabled)
+            return;
+        if (this._quotaSourceId)
+            GLib.Source.remove(this._quotaSourceId);
+
+        this._quotaSourceId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            this._settings.get_int('agent-quota-interval') * 60,
+            () => {
+                this._quotaSourceId = 0;
+                this._refreshQuotas();
+                this._scheduleQuotaRefresh();
+                return GLib.SOURCE_REMOVE;
+            }
+        );
+    }
+
+    _refreshQuotas() {
+        for (const provider of Object.keys(PROVIDERS)) {
+            if (this._quotaEnabled(provider))
+                this._refreshQuota(provider);
+        }
+    }
+
+    /** Opening the menu refreshes providers not tried for a few minutes. */
+    _refreshStaleQuotas() {
+        const now = Date.now() / 1000;
+        for (const provider of Object.keys(PROVIDERS)) {
+            const triedAt = this._quotaState[provider]?.triedAt ?? 0;
+            if (this._quotaEnabled(provider) && now - triedAt > QUOTA_STALE_SECONDS)
+                this._refreshQuota(provider);
+        }
+    }
+
+    /** A disabled provider forgets its reading, so enabling it again starts a quiet baseline. */
+    _onQuotaProviderChanged(provider) {
+        if (this._quotaEnabled(provider)) {
+            this._refreshQuota(provider);
+            return;
+        }
+        this._quotaState[provider]?.cancellable?.cancel();
+        delete this._quotaState[provider];
+        this._saveQuotaCache();
+        this._renderQuotas();
+    }
+
+    /** Reads one provider through its CLI; a refresh asked while one runs joins it. */
+    async _refreshQuota(provider) {
+        const state = this._quotaState[provider] ?? {};
+        this._quotaState[provider] = state;
+        if (state.cancellable)
+            return;
+
+        const cancellable = new Gio.Cancellable();
+        state.cancellable = cancellable;
+        state.triedAt = Date.now() / 1000;
+        let result;
+        try {
+            result = await readQuota(provider, {
+                version: this.metadata['version-name'] ?? '0',
+                cancellable,
+            });
+        } catch {
+            // Cancelled: the provider was disabled, or the extension was.
+            return;
+        } finally {
+            if (state.cancellable === cancellable)
+                state.cancellable = null;
+        }
+        if (!this._enabled || this._quotaState[provider] !== state || cancellable.is_cancelled())
+            return;
+
+        const now = Date.now() / 1000;
+        if (result.status === 'ok') {
+            // The first reading since the provider was enabled only sets the baseline.
+            const {notified, alerts} = trackPeriods({
+                provider,
+                windows: result.windows,
+                notified: this._quotaNotified,
+                threshold: this._settings.get_int('agent-quota-threshold'),
+                baseline: !state.windows,
+                now,
+            });
+            this._quotaNotified = notified;
+            Object.assign(state, {status: 'ok', windows: result.windows, readAt: now, message: null});
+            for (const window of alerts) {
+                const reset = formatReset(window, now);
+                Main.notify(notificationTitle(provider, window),
+                    reset.charAt(0).toUpperCase() + reset.slice(1));
+            }
+        } else {
+            state.status = result.status;
+            state.message = result.message;
+            console.log('Greenlight: ' + PROVIDERS[provider].name + ' quota ' + result.status +
+                ': ' + result.message);
+        }
+        this._saveQuotaCache();
+        this._renderQuotas();
+    }
+
+    /**
+     * Lists each shown provider's windows above the pull requests. Unavailable providers and
+     * providers without any reading are hidden; a failed refresh dims the last reading.
+     */
+    _renderQuotas() {
+        if (!this._quotaSection)
+            return;
+        this._quotaSection.removeAll();
+
+        const now = Date.now() / 1000;
+        const shown = Object.keys(PROVIDERS)
+            .filter(provider => this._quotaEnabled(provider))
+            .map(provider => [provider, this._quotaState[provider]])
+            .filter(([, state]) => state?.windows && state.status !== 'unavailable');
+        this._quotaShown = shown.length > 0;
+        this._updateQuotaVisibility();
+        if (shown.length === 0)
+            return;
+
+        const heading = new PopupMenu.PopupMenuItem('Agent quotas', {reactive: false, can_focus: false});
+        heading.label.set_style('font-weight: 600; padding-top: 5px;');
+        this._quotaSection.addMenuItem(heading);
+
+        for (const [provider, state] of shown) {
+            const dimmed = state.status === 'failed';
+            state.windows.forEach((window, index) => {
+                this._quotaSection.addMenuItem(this._createQuotaItem(
+                    index === 0 ? PROVIDERS[provider].name : '', window, now, dimmed));
+            });
+            if (dimmed) {
+                const cause = PROVIDERS[provider].name + ': ' + state.message + ' · last reading ' +
+                    formatAge(now - state.readAt);
+                const item = new PopupMenu.PopupBaseMenuItem({
+                    activate: false,
+                    hover: false,
+                    can_focus: false,
+                });
+                const label = createDimLabel(cause, {style: 'max-width: 34em; font-size: smaller;'});
+                wrapLabel(label);
+                item.add_child(label);
+                this._quotaSection.addMenuItem(item);
+            }
+        }
+
+        const oldest = Math.min(...shown.map(([, state]) => state.readAt));
+        const footer = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        footer.add_child(createDimLabel('Updated ' + formatAge(now - oldest), {style: 'font-size: smaller;'}));
+        this._quotaSection.addMenuItem(footer);
+    }
+
+    /** Quick open needs the room for its suggestions and preview while it has text. */
+    _updateQuotaVisibility() {
+        const typing = this._quickOpenEntry.get_text().trim() !== '';
+        this._quotaSection.actor.visible = !typing;
+        this._quotaSeparator.visible = this._quotaShown && !typing;
+    }
+
+    /** One window: provider, label, bar with its pace mark, percentage, and reset. */
+    _createQuotaItem(name, window, now, dimmed) {
+        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        const expired = window.resetsAt !== null && window.resetsAt <= now;
+        const used = expired ? 0 : window.usedPercent;
+        const threshold = this._settings.get_int('agent-quota-threshold');
+        const color = dimmed
+            ? '#77767b'
+            : used >= 100 ? '#c01c28' : used >= threshold ? '#e5a50a' : '#26a269';
+
+        item.add_child(new St.Label({
+            text: name,
+            style: 'min-width: 4.5em; font-weight: bold;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        item.add_child(createDimLabel(window.label, {style: 'min-width: 3em;'}));
+
+        const track = new St.BoxLayout({
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'width: ' + QUOTA_BAR_WIDTH + 'px; height: 8px; border-radius: 4px;' +
+                ' background-color: rgba(127, 127, 127, 0.25);',
+        });
+        const fill = Math.round(used / 100 * QUOTA_BAR_WIDTH);
+        if (fill > 0) {
+            track.add_child(new St.Widget({
+                style: 'width: ' + fill + 'px; height: 8px; border-radius: 4px; background-color: ' +
+                    color + ';',
+            }));
+        }
+        const bar = new St.Widget({
+            layout_manager: new Clutter.BinLayout(),
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'width: ' + QUOTA_BAR_WIDTH + 'px; height: 16px;',
+        });
+        bar.add_child(track);
+        // The pace mark sits at the elapsed share of the window: the even-spending budget.
+        const pace = expired ? null : paceFraction(window, now);
+        if (pace !== null) {
+            const offset = Math.min(QUOTA_BAR_WIDTH - 2,
+                Math.max(0, Math.round(pace * QUOTA_BAR_WIDTH) - 1));
+            const markRow = new St.BoxLayout({
+                x_align: Clutter.ActorAlign.START,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            if (offset > 0)
+                markRow.add_child(new St.Widget({style: 'width: ' + offset + 'px; height: 16px;'}));
+            markRow.add_child(new St.Widget({
+                style: 'width: 2px; height: 16px; border-radius: 1px; background-color: #9a9996;',
+            }));
+            bar.add_child(markRow);
+        }
+        item.add_child(bar);
+
+        const percent = expired ? '' : Math.round(window.usedPercent) + ' %';
+        item.add_child(new St.Label({
+            text: percent,
+            style: 'min-width: 3.2em; text-align: right; font-weight: 600;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        const reset = formatReset(window, now);
+        item.add_child(createDimLabel(reset, {style: 'font-size: smaller;'}));
+        if (dimmed)
+            item.opacity = 140;
+        item.accessible_name = [name, window.label, percent ? percent + ' used' : '',
+            pace !== null ? Math.round(pace * 100) + ' % of the window elapsed' : '', reset]
+            .filter(Boolean).join(', ');
+        return item;
+    }
+
     _readCache() {
         try {
             const cache = JSON.parse(this._settings.get_string('state-cache'));
@@ -771,6 +1057,11 @@ export default class GreenlightExtension extends Extension {
         this._quickOpenSection = new PopupMenu.PopupMenuSection();
         menu.addMenuItem(this._quickOpenSection);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._quotaSection = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(this._quotaSection);
+        this._quotaSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this._quotaSeparator.visible = false;
+        menu.addMenuItem(this._quotaSeparator);
 
         // Only the pull request list scrolls, so the menu fits the screen while quick open,
         // its preview, and Preferences stay in view. The panel menu caps its height.
@@ -813,7 +1104,10 @@ export default class GreenlightExtension extends Extension {
         this._lookupCache = new Map();
 
         const text = this._quickOpenEntry.clutter_text;
-        text.connect('text-changed', () => this._renderQuickOpen());
+        text.connect('text-changed', () => {
+            this._renderQuickOpen();
+            this._updateQuotaVisibility();
+        });
         text.connect('activate', () => {
             const suggestion = this._quickOpenSuggestions.find(candidate => candidate.url);
             if (suggestion) {
@@ -832,6 +1126,9 @@ export default class GreenlightExtension extends Extension {
         menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
                 global.stage.set_key_focus(this._quickOpenEntry);
+                this._refreshStaleQuotas();
+                // Ages and countdowns move while the menu is closed.
+                this._renderQuotas();
             } else {
                 this._quickOpenEntry.set_text('');
                 this._setPreviewTarget(null);
@@ -1476,7 +1773,10 @@ export default class GreenlightExtension extends Extension {
             this._loading ? 'Refreshing…' : 'Refresh now',
             {reactive: !this._loading, can_focus: !this._loading}
         );
-        refreshItem.connect('activate', () => this._refresh());
+        refreshItem.connect('activate', () => {
+            this._refresh();
+            this._refreshQuotas();
+        });
         this._refreshSection.addMenuItem(refreshItem);
 
         if (this._error) {
