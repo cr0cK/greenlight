@@ -888,9 +888,13 @@ export default class GreenlightExtension extends Extension {
 
         for (const [provider, state] of shown) {
             const dimmed = state.status === 'failed';
+            // A long name takes its own line above its windows instead of the name column.
+            const ownLine = PROVIDERS[provider].nameOnOwnLine;
+            if (ownLine)
+                this._quotaSection.addMenuItem(this._createQuotaName(PROVIDERS[provider].name, dimmed));
             state.windows.forEach((window, index) => {
                 this._quotaSection.addMenuItem(this._createQuotaItem(
-                    index === 0 ? PROVIDERS[provider].name : '', window, now, dimmed));
+                    index === 0 && !ownLine ? PROVIDERS[provider].name : '', window, now, dimmed));
             });
             if (dimmed) {
                 const cause = PROVIDERS[provider].name + ': ' + state.message + ' · last reading ' +
@@ -918,6 +922,15 @@ export default class GreenlightExtension extends Extension {
         const typing = this._quickOpenEntry.get_text().trim() !== '';
         this._quotaSection.actor.visible = !typing;
         this._quotaSeparator.visible = this._quotaShown && !typing;
+    }
+
+    /** A provider's name on its own line, above its windows. */
+    _createQuotaName(name, dimmed) {
+        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        item.add_child(new St.Label({text: name, style: 'font-weight: bold;'}));
+        if (dimmed)
+            item.opacity = 140;
+        return item;
     }
 
     /** One window: provider, label, bar with its pace mark, percentage, and reset. */

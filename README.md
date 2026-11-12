@@ -21,7 +21,7 @@ A small GNOME Shell extension that watches your open GitHub pull requests and gi
 - Opens any issue or pull request of a watched repository from its number, with a configurable keyboard shortcut and an inline preview of its description and CI.
 - Sends a desktop notification when a pull request reaches a new green check run.
 - Lets you set the polling interval from 30 seconds to 10 minutes.
-- Optionally shows your Claude and Codex subscription quotas below the pull requests, with a pace mark and a notification at a threshold.
+- Optionally shows your Claude, Codex, and Antigravity (Gemini) subscription quotas below the pull requests, with a pace mark and a notification at a threshold.
 
 The initial refresh establishes a baseline, so pull requests that are already green do not trigger startup notifications. Changing the repository or author filter also establishes a quiet baseline. The search is capped at the 30 most recently updated open pull requests.
 
@@ -29,7 +29,7 @@ The initial refresh establishes a baseline, so pull requests that are already gr
 
 - GNOME Shell 49 or 50
 - GitHub CLI (gh), authenticated for the account and host you want to monitor
-- For agent quotas, optional: Claude Code signed in with a Claude subscription, and the Codex CLI signed in with ChatGPT
+- For agent quotas, optional: Claude Code signed in with a Claude subscription, the Codex CLI signed in with ChatGPT, and the Antigravity CLI (`agy`) signed in with Google
 
 Check the GitHub CLI session with:
 
@@ -80,7 +80,7 @@ Each refresh first checks, in one `gh api graphql` request, that the enabled own
 
 When a refresh fails, a row under **Refresh now** says why: `gh` missing from `PATH`, `gh` not signed in (run `gh auth login`), GitHub unreachable, or the rate limit; the last pull requests stay listed. A dimmed line under the row quotes gh's own message, for example to tell a primary rate limit from a secondary one; the shell log keeps it too (`journalctl --user -b | grep Greenlight`).
 
-**Agent quotas** in Preferences turns on the Claude and Codex gauges. Greenlight never handles a credential: it asks each agent's own CLI, `claude -p /usage` (no tokens used, no session saved, no hooks run) and `codex app-server`, looking in `PATH` and then `~/.local/bin`. Opening Preferences checks both; a provider whose CLI is missing, signed out, or not on a subscription stays off, with what to do in its subtitle. In the menu, an **Agent quotas** section below the pull requests, above Preferences, shows one line per window (`5 h`, `Week`): the share used, a mark at the share of the window elapsed, which is the even-spending budget, and the reset time. The bar turns yellow at the notification threshold and red at 100 %. Quotas refresh every hour by default (15 minutes to 4 hours), with **Refresh now**, and when the menu opens after more than 5 minutes. A provider that becomes unavailable is hidden; one whose refresh fails keeps its last reading, dimmed, with the cause. Each window notifies once per period when it reaches the threshold (80 % by default); the first reading after enabling a provider never notifies.
+**Agent quotas** in Preferences turns on the Claude, Codex, and Antigravity gauges. Greenlight never handles a credential: it asks each agent's own CLI, `claude -p /usage` (no tokens used, no session saved, no hooks run) `codex app-server`, and `agy -p /usage` (Gemini models only; a signed-out `agy` never opens a browser), looking in `PATH` and then `~/.local/bin`. Opening Preferences checks each; a provider whose CLI is missing, signed out, or not on a subscription stays off, with what to do in its subtitle. In the menu, an **Agent quotas** section below the pull requests, above Preferences, shows one line per window (`5 h`, `Week`; Antigravity's name takes its own line above its windows): the share used, a mark at the share of the window elapsed, which is the even-spending budget, and the reset time. The bar turns yellow at the notification threshold and red at 100 %. Quotas refresh every hour by default (15 minutes to 4 hours), with **Refresh now**, and when the menu opens after more than 5 minutes. A provider that becomes unavailable is hidden; one whose refresh fails keeps its last reading, dimmed, with the cause. Each window notifies once per period when it reaches the threshold (80 % by default); the first reading after enabling a provider never notifies.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 

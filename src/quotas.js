@@ -5,7 +5,7 @@
  * `{slot, label, usedPercent, durationSeconds, resetsAt}`, with `resetsAt` in epoch seconds,
  * before anything is shown, notified, or stored. A window is identified by its slot, never by
  * its label: Claude has `session` and `week`, Codex `primary` and `secondary`, listed in that
- * order.
+ * order, and Antigravity `gemini-5h` and `gemini-weekly`.
  */
 
 const HOUR = 3600;
@@ -26,7 +26,19 @@ export const PROVIDERS = {
         slots: ['session', 'week']},
     codex: {name: 'Codex', command: 'codex', setting: 'codex-quota-enabled',
         slots: ['primary', 'secondary']},
+    // Antigravity's name takes its own line above its windows in the menu.
+    agy: {name: 'Antigravity', command: 'agy', setting: 'agy-quota-enabled',
+        slots: ['gemini-5h', 'gemini-weekly'], nameOnOwnLine: true},
 };
+
+/** Arguments for agy: `/usage` answers without an agent turn, so it costs no tokens. */
+export const AGY_ARGS = ['-p', '/usage', '--output-format', 'json'];
+
+/** The first words agy prints on stderr when it is signed out, before it waits for a browser. */
+export const AGY_SIGN_IN_PREFIX = 'Authentication required';
+
+/** The Gemini buckets of agy's `/usage`, by id, with the length of their window. */
+const AGY_BUCKETS = {'gemini-5h': SESSION, 'gemini-weekly': WEEK};
 
 export const MESSAGES = {
     claudeNotSubscribed: 'Claude Code is not signed in with a Claude subscription. Run claude, then /login.',
@@ -34,6 +46,9 @@ export const MESSAGES = {
     codexNotSignedIn: 'Codex is not signed in. Run codex login.',
     codexTooOld: 'This codex cannot report rate limits. Update Codex.',
     codexNoQuota: 'Codex reports no subscription quota. Sign in with ChatGPT: codex login.',
+    agyNotSignedIn: 'Antigravity is not signed in. Run agy and sign in.',
+    agyUnknown: 'Antigravity answered /usage in an unknown form. Update agy.',
+    agyNoQuota: 'Antigravity reports no Gemini quota for this account.',
 };
 
 const SUBSCRIPTION_LINE = 'You are currently using your subscription';
@@ -253,6 +268,56 @@ export function parseCodexResponse(message) {
         .map(slot => codexWindow(slot, bucket?.[slot]))
         .filter(Boolean);
     return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.codexNoQuota);
+}
+
+/** Reads a bucket's ISO 8601 `reset_time` as whole epoch seconds; null when it is not one. */
+function parseIsoTime(text) {
+    const milliseconds = typeof text === 'string' ? Date.parse(text) : NaN;
+    return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : null;
+}
+
+/**
+ * Reads a finished `agy -p /usage --output-format json` run. Stdout counts before the exit
+ * status: a `status` other than `SUCCESS` is a transient failure whose cause is the first line
+ * of `response`, or the status when that is empty. Output that is not JSON is a transient
+ * failure after a signal or a non-zero exit, and an unknown form after a zero one. The windows
+ * are the `gemini-5h` and `gemini-weekly` buckets of any group; the sign-in line on stderr is
+ * the runner's business, not this parser's.
+ */
+export function parseAgyRun({stdout, exitCode, signal}) {
+    let answer = null;
+    try {
+        answer = JSON.parse(stdout);
+    } catch {
+        // Handled below, once the exit status had its say.
+    }
+    const isAnswer = answer !== null && typeof answer === 'object' && !Array.isArray(answer);
+    if (isAnswer && typeof answer.status === 'string' && answer.status !== 'SUCCESS') {
+        return failed(typeof answer.response === 'string' && answer.response.trim()
+            ? firstLine(answer.response)
+            : answer.status);
+    }
+    if (signal)
+        return failed('killed by signal ' + signal);
+    if (exitCode !== 0)
+        return failed('exited with code ' + exitCode);
+    const groups = answer?.command?.data?.groups;
+    if (!isAnswer || answer.status !== 'SUCCESS' || !Array.isArray(groups))
+        return unavailable(MESSAGES.agyUnknown);
+
+    const found = new Map();
+    for (const group of groups) {
+        for (const bucket of Array.isArray(group?.buckets) ? group.buckets : []) {
+            // A disabled bucket has no fraction; other buckets (Claude and GPT models) are ignored.
+            if (!bucket || !Object.hasOwn(AGY_BUCKETS, bucket.id) || found.has(bucket.id) ||
+                !Number.isFinite(bucket.remaining_fraction))
+                continue;
+            found.set(bucket.id, createWindow(bucket.id, (1 - bucket.remaining_fraction) * 100,
+                AGY_BUCKETS[bucket.id], parseIsoTime(bucket.reset_time)));
+        }
+    }
+    const windows = PROVIDERS.agy.slots.filter(slot => found.has(slot)).map(slot => found.get(slot));
+    return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.agyNoQuota);
 }
 
 /** Share of the window elapsed, the even-spending budget; null without a length or reset. */

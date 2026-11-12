@@ -2,11 +2,15 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import {
+    AGY_ARGS,
+    AGY_SIGN_IN_PREFIX,
     CLAUDE_ARGS,
+    MESSAGES,
     PROVIDERS,
     codexMessages,
     failed,
     missingCliMessage,
+    parseAgyRun,
     parseClaudeRun,
     parseCodexResponse,
     unavailable,
@@ -14,6 +18,7 @@ import {
 
 const CLAUDE_TIMEOUT_SECONDS = 30;
 const CODEX_TIMEOUT_SECONDS = 15;
+const AGY_TIMEOUT_SECONDS = 30;
 
 function localBin() {
     return GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin']);
@@ -34,10 +39,13 @@ export function findCli(command) {
         : null;
 }
 
-/** Runs the CLI from home, with its own directory first in PATH for any helper it starts. */
-function spawn(path, args, flags) {
+/**
+ * Runs the CLI from home, with its own directory first in PATH for any helper it starts, after
+ * the directories in `leadingDirs`.
+ */
+function spawn(path, args, flags, leadingDirs = []) {
     const launcher = new Gio.SubprocessLauncher({flags});
-    const searchPath = [GLib.path_get_dirname(path), localBin(), GLib.getenv('PATH') ?? '']
+    const searchPath = [...leadingDirs, GLib.path_get_dirname(path), localBin(), GLib.getenv('PATH') ?? '']
         .filter(Boolean)
         .join(':');
     launcher.setenv('PATH', searchPath, true);
@@ -228,6 +236,166 @@ async function readCodex(path, version, cancellable) {
 }
 
 /**
+ * Writes the no-op `xdg-open` that keeps a signed-out agy from opening a browser: agy starts
+ * `xdg-open` from its PATH and ignores BROWSER. Returns the directory to put first in its PATH.
+ */
+function ensureNoBrowser() {
+    const directory = GLib.build_filenamev([GLib.get_user_cache_dir(), 'greenlight', 'no-browser']);
+    const script = GLib.build_filenamev([directory, 'xdg-open']);
+    const present = GLib.file_test(script, GLib.FileTest.IS_EXECUTABLE) &&
+        !GLib.file_test(script, GLib.FileTest.IS_DIR);
+    if (!present) {
+        if (GLib.mkdir_with_parents(directory, 0o755) !== 0)
+            throw new Error('cannot create ' + directory);
+        GLib.file_set_contents_full(script, '#!/bin/sh\nexit 0\n', GLib.FileSetContentsFlags.NONE, 0o755);
+        // The process umask may have narrowed the mode.
+        GLib.chmod(script, 0o755);
+    }
+    return directory;
+}
+
+/**
+ * Reads lines of agy's stderr until the sign-in line. Resolves true when it arrives, and false
+ * when the stream ends, fails, or is cancelled; it never rejects.
+ */
+function readSignInLine(stream, cancellable) {
+    return new Promise(resolve => {
+        const next = () => {
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
+                let line;
+                try {
+                    [line] = source.read_line_finish_utf8(result);
+                } catch {
+                    resolve(false);
+                    return;
+                }
+                if (line === null)
+                    resolve(false);
+                else if (line.startsWith(AGY_SIGN_IN_PREFIX))
+                    resolve(true);
+                else
+                    next();
+            });
+        };
+        next();
+    });
+}
+
+/** Reads a stream to its end as text; resolves null when it fails or is cancelled. */
+function readToEnd(stream, cancellable) {
+    return new Promise(resolve => {
+        const chunks = [];
+        const next = () => {
+            stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
+                let bytes;
+                try {
+                    bytes = source.read_bytes_finish(result);
+                } catch {
+                    resolve(null);
+                    return;
+                }
+                if (bytes.get_size() === 0) {
+                    const decoder = new TextDecoder();
+                    resolve(chunks.map(chunk => decoder.decode(chunk, {stream: true})).join('') +
+                        decoder.decode());
+                } else {
+                    chunks.push(bytes.toArray());
+                    next();
+                }
+            });
+        };
+        next();
+    });
+}
+
+/** Resolves true once the process has exited, false when `cancellable` cancels the wait. */
+function waitForExit(process, cancellable) {
+    return new Promise(resolve => {
+        process.wait_async(cancellable, (subprocess, result) => {
+            try {
+                subprocess.wait_finish(result);
+                resolve(true);
+            } catch {
+                resolve(false);
+            }
+        });
+    });
+}
+
+async function readAgy(path, cancellable) {
+    let process;
+    try {
+        process = spawn(path, AGY_ARGS, Gio.SubprocessFlags.STDIN_PIPE |
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE, [ensureNoBrowser()]);
+    } catch (error) {
+        return failed('could not start: ' + error.message);
+    }
+
+    // Reads stop on the caller's cancel, on the timeout, or at the sign-in line; either way the
+    // process goes.
+    const reading = new Gio.Cancellable();
+    let timedOut = false;
+    const clearTimeout = startTimeout(AGY_TIMEOUT_SECONDS, () => {
+        timedOut = true;
+        reading.cancel();
+    });
+    const cancelledId = cancellable.connect(() => reading.cancel());
+    const stdin = process.get_stdin_pipe();
+    const stdout = process.get_stdout_pipe();
+    const stderr = new Gio.DataInputStream({
+        base_stream: process.get_stderr_pipe(),
+        close_base_stream: true,
+    });
+
+    try {
+        stdin.close(null);
+    } catch {
+        // Already closed.
+    }
+    const signedOut = readSignInLine(stderr, reading);
+    const answer = readToEnd(stdout, reading);
+    const exited = waitForExit(process, reading);
+    try {
+        // The process ends on its own with an answer; signed out it waits for a browser instead.
+        const isSignedOut = await new Promise(resolve => {
+            signedOut.then(found => found && resolve(true));
+            Promise.all([answer, exited]).then(() => resolve(false));
+        });
+        if (cancellable.is_cancelled())
+            throw new Error('cancelled');
+        if (isSignedOut)
+            return unavailable(MESSAGES.agyNotSignedIn);
+        if (timedOut)
+            return failed('timed out');
+        const stdoutText = await answer;
+        if (stdoutText === null)
+            return failed('could not read the answer');
+        const wasExited = process.get_if_exited();
+        return parseAgyRun({
+            stdout: stdoutText,
+            exitCode: wasExited ? process.get_exit_status() : null,
+            signal: wasExited ? null : process.get_term_sig(),
+        });
+    } finally {
+        clearTimeout();
+        cancellable.disconnect(cancelledId);
+        // Cancelling ends the reads still pending; a stream is closed only once they settled.
+        reading.cancel();
+        await Promise.all([signedOut, answer, exited]);
+        for (const stream of [stdout, stderr]) {
+            try {
+                stream.close(null);
+            } catch {
+                // Already closed.
+            }
+        }
+        // Closing its pipes and SIGTERM end a signed-out agy, which then prints an error answer
+        // and exits.
+        process.send_signal(15);
+    }
+}
+
+/**
  * Reads one provider's quota through its own CLI. Resolves to `{status: 'ok', windows}`,
  * `{status: 'unavailable', message}`, or `{status: 'failed', message}`; rejects only when
  * `cancellable` is cancelled.
@@ -237,7 +405,7 @@ export function readQuota(provider, {version, cancellable}) {
     const path = findCli(command);
     if (!path)
         return Promise.resolve(unavailable(missingCliMessage(command)));
-    return provider === 'claude'
-        ? readClaude(path, cancellable)
-        : readCodex(path, version, cancellable);
+    if (provider === 'claude')
+        return readClaude(path, cancellable);
+    return provider === 'agy' ? readAgy(path, cancellable) : readCodex(path, version, cancellable);
 }
