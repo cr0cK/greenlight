@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Stand-in for the Antigravity CLI that serves a fictional Gemini quota, so screenshots show no
+real account.
+
+It answers only `agy -p /usage --output-format json`, the call Greenlight makes.
+"""
+import datetime
+import json
+import sys
+
+if sys.argv[1:] != ['-p', '/usage', '--output-format', 'json']:
+    sys.exit('Unsupported agy call: ' + ' '.join(sys.argv[1:]))
+
+
+def reset(delta):
+    moment = datetime.datetime.now(datetime.timezone.utc) + delta
+    return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def bucket(bucket_id, window, remaining, delta):
+    return {'id': bucket_id, 'window': window, 'remaining_fraction': remaining,
+            'reset_time': reset(delta)}
+
+
+gemini = {'name': 'Gemini Models', 'buckets': [
+    bucket('gemini-weekly', 'weekly', 1, datetime.timedelta(days=6, hours=22)),
+    bucket('gemini-5h', '5h', 0.96, datetime.timedelta(hours=4, minutes=50, seconds=30)),
+]}
+others = {'name': 'Claude and GPT models', 'buckets': [
+    bucket('3p-weekly', 'weekly', 0.8, datetime.timedelta(days=3)),
+    bucket('3p-5h', '5h', 0.9, datetime.timedelta(hours=2)),
+]}
+print(json.dumps({'conversation_id': '', 'status': 'SUCCESS', 'response': '', 'num_turns': 0,
+                  'command': {'name': 'usage', 'data': {'description': 'Model quota usage',
+                                                        'groups': [gemini, others]}}}))

@@ -54,6 +54,8 @@ const PREVIEW_CACHE_US = 60 * GLib.USEC_PER_SEC;
 const PREVIEW_BAR_WIDTH = 140;
 const LOOKUP_LIMIT = 20;
 const QUOTA_BAR_WIDTH = 160;
+// Static quota rows are tight so that, on a short screen, the pull request list keeps a few rows.
+const QUOTA_ITEM_STYLE = 'padding-top: 3px; padding-bottom: 3px;';
 // Opening the menu refreshes quotas last tried longer ago than this.
 const QUOTA_STALE_SECONDS = 300;
 const QUOTE_COLORS = {
@@ -883,23 +885,24 @@ export default class GreenlightExtension extends Extension {
             return;
 
         const heading = new PopupMenu.PopupMenuItem('Agent quotas', {reactive: false, can_focus: false});
-        heading.label.set_style('font-weight: 600; padding-top: 5px;');
+        heading.set_style(QUOTA_ITEM_STYLE);
+        heading.label.set_style('font-weight: 600; padding-top: 2px;');
         this._quotaSection.addMenuItem(heading);
 
         for (const [provider, state] of shown) {
             const dimmed = state.status === 'failed';
+            // A long name takes its own line above its windows instead of the name column.
+            const ownLine = PROVIDERS[provider].nameOnOwnLine;
+            if (ownLine)
+                this._quotaSection.addMenuItem(this._createQuotaName(PROVIDERS[provider].name, dimmed));
             state.windows.forEach((window, index) => {
                 this._quotaSection.addMenuItem(this._createQuotaItem(
-                    index === 0 ? PROVIDERS[provider].name : '', window, now, dimmed));
+                    index === 0 && !ownLine ? PROVIDERS[provider].name : '', window, now, dimmed));
             });
             if (dimmed) {
                 const cause = PROVIDERS[provider].name + ': ' + state.message + ' · last reading ' +
                     formatAge(now - state.readAt);
-                const item = new PopupMenu.PopupBaseMenuItem({
-                    activate: false,
-                    hover: false,
-                    can_focus: false,
-                });
+                const item = this._createQuotaRow();
                 const label = createDimLabel(cause, {style: 'max-width: 34em; font-size: smaller;'});
                 wrapLabel(label);
                 item.add_child(label);
@@ -908,7 +911,7 @@ export default class GreenlightExtension extends Extension {
         }
 
         const oldest = Math.min(...shown.map(([, state]) => state.readAt));
-        const footer = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        const footer = this._createQuotaRow();
         footer.add_child(createDimLabel('Updated ' + formatAge(now - oldest), {style: 'font-size: smaller;'}));
         this._quotaSection.addMenuItem(footer);
     }
@@ -920,9 +923,25 @@ export default class GreenlightExtension extends Extension {
         this._quotaSeparator.visible = this._quotaShown && !typing;
     }
 
+    /** A static row of the quota section: no activation, hover, or focus. */
+    _createQuotaRow() {
+        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        item.set_style(QUOTA_ITEM_STYLE);
+        return item;
+    }
+
+    /** A provider's name on its own line, above its windows. */
+    _createQuotaName(name, dimmed) {
+        const item = this._createQuotaRow();
+        item.add_child(new St.Label({text: name, style: 'font-weight: bold;'}));
+        if (dimmed)
+            item.opacity = 140;
+        return item;
+    }
+
     /** One window: provider, label, bar with its pace mark, percentage, and reset. */
     _createQuotaItem(name, window, now, dimmed) {
-        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        const item = this._createQuotaRow();
         const expired = window.resetsAt !== null && window.resetsAt <= now;
         const used = expired ? 0 : Math.round(window.usedPercent);
         const threshold = this._settings.get_int('agent-quota-threshold');

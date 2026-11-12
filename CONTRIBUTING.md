@@ -52,7 +52,7 @@ A change to the menu or the preferences window also regenerates the README scree
 scripts/screenshots.sh      # rewrites docs/screenshots/*.png
 ~~~
 
-It runs a headless GNOME Shell with `scripts/screenshots/gh`, `claude`, and `codex`, stand-ins for
+It runs a headless GNOME Shell with `scripts/screenshots/gh`, `claude`, `codex`, and `agy`, stand-ins for
 the real CLIs that serve fictional pull requests and quotas, so the images never show a real
 account. It needs ImageMagick.
 It crops `menu.png` and `quick-open.png` to the same size, because the README shows them side by

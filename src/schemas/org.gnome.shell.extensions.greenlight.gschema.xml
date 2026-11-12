@@ -42,6 +42,11 @@
       <summary>Show the Codex quota</summary>
       <description>Reads the Codex rate limits through codex app-server.</description>
     </key>
+    <key name="agy-quota-enabled" type="b">
+      <default>false</default>
+      <summary>Show the Antigravity quota</summary>
+      <description>Reads the Antigravity Gemini quota through agy -p /usage.</description>
+    </key>
     <key name="agent-quota-interval" type="i">
       <default>60</default>
       <summary>Agent quota refresh interval</summary>

@@ -18,13 +18,13 @@ new `src/*.js` modules on its own.
 | `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |
 | `src/quotas.js` | Agent quota parsing, labels, pace, and notification periods (pure) |
-| `src/agents.js` | Finds and runs the claude and codex CLIs for quotas; shared by extension and prefs |
+| `src/agents.js` | Finds and runs the claude, codex, and agy CLIs for quotas; shared by extension and prefs |
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `tests/` | `node --test` suites for the pure modules |
 | `docs/specs/<CODE>.md` | Specs by topic, with their index in `docs/specs/README.md` and mockups in `docs/specs/mockups/` |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
-| `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/` (gh, claude, codex) |
+| `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/` (gh, claude, codex, agy) |
 
 The pure modules import nothing from `gi://`, so `node --test` covers them. Keep new logic there
 when it can live without GNOME APIs.
@@ -120,6 +120,14 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   child of the CLI can hold it open. Give it its own cancellable and cancel that at the timeout.
 - Signed out or on an API key, `claude -p /usage` still exits 0 and prints session costs; only
   the `You are currently using your subscription` first line means quotas follow.
+- `agy -p /usage --output-format json` answers without an agent turn. Signed out, it prints
+  `Authentication required` on stderr, then starts `xdg-open` from its own `PATH` (it ignores
+  `BROWSER`) and waits: a real browser tab. The runner always puts a no-op `xdg-open`, written
+  mode 0755 under `~/.cache/greenlight/no-browser/`, first in its `PATH`, and ends the process
+  at the stderr line (pipes closed, then SIGTERM, like the Codex runner). Never run `agy`
+  signed out without it, and run the binary, not the shell alias that adds
+  `--dangerously-skip-permissions`. `communicate_utf8_async` cannot stop early, so stderr is read
+  line by line and stdout to its end.
 
 ## Versions, releases, and docs
 

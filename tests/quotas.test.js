@@ -7,8 +7,10 @@ import {
     formatAge,
     forgetPeriods,
     formatReset,
+    isAgySignInLine,
     notificationTitle,
     paceFraction,
+    parseAgyRun,
     parseClaudeReset,
     parseClaudeRun,
     parseCodexResponse,
@@ -183,6 +185,107 @@ test('tells an unusable codex from a transient failure', () => {
         {status: 'failed', message: 'upstream timeout'});
 });
 
+const bucket = (id, remaining, reset = '2026-11-19T10:53:04Z') => ({
+    id, window: id.endsWith('5h') ? '5h' : 'weekly', remaining_fraction: remaining, reset_time: reset,
+});
+const agyAnswer = (groups, extra = {}) => JSON.stringify({
+    conversation_id: '', status: 'SUCCESS', response: '', num_turns: 0,
+    command: {name: 'usage', data: {description: '', groups}}, ...extra,
+});
+const GEMINI = {name: 'Gemini Models', buckets: [
+    bucket('gemini-weekly', 0.9996, '2026-11-19T10:53:04Z'),
+    bucket('gemini-5h', 0.75, '2026-11-12T15:48:40Z'),
+]};
+const OTHER = {name: 'Claude and GPT models', buckets: [bucket('3p-weekly', 0.5), bucket('3p-5h', 0.5)]};
+const parseAgy = (stdout, exit = {}) => parseAgyRun(run(stdout, exit));
+
+test('reads the Gemini windows of agy /usage in slot order', () => {
+    // The weekly bucket comes first in the answer; the 5 h window still leads.
+    assert.deepEqual(parseAgy(agyAnswer([GEMINI, OTHER])), {
+        status: 'ok',
+        windows: [
+            {slot: 'gemini-5h', label: '5 h', usedPercent: 25, durationSeconds: 18000,
+                resetsAt: Date.UTC(2026, 10, 12, 15, 48, 40) / 1000},
+            {slot: 'gemini-weekly', label: 'Week', usedPercent: (1 - 0.9996) * 100,
+                durationSeconds: 604800, resetsAt: Date.UTC(2026, 10, 19, 10, 53, 4) / 1000},
+        ],
+    });
+    // The group's name does not matter, only the bucket ids.
+    const renamed = parseAgy(agyAnswer([{name: 'Anything', buckets: GEMINI.buckets}]));
+    assert.deepEqual(renamed.windows.map(window => window.slot), ['gemini-5h', 'gemini-weekly']);
+    // A used-up window reads 100, and an impossible fraction is clamped.
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 0)]}])).windows[0].usedPercent, 100);
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1.2)]}])).windows[0].usedPercent, 0);
+});
+
+test('shows only the agy buckets that carry a fraction', () => {
+    const disabled = {id: 'gemini-weekly', window: 'weekly', reset_time: '2026-11-19T10:53:04Z'};
+    const usage = parseAgy(agyAnswer([{buckets: [disabled, bucket('gemini-5h', 1)]}]));
+    assert.deepEqual(usage.windows.map(window => window.slot), ['gemini-5h']);
+    assert.equal(usage.windows[0].usedPercent, 0);
+    for (const remaining of ['0.5', null, NaN])
+        assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', remaining)]}])).status, 'unavailable');
+    // An unreadable reset time reads as none.
+    for (const invalid of ['soon', '2026-02-30T10:00:00Z', '2026-13-01T10:00:00Z', '2026-11-12T25:00:00Z',
+        '2026-11-12T10:00:00', '2026-11-12', 12])
+        assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, invalid)]}])).windows[0].resetsAt, null, String(invalid));
+    // An offset is read, and a leap day exists in a leap year only.
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2028-02-29T12:00:00+02:00')]}])).windows[0].resetsAt,
+        Date.UTC(2028, 1, 29, 10) / 1000);
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2027-02-29T12:00:00Z')]}])).windows[0].resetsAt, null);
+    assert.equal(parseAgy(agyAnswer([{buckets: [{id: 'gemini-5h', remaining_fraction: 1}]}])).windows[0].resetsAt, null);
+    // Whole epoch seconds keep periods storable in the cache.
+    const fractional = parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2026-11-12T15:48:40.900Z')]}]));
+    assert.equal(fractional.windows[0].resetsAt, Date.UTC(2026, 10, 12, 15, 48, 40) / 1000);
+    // The first bucket of a slot wins.
+    const twice = parseAgy(agyAnswer([GEMINI, {buckets: [bucket('gemini-5h', 0.1)]}]));
+    assert.equal(twice.windows[0].usedPercent, 25);
+});
+
+test('tells an unusable agy from a transient failure', () => {
+    const unknown = {status: 'unavailable', message: MESSAGES.agyUnknown};
+    const noQuota = {status: 'unavailable', message: MESSAGES.agyNoQuota};
+    // No Gemini Models group, or groups without a Gemini window.
+    assert.deepEqual(parseAgy(agyAnswer([OTHER])), noQuota);
+    assert.deepEqual(parseAgy(agyAnswer([])), noQuota);
+    assert.deepEqual(parseAgy(agyAnswer([{name: 'Gemini Models'}, null])), noQuota);
+    // No groups at all, or a SUCCESS in another form.
+    assert.deepEqual(parseAgy(JSON.stringify({status: 'SUCCESS', command: {data: {}}})), unknown);
+    assert.deepEqual(parseAgy(JSON.stringify({status: 'SUCCESS'})), unknown);
+    assert.deepEqual(parseAgy(JSON.stringify({command: {data: {groups: [GEMINI]}}})), unknown);
+    assert.deepEqual(parseAgy(JSON.stringify([GEMINI])), unknown);
+
+    // Output that is not JSON: unknown after a zero exit, transient after anything else.
+    assert.deepEqual(parseAgy('Usage: agy [options]'), unknown);
+    assert.deepEqual(parseAgy(''), unknown);
+    assert.deepEqual(parseAgy('5'), unknown);
+    assert.deepEqual(parseAgy('oops', {exitCode: 1}), {status: 'failed', message: 'exited with code 1'});
+    assert.deepEqual(parseAgy('', {exitCode: null, signal: 9}), {status: 'failed', message: 'killed by signal 9'});
+
+    // A status other than SUCCESS fails with the first line of the response, or the status.
+    const error = (extra, exit) => parseAgy(JSON.stringify({status: 'ERROR', ...extra}), exit);
+    assert.deepEqual(error({response: 'quota service down\nsee logs'}, {exitCode: 1}),
+        {status: 'failed', message: 'quota service down'});
+    assert.deepEqual(error({response: '  '}), {status: 'failed', message: 'ERROR'});
+    assert.deepEqual(error({}), {status: 'failed', message: 'ERROR'});
+    // Stdout is read before the exit status, and a good answer cannot hide a bad exit.
+    assert.deepEqual(error({response: 'no'}, {exitCode: 3}), {status: 'failed', message: 'no'});
+    assert.deepEqual(parseAgy(agyAnswer([GEMINI]), {exitCode: 2}),
+        {status: 'failed', message: 'exited with code 2'});
+    assert.deepEqual(parseAgy(agyAnswer([GEMINI]), {exitCode: null, signal: 15}),
+        {status: 'failed', message: 'killed by signal 15'});
+});
+
+test('recognizes the lines agy prints when it is signed out', () => {
+    assert.ok(isAgySignInLine('Authentication required. Please visit the URL to log in:'));
+    assert.ok(isAgySignInLine('Error: authentication required. Run \'agy\' to log in, then retry.'));
+    assert.ok(!isAgySignInLine('  https://accounts.google.com/o/oauth2/auth?access_type=offline'));
+    assert.ok(!isAgySignInLine('error: authentication failed or timed out'));
+    assert.ok(!isAgySignInLine('Waiting for authentication (timeout 60s)...'));
+    assert.ok(!isAgySignInLine('Authentication requirements changed'));
+    assert.ok(!isAgySignInLine(''));
+});
+
 test('places the pace mark at the elapsed share of the window', () => {
     const week = {durationSeconds: 604800, resetsAt: NOW + 2 * 86400};
     assert.equal(paceFraction(week, NOW), 5 / 7);
@@ -260,6 +363,25 @@ test('identifies a period by its slot, not by its label', () => {
 
     // A window whose length changed keeps its period, so it does not notify again.
     assert.deepEqual(track([window('primary', '5 h')], both.notified).alerts, []);
+});
+
+test('keeps agy periods apart by slot and stores them in the cache', () => {
+    const reset = NOW + 3600;
+    const windows = ['gemini-5h', 'gemini-weekly'].map(slot =>
+        ({slot, label: 'Week', usedPercent: 82, durationSeconds: 604800, resetsAt: reset}));
+    const tracked = trackPeriods({provider: 'agy', windows, notified: [], threshold: 80, baseline: false, now: NOW});
+    assert.deepEqual(tracked.notified, ['agy:gemini-5h:' + reset, 'agy:gemini-weekly:' + reset]);
+    assert.equal(notificationTitle('agy', windows[1]), 'Antigravity weekly quota at 82 %');
+    assert.equal(notificationTitle('agy', {...windows[0], label: '5 h'}), 'Antigravity 5-hour quota at 82 %');
+    assert.deepEqual(forgetPeriods(tracked.notified, 'agy'), []);
+
+    const cache = readQuotaCache(JSON.stringify({
+        providers: {agy: {windows, readAt: NOW}}, notified: tracked.notified,
+    }));
+    assert.deepEqual(cache, {providers: {agy: {windows, readAt: NOW}}, notified: tracked.notified});
+    // A Claude slot is not an Antigravity one.
+    const stray = JSON.stringify({providers: {agy: {windows: [{...windows[0], slot: 'session'}], readAt: NOW}}});
+    assert.deepEqual(readQuotaCache(stray).providers, {});
 });
 
 test('compares the rounded percentage with the threshold', () => {
