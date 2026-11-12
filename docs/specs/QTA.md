@@ -56,8 +56,8 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
   row; the next quota refresh tries again. Without any provider left to show, the section is
   absent. An unavailable answer forgets the provider's reading and marked periods, so its next
   reading sets a quiet baseline (see Notifications).
-- A transient failure (timeout, crash, a CLI that cannot start, any failure the Claude and Codex
-  sections below do not call unavailable) keeps the last reading, dimmed, with the cause and its age. A provider without any
+- A transient failure (timeout, crash, a CLI that cannot start, any failure the provider's
+  section below does not call unavailable) keeps the last reading, dimmed, with the cause and its age. A provider without any
   reading is hidden.
 - A restart shows the cached readings as they were read, undimmed, until the refresh at start
   answers; a failure's cause is not cached.
@@ -66,7 +66,8 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 
 - An **Agent quotas** section sits below the pull request list, right above **Preferences…**,
   when at least one enabled provider has a reading to show (see Availability), with a separator
-  on each side. Quick open stays right above the list.
+  on each side. Quick open stays right above the list. While the section is hidden, one
+  separator stays between the list and **Preferences…**.
   It hides while quick open has text, so the suggestions, the preview, and the list keep their
   room. It does not scroll: on a short screen the pull request list gives way, as QOP's menu
   height says. A result that lands while the menu is open redraws the section in place.
@@ -74,7 +75,8 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
   duration is labelled by its length (`1 d`, `30 d`, `90 min`), and a window without a duration reads
   `Quota`. A window is identified by its slot, not its label: `session` or `week` for Claude's
   lines, `primary` or `secondary` for Codex's windows, `gemini-5h` or `gemini-weekly` for Antigravity's.
-  Providers follow the order Claude, Codex, Antigravity, and lines follow that slot order:
+  Providers follow the order Claude, Codex, Antigravity, and lines follow that slot order,
+  whatever order the CLI answers in:
 
   ```text
   Claude  5 h   ███░░|░░░  38 %  resets in 2 h 10 min
@@ -85,7 +87,10 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
           Week  ░░░|░░░░░   0 %  resets Thu 11:53
   ```
 
-  A provider name that does not fit the name column takes its own line above its windows.
+  Antigravity's name takes its own line above its windows; Claude's and Codex's sit in the name
+  column.
+- Percentages show rounded to the nearest whole number; the bar colors and notifications use
+  that rounded value.
 
 - The bar fills with the used share. A pace mark (`|` above) shows the even-spending budget:
   `clamp(1 − (resetsAt − now) / duration, 0, 1)`. A fill past the mark means usage runs ahead of
@@ -125,8 +130,9 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 ## Finding the CLIs
 
 - GNOME Shell does not inherit the login shell's `PATH`, which usually lacks `~/.local/bin`,
-  where both CLIs install. Greenlight looks for `claude` and `codex` in `PATH`, then in
-  `~/.local/bin`, and runs them with their own directory first in `PATH`.
+  where the CLIs install. Greenlight looks for `claude`, `codex`, and `agy` in `PATH`, then in
+  `~/.local/bin`, and runs them with their own directory first in `PATH` (after the no-op
+  `xdg-open` directory for `agy`).
 
 ## Claude
 
@@ -170,22 +176,36 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 
 ## Antigravity
 
-- Runs `agy -p /usage --output-format json` with an argument array, a 30-second timeout, and
-  `BROWSER` set to `true`, so a signed-out run cannot open a browser. `/usage` in print mode
-  answers without an agent turn: it costs no tokens and leaves no conversation.
-- Reads stdout as it arrives. A line that starts with `Authentication required` (a signed-out
-  run waits for a browser sign-in) ends the process at once: Antigravity is unavailable.
-- Otherwise reads the JSON answer once the process exits. A `status` other than `SUCCESS` is a
+- Runs `agy -p /usage --output-format json` with an argument array, stdin closed, and a
+  30-second timeout. `/usage` in print mode answers without an agent turn: it costs no tokens
+  and leaves no conversation.
+- Signed out, agy prints `Authentication required. Please visit the URL to log in:` on stderr
+  within a second, starts `xdg-open` from its `PATH` on a Google sign-in page, and waits; it
+  ignores `BROWSER`. So Greenlight runs it with a directory first in its `PATH` that holds a
+  no-op `xdg-open`, which Greenlight writes, mode 0755, under its own cache directory
+  (`~/.cache/greenlight/no-browser/`) before the first run. A signed-out check never opens a
+  browser.
+- Reads stderr line by line as it arrives. A line that starts with `Authentication required`
+  ends the process at once, as the Codex runner does (pipes closed, then SIGTERM; agy then
+  prints an error answer and exits): Antigravity is unavailable. The same ending applies at the
+  timeout and on cancellation.
+- Otherwise reads the JSON answer on stdout once the process exits. A `status` other than `SUCCESS` is a
   transient failure whose cause is the first line of `response`, or the status when it is empty.
   Output that is not JSON is a transient failure after a non-zero exit, and unavailable after a
   zero one.
-- In `command.data.groups`, the group named `Gemini Models` holds the windows: its buckets with
-  `window` `5h` and `weekly` are the `gemini-5h` and `gemini-weekly` slots, labelled `5 h` (5
-  hours) and `Week` (7 days). The used share is `(1 − remaining_fraction) × 100`, and
-  `reset_time` is an ISO 8601 time. A bucket without a numeric `remaining_fraction`, such as a
-  disabled one, is not shown. Other groups are ignored.
-- Unavailable: the sign-in line, a JSON answer without a `Gemini Models` group holding a window,
-  or a zero exit with output that is not JSON.
+- The windows are the buckets in `command.data.groups[].buckets` whose `id` is `gemini-5h` or
+  `gemini-weekly`, whatever their group's name: the `gemini-5h` and `gemini-weekly` slots,
+  labelled `5 h` (5 hours) and `Week` (7 days). The used share is
+  `(1 − remaining_fraction) × 100`, and `reset_time` is an ISO 8601 time. A bucket without a
+  numeric `remaining_fraction`, such as a disabled one, is not shown. Other buckets are ignored.
+- A window nothing has used yet reports a reset of now plus its length, which moves with each
+  reading; it stays under **Notify at**, so it never notifies.
+- Unavailable:
+  - the sign-in line: `Antigravity is not signed in. Run agy and sign in.`;
+  - a `SUCCESS` answer without `command.data.groups`, or output that is not JSON after a zero
+    exit: `Antigravity answered /usage in an unknown form. Update agy.`;
+  - a `SUCCESS` answer with groups but no Gemini window to show:
+    `Antigravity reports no Gemini quota for this account.`
 
 ## Units
 
@@ -204,7 +224,7 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
   `Codex reports no subscription quota. Sign in with ChatGPT: codex login.`,
   `agy not found in PATH or ~/.local/bin`, `Antigravity is not signed in. Run agy and sign in.`,
   `Antigravity answered /usage in an unknown form. Update agy.`,
-  `Antigravity reports no Gemini quota. Update agy.`
+  `Antigravity reports no Gemini quota for this account.`
 - Transient causes, once per provider under its last dimmed line, as `<Provider>: <cause> ·
   last reading <age>`, the cause being `timed out`, `exited with code N`, `killed by signal N`,
   `could not start: <reason>`, or the CLI's own error message. A process ended at the timeout
@@ -244,6 +264,9 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
       message;
     - Codex crossing **Notify at** after a reading under it sends one notification; an
       unavailable answer then a reading above it sends none;
+    - the menu reads, from the top: **Refresh now**, quick open, the list, the section,
+      **Preferences…**; with the section hidden, one separator stays between the list and
+      **Preferences…**;
     - typing in quick open hides the section, and clearing it shows it again;
     - a reading past its reset shows `reset · waiting for a new reading`, without a percentage;
     - opening the menu reruns a provider whose last try the test ages past 5 minutes through
@@ -282,17 +305,25 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
     signed in, a disabled bucket, no `Gemini Models` group, a `status` other than `SUCCESS`, and
     output that is not JSON after a zero and a non-zero exit, with the slots, labels, used share,
     and reset times; and the `Antigravity weekly quota at 82 %` title.
-  - In a headless GNOME Shell with the real `agy` and a `PATH` without `~/.local/bin`:
-    Antigravity read and drawn after Claude and Codex, and its switch subtitled `Uses the agy
-    CLI`.
-  - With a scripted `agy` that prints the sign-in prompt and waits: Antigravity hidden in the
-    menu and its switch off and locked with `Antigravity is not signed in. Run agy and sign in.`
-    within 2 seconds, no browser started, and no `agy` process left.
+  - In a headless GNOME Shell on a machine signed in to the three CLIs, with a `PATH` without
+    `~/.local/bin`: Antigravity read and drawn after Claude and Codex, its name on its own line,
+    and its switch subtitled `Uses the agy CLI`.
+  - With the real `agy` signed out (the shell's `HOME` pointing at an empty directory):
+    Antigravity hidden in the menu, and its switch off and locked with `Antigravity is not
+    signed in. Run agy and sign in.` within 3 seconds; no browser window or tab opened (no new
+    browser process), the no-op `xdg-open` written mode 0755, and no `agy` process left.
+  - On a 1280x600 virtual monitor with the three providers, a row preview open, and a dimmed
+    provider with its cause: the section and **Preferences…** stay whole and the list
+    scrolls.
   - `scripts/screenshots.sh` serves a fictional Gemini quota through `scripts/screenshots/agy`,
     and the regenerated screenshots show the Antigravity lines and switch.
 - **Technical notes**:
-  - Read stdout line by line (`Gio.DataInputStream.read_line_async`), like the Codex runner,
-    so the sign-in line ends the process without waiting for the timeout.
+  - Pipe stdout and stderr: read stderr line by line (`Gio.DataInputStream.read_line_async`)
+    for the sign-in line, and stdout to its end; `communicate_utf8_async` cannot stop early.
+    Measured with agy 1.5.6: the sign-in line arrives in about 170 ms, and agy exits cleanly
+    on SIGTERM.
+  - `spawn()` in `src/agents.js` sets only `PATH` today; agy also needs the no-op `xdg-open`
+    directory first in it.
   - `agy` installs in `~/.local/bin` like the other CLIs; `findCli` already looks there.
   - Run `agy`, never a shell alias: the user's shell may alias it with
     `--dangerously-skip-permissions`, which `/usage` does not need.
