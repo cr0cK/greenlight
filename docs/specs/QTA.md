@@ -89,6 +89,9 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 
   Antigravity's name takes its own line above its windows; Claude's and Codex's sit in the name
   column.
+- Every row of the section (its heading, the provider names, the quota lines, the causes, and
+  the `Updated` line) has 3 px of padding above and below, less than the menu's other items, so
+  on a short screen the pull request list keeps its room.
 - Percentages show rounded to the nearest whole number; the bar colors and notifications use
   that rounded value.
 
@@ -185,14 +188,25 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
   no-op `xdg-open`, which Greenlight writes, mode 0755, under its own cache directory
   (`~/.cache/greenlight/no-browser/`) before the first run. A signed-out check never opens a
   browser.
-- Reads stderr line by line as it arrives. A line that starts with `Authentication required`
-  ends the process at once, as the Codex runner does (pipes closed, then SIGTERM; agy then
-  prints an error answer and exits): Antigravity is unavailable. The same ending applies at the
-  timeout and on cancellation.
-- Otherwise reads the JSON answer on stdout once the process exits. A `status` other than `SUCCESS` is a
-  transient failure whose cause is the first line of `response`, or the status when it is empty.
-  Output that is not JSON is a transient failure after a non-zero exit, and unavailable after a
-  zero one.
+- agy reports no HTTP status, so an **authentication error** is recognized by its text: one
+  that contains, ignoring case and as whole words, `authentication required`,
+  `authentication failed`, `unauthorized`, `unauthorised`, `unauthenticated`,
+  `not logged in`, or `not signed in`. A text that only mentions authentication or signing in,
+  such as `Authenticated successfully`, is not one. agy 1.5 prints two such lines on stderr:
+  the signed-out one above, and `Error: authentication required. Run 'agy' to log in, then
+  retry.` for a profile that signed in before but cannot reach its credentials now (then exits
+  1 with `status` `ERROR` and `error` `authentication failed or timed out`). Both mean
+  Antigravity must be signed in again.
+- Reads stderr line by line as it arrives. A line that is an authentication error ends the
+  process at once, as the Codex runner does (pipes closed, then SIGTERM; agy then prints an
+  error answer and exits): Antigravity is unavailable, so its reading and marked periods are
+  forgotten like any unavailable answer. The timeout and a cancellation end the process the
+  same way, but the timeout is a transient failure and a cancellation drops the result.
+- Otherwise reads the JSON answer on stdout once the process exits. A `status` other than
+  `SUCCESS` is an error: unavailable when its `error`, or the first line of `response`, is an
+  authentication error; otherwise a transient failure whose cause is the first line of `error`,
+  else of `response`, else the status. Output that is not JSON is a transient failure after a
+  non-zero exit, and unavailable after a zero one.
 - The windows are the buckets in `command.data.groups[].buckets` whose `id` is `gemini-5h` or
   `gemini-weekly`, whatever their group's name: the `gemini-5h` and `gemini-weekly` slots,
   labelled `5 h` (5 hours) and `Week` (7 days). The used share is
@@ -201,7 +215,8 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 - A window nothing has used yet reports a reset of now plus its length, which moves with each
   reading; it stays under **Notify at**, so it never notifies.
 - Unavailable:
-  - the sign-in line: `Antigravity is not signed in. Run agy and sign in.`;
+  - an authentication error, on stderr or in the answer: `Antigravity is not signed in. Run agy
+    and sign in.`;
   - a `SUCCESS` answer without `command.data.groups`, or output that is not JSON after a zero
     exit: `Antigravity answered /usage in an unknown form. Update agy.`;
   - a `SUCCESS` answer with groups but no Gemini window to show:
