@@ -116,6 +116,8 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   there too.
 - `codex app-server` quits as soon as stdin closes, before answering: write the three messages
   at once, keep stdin open, and stop the process after the response with id 2.
+- `communicate_utf8_async` returns only once stdout closes, even after the process is killed: a
+  child of the CLI can hold it open. Give it its own cancellable and cancel that at the timeout.
 - Signed out or on an API key, `claude -p /usage` still exits 0 and prints session costs; only
   the `You are currently using your subscription` first line means quotas follow.
 
