@@ -25,6 +25,7 @@ import {readQuota} from './agents.js';
 import {
     PROVIDERS,
     formatAge,
+    forgetPeriods,
     formatReset,
     notificationTitle,
     paceFraction,
@@ -733,9 +734,11 @@ export default class GreenlightExtension extends Extension {
     _loadQuotaCache() {
         const cache = readQuotaCache(this._settings.get_string('agent-quota-cache'));
         this._quotaNotified = cache.notified;
-        for (const [provider, entry] of Object.entries(cache.providers)) {
-            if (this._quotaEnabled(provider))
-                this._quotaState[provider] = {status: 'ok', ...entry};
+        for (const provider of Object.keys(PROVIDERS)) {
+            if (!this._quotaEnabled(provider))
+                this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
+            else if (cache.providers[provider])
+                this._quotaState[provider] = {status: 'ok', ...cache.providers[provider]};
         }
     }
 
@@ -784,7 +787,10 @@ export default class GreenlightExtension extends Extension {
         }
     }
 
-    /** A disabled provider forgets its reading, so enabling it again starts a quiet baseline. */
+    /**
+     * A disabled provider forgets its reading and its notified periods, so enabling it again
+     * starts a quiet baseline.
+     */
     _onQuotaProviderChanged(provider) {
         if (this._quotaEnabled(provider)) {
             this._refreshQuota(provider);
@@ -792,6 +798,7 @@ export default class GreenlightExtension extends Extension {
         }
         this._quotaState[provider]?.cancellable?.cancel();
         delete this._quotaState[provider];
+        this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
         this._saveQuotaCache();
         this._renderQuotas();
     }
@@ -841,6 +848,12 @@ export default class GreenlightExtension extends Extension {
                     reset.charAt(0).toUpperCase() + reset.slice(1));
             }
         } else {
+            if (result.status === 'unavailable') {
+                // Nothing proves the old reading still holds: the next one sets a new baseline.
+                delete state.windows;
+                delete state.readAt;
+                this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
+            }
             state.status = result.status;
             state.message = result.message;
             console.log('Greenlight: ' + PROVIDERS[provider].name + ' quota ' + result.status +

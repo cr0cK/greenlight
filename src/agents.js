@@ -7,7 +7,7 @@ import {
     codexMessages,
     failed,
     missingCliMessage,
-    parseClaudeUsage,
+    parseClaudeRun,
     parseCodexResponse,
     unavailable,
 } from './quotas.js';
@@ -65,7 +65,7 @@ function readClaude(path, cancellable) {
         process = spawn(path, CLAUDE_ARGS,
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
     } catch (error) {
-        return Promise.resolve(unavailable('Could not start claude: ' + error.message));
+        return Promise.resolve(failed('could not start: ' + error.message));
     }
 
     let timedOut = false;
@@ -81,14 +81,16 @@ function readClaude(path, cancellable) {
             cancellable.disconnect(cancelledId);
             try {
                 const [, stdout] = subprocess.communicate_utf8_finish(result);
-                if (timedOut)
+                if (timedOut) {
                     resolve(failed('timed out'));
-                else if (!subprocess.get_if_exited())
-                    resolve(failed('stopped before answering'));
-                else if (subprocess.get_exit_status() !== 0)
-                    resolve(failed('exited with code ' + subprocess.get_exit_status()));
-                else
-                    resolve(parseClaudeUsage(stdout ?? '', Date.now() / 1000));
+                } else {
+                    const exited = subprocess.get_if_exited();
+                    resolve(parseClaudeRun({
+                        stdout: stdout ?? '',
+                        exitCode: exited ? subprocess.get_exit_status() : null,
+                        signal: exited ? null : subprocess.get_term_sig(),
+                    }, Date.now() / 1000));
+                }
             } catch (error) {
                 if (cancellable.is_cancelled())
                     reject(error);
@@ -97,6 +99,25 @@ function readClaude(path, cancellable) {
             }
         });
     });
+}
+
+/** The server closed its output before answering: it ended. */
+class EndOfStream extends Error {}
+
+/** Why a codex that closed its output ended: `exited with code N` or `killed by signal N`. */
+async function endCause(process, reading) {
+    await new Promise((resolve, reject) => {
+        process.wait_async(reading, (subprocess, result) => {
+            try {
+                resolve(subprocess.wait_finish(result));
+            } catch (error) {
+                reject(error);
+            }
+        });
+    });
+    return process.get_if_exited()
+        ? failed('exited with code ' + process.get_exit_status())
+        : failed('killed by signal ' + process.get_term_sig());
 }
 
 /** Reads lines until the JSON-RPC message with `id`; other messages are skipped. */
@@ -112,7 +133,7 @@ function readResponse(stream, id, cancellable) {
                     return;
                 }
                 if (line === null) {
-                    reject(new Error('exited before answering'));
+                    reject(new EndOfStream());
                     return;
                 }
                 let message = null;
@@ -137,7 +158,7 @@ async function readCodex(path, version, cancellable) {
         process = spawn(path, ['app-server'], Gio.SubprocessFlags.STDIN_PIPE |
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
     } catch (error) {
-        return unavailable('Could not start codex: ' + error.message);
+        return failed('could not start: ' + error.message);
     }
 
     // Reads stop on the caller's cancel or on the timeout; either way the process goes.
@@ -156,7 +177,14 @@ async function readCodex(path, version, cancellable) {
     try {
         // The server handles the three messages in order, so they go at once, while it is
         // surely alive. Stdin stays open: closing it makes the server quit before answering.
-        process.get_stdin_pipe().write_all(new TextEncoder().encode(codexMessages(version)), null);
+        try {
+            process.get_stdin_pipe().write_all(new TextEncoder().encode(codexMessages(version)), null);
+        } catch (error) {
+            // A server that already ended, such as a codex without `app-server`, breaks the pipe.
+            throw error.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.BROKEN_PIPE)
+                ? new EndOfStream()
+                : error;
+        }
         const initialized = await readResponse(stdout, 1, reading);
         if (initialized.error)
             return failed(String(initialized.error.message ?? 'could not start'));
@@ -164,7 +192,18 @@ async function readCodex(path, version, cancellable) {
     } catch (error) {
         if (cancellable.is_cancelled())
             throw error;
-        return failed(timedOut ? 'timed out' : error.message);
+        if (timedOut)
+            return failed('timed out');
+        if (error instanceof EndOfStream) {
+            try {
+                return await endCause(process, reading);
+            } catch (waitError) {
+                if (cancellable.is_cancelled())
+                    throw waitError;
+                return failed(timedOut ? 'timed out' : waitError.message);
+            }
+        }
+        return failed(error.message);
     } finally {
         clearTimeout();
         cancellable.disconnect(cancelledId);

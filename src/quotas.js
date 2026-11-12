@@ -2,8 +2,10 @@
  * Agent quota parsing, labels, pace, and notification periods (pure, no GNOME imports).
  *
  * Every provider normalizes its answer to windows of
- * `{label, usedPercent, durationSeconds, resetsAt}`, with `resetsAt` in epoch seconds, before
- * anything is shown, notified, or stored.
+ * `{slot, label, usedPercent, durationSeconds, resetsAt}`, with `resetsAt` in epoch seconds,
+ * before anything is shown, notified, or stored. A window is identified by its slot, never by
+ * its label: Claude has `session` and `week`, Codex `primary` and `secondary`, listed in that
+ * order.
  */
 
 const HOUR = 3600;
@@ -20,8 +22,10 @@ export const CLAUDE_ARGS = [
 ];
 
 export const PROVIDERS = {
-    claude: {name: 'Claude', command: 'claude', setting: 'claude-quota-enabled'},
-    codex: {name: 'Codex', command: 'codex', setting: 'codex-quota-enabled'},
+    claude: {name: 'Claude', command: 'claude', setting: 'claude-quota-enabled',
+        slots: ['session', 'week']},
+    codex: {name: 'Codex', command: 'codex', setting: 'codex-quota-enabled',
+        slots: ['primary', 'secondary']},
 };
 
 export const MESSAGES = {
@@ -63,8 +67,9 @@ export function windowLabel(durationSeconds) {
     return Math.round(durationSeconds / 60) + ' min';
 }
 
-function createWindow(usedPercent, durationSeconds, resetsAt) {
+function createWindow(slot, usedPercent, durationSeconds, resetsAt) {
     return {
+        slot,
         label: windowLabel(durationSeconds),
         usedPercent: Math.min(100, Math.max(0, usedPercent)),
         durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
@@ -150,46 +155,53 @@ function firstLine(text) {
 }
 
 /**
- * Reads `claude -p /usage --output-format json`. Only the `Current session` and
- * `Current week (all models)` lines count; per-model lines and the advice are ignored.
+ * Reads a finished `claude -p /usage --output-format json` run, stdout before the exit status:
+ * JSON with `is_error` is a transient failure whose cause is the first line of its `result`;
+ * otherwise a signal, a non-zero exit, or output that is not JSON is one too. Only the
+ * `Current session` and `Current week (all models)` lines count; per-model lines and the advice
+ * are ignored.
  */
-export function parseClaudeUsage(stdout, now) {
-    let answer;
+export function parseClaudeRun({stdout, exitCode, signal}, now) {
+    let answer = null;
     try {
         answer = JSON.parse(stdout);
     } catch {
-        return failed('answered with something that is not JSON');
+        // Handled below, once the exit status had its say.
     }
-    if (!answer || typeof answer !== 'object')
-        return failed('answered with something that is not JSON');
-    if (answer.is_error) {
+    const isAnswer = answer !== null && typeof answer === 'object';
+    if (isAnswer && answer.is_error) {
         return failed(typeof answer.result === 'string' && answer.result.trim()
             ? firstLine(answer.result)
             : 'reported an error');
     }
+    if (signal)
+        return failed('killed by signal ' + signal);
+    if (exitCode !== 0)
+        return failed('exited with code ' + exitCode);
+    if (!isAnswer)
+        return failed('answered with something that is not JSON');
 
     const text = typeof answer.result === 'string' ? answer.result.trim() : '';
     // Signed out or on an API key, /usage prints the session costs instead.
     if (!text.startsWith(SUBSCRIPTION_LINE))
         return unavailable(MESSAGES.claudeNotSubscribed);
 
-    const windows = [];
+    const found = new Map();
     const patterns = [
-        [/^Current session:\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+))?$/, SESSION],
-        [/^Current week \(all models\):\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+))?$/, WEEK],
+        ['session', /^Current session:\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+))?$/, SESSION],
+        ['week', /^Current week \(all models\):\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+))?$/, WEEK],
     ];
     for (const line of text.split('\n').map(candidate => candidate.trim())) {
-        for (const [pattern, duration] of patterns) {
+        for (const [slot, pattern, duration] of patterns) {
             const match = pattern.exec(line);
-            if (match) {
+            if (match && !found.has(slot)) {
                 const resetsAt = match[2] ? parseClaudeReset(match[2], now) : null;
-                windows.push(createWindow(Number(match[1]), duration, resetsAt));
+                found.set(slot, createWindow(slot, Number(match[1]), duration, resetsAt));
             }
         }
     }
-    return windows.length > 0
-        ? {status: 'ok', windows: sortWindows(windows)}
-        : unavailable(MESSAGES.claudeUnknown);
+    const windows = PROVIDERS.claude.slots.filter(slot => found.has(slot)).map(slot => found.get(slot));
+    return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.claudeUnknown);
 }
 
 /**
@@ -205,11 +217,11 @@ export function codexMessages(version) {
     ].map(message => JSON.stringify(message) + '\n').join('');
 }
 
-function codexWindow(raw) {
+function codexWindow(slot, raw) {
     if (!raw || typeof raw !== 'object' || !Number.isFinite(raw.usedPercent))
         return null;
     const minutes = Number.isFinite(raw.windowDurationMins) ? raw.windowDurationMins : null;
-    return createWindow(raw.usedPercent, minutes === null ? null : minutes * 60, raw.resetsAt);
+    return createWindow(slot, raw.usedPercent, minutes === null ? null : minutes * 60, raw.resetsAt);
 }
 
 /** Reads the `account/rateLimits/read` response (the message with id 2). */
@@ -231,16 +243,10 @@ export function parseCodexResponse(message) {
     const bucket = result.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
         ? result.rateLimitsByLimitId.codex
         : result.rateLimits;
-    const windows = [codexWindow(bucket?.primary), codexWindow(bucket?.secondary)].filter(Boolean);
-    return windows.length > 0
-        ? {status: 'ok', windows: sortWindows(windows)}
-        : unavailable(MESSAGES.codexNoQuota);
-}
-
-/** Shorter windows first; windows without a length last. */
-function sortWindows(windows) {
-    return windows.sort((first, second) =>
-        (first.durationSeconds ?? Infinity) - (second.durationSeconds ?? Infinity));
+    const windows = PROVIDERS.codex.slots
+        .map(slot => codexWindow(slot, bucket?.[slot]))
+        .filter(Boolean);
+    return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.codexNoQuota);
 }
 
 /** Share of the window elapsed, the even-spending budget; null without a length or reset. */
@@ -293,7 +299,12 @@ export function notificationTitle(provider, window) {
 }
 
 function periodKey(provider, window) {
-    return provider + ':' + window.label + ':' + window.resetsAt;
+    return provider + ':' + window.slot + ':' + window.resetsAt;
+}
+
+/** A provider that turns unavailable or off forgets the periods it marked as notified. */
+export function forgetPeriods(notified, provider) {
+    return notified.filter(key => !key.startsWith(provider + ':'));
 }
 
 /**
@@ -321,12 +332,27 @@ export function trackPeriods({provider, windows, notified, threshold, baseline, 
     return {notified: [...marks], alerts};
 }
 
-function validWindow(window) {
-    return window && typeof window === 'object' && typeof window.label === 'string' &&
-        Number.isFinite(window.usedPercent);
+function isNumberOrNull(value) {
+    return value === null || Number.isFinite(value);
 }
 
-/** Reads `agent-quota-cache`, dropping anything malformed. */
+function validWindow(provider, window) {
+    return window && typeof window === 'object' &&
+        PROVIDERS[provider].slots.includes(window.slot) && typeof window.label === 'string' &&
+        Number.isFinite(window.usedPercent) && isNumberOrNull(window.durationSeconds) &&
+        isNumberOrNull(window.resetsAt);
+}
+
+function validPeriod(key) {
+    const [provider, slot, resetsAt, ...rest] = key.split(':');
+    return rest.length === 0 && PROVIDERS[provider]?.slots.includes(slot) && /^\d+$/.test(resetsAt);
+}
+
+/**
+ * Reads `agent-quota-cache`, dropping anything malformed. A reading whose windows have no known
+ * slot, such as one written before windows had slots, is dropped with the periods it marked, so
+ * the provider's next reading sets a quiet baseline.
+ */
 export function readQuotaCache(text) {
     let cache;
     try {
@@ -337,12 +363,12 @@ export function readQuotaCache(text) {
     const providers = {};
     for (const provider of Object.keys(PROVIDERS)) {
         const entry = cache?.providers?.[provider];
-        if (entry && Array.isArray(entry.windows) && Number.isFinite(entry.readAt) &&
-            entry.windows.every(validWindow))
+        if (entry && Array.isArray(entry.windows) && entry.windows.length > 0 &&
+            Number.isFinite(entry.readAt) && entry.windows.every(window => validWindow(provider, window)))
             providers[provider] = {windows: entry.windows, readAt: entry.readAt};
     }
     const notified = Array.isArray(cache?.notified)
-        ? cache.notified.filter(key => typeof key === 'string')
+        ? cache.notified.filter(key => typeof key === 'string' && validPeriod(key))
         : [];
     return {providers, notified};
 }

@@ -5,11 +5,12 @@ import {
     MESSAGES,
     codexMessages,
     formatAge,
+    forgetPeriods,
     formatReset,
     notificationTitle,
     paceFraction,
     parseClaudeReset,
-    parseClaudeUsage,
+    parseClaudeRun,
     parseCodexResponse,
     readQuotaCache,
     trackPeriods,
@@ -25,6 +26,10 @@ const NOW = Date.UTC(2026, 10, 12, 13, 0) / 1000;
 const claudeAnswer = (result, extra = {}) => JSON.stringify({
     type: 'result', is_error: false, num_turns: 0, total_cost_usd: 0, result, ...extra,
 });
+
+// A finished claude run; stdout is read before the exit status.
+const run = (stdout, exit = {}) => ({stdout, exitCode: 0, signal: null, ...exit});
+const parseClaudeUsage = (stdout, now) => parseClaudeRun(run(stdout), now);
 
 const SUBSCRIPTION = 'You are currently using your subscription to power your Claude Code usage\n\n';
 
@@ -63,14 +68,23 @@ test('reads the subscription windows of claude /usage', () => {
     assert.deepEqual(usage, {
         status: 'ok',
         windows: [
-            {label: '5 h', usedPercent: 38, durationSeconds: 18000, resetsAt: Date.UTC(2026, 10, 12, 14) / 1000},
-            {label: 'Week', usedPercent: 50, durationSeconds: 604800, resetsAt: Date.UTC(2026, 10, 16, 5, 59) / 1000},
+            {slot: 'session', label: '5 h', usedPercent: 38, durationSeconds: 18000,
+                resetsAt: Date.UTC(2026, 10, 12, 14) / 1000},
+            {slot: 'week', label: 'Week', usedPercent: 50, durationSeconds: 604800,
+                resetsAt: Date.UTC(2026, 10, 16, 5, 59) / 1000},
         ],
     });
 
     const weekOnly = parseClaudeUsage(claudeAnswer(SUBSCRIPTION +
         'Current week (all models): 12.5% used · resets Nov 16, 6:59am (Europe/Paris)'), NOW);
-    assert.deepEqual(weekOnly.windows.map(window => [window.label, window.usedPercent]), [['Week', 12.5]]);
+    assert.deepEqual(weekOnly.windows.map(window => [window.slot, window.label, window.usedPercent]),
+        [['week', 'Week', 12.5]]);
+
+    // Lines follow the slot order, whatever the order of the answer.
+    const swapped = parseClaudeUsage(claudeAnswer(SUBSCRIPTION +
+        'Current week (all models): 50% used · resets Nov 16, 6:59am (Europe/Paris)\n' +
+        'Current session: 38% used · resets 3pm (Europe/Paris)'), NOW);
+    assert.deepEqual(swapped.windows.map(window => window.slot), ['session', 'week']);
 });
 
 test('tells an unusable claude from a transient failure', () => {
@@ -83,6 +97,31 @@ test('tells an unusable claude from a transient failure', () => {
         {status: 'failed', message: 'API Error: 529 Overloaded'});
     assert.equal(parseClaudeUsage('', NOW).status, 'failed');
     assert.equal(parseClaudeUsage('null', NOW).status, 'failed');
+});
+
+test('reads claude stdout before its exit status', () => {
+    const failure = claudeAnswer('API Error: 529 Overloaded\nretry', {is_error: true});
+    // The CLI's own message wins over the exit code.
+    assert.deepEqual(parseClaudeRun(run(failure, {exitCode: 1}), NOW),
+        {status: 'failed', message: 'API Error: 529 Overloaded'});
+    assert.deepEqual(parseClaudeRun(run(failure), NOW),
+        {status: 'failed', message: 'API Error: 529 Overloaded'});
+    assert.deepEqual(parseClaudeRun(run(claudeAnswer('', {is_error: true})), NOW),
+        {status: 'failed', message: 'reported an error'});
+
+    // Without an error in stdout, the exit status is the cause.
+    assert.deepEqual(parseClaudeRun(run('', {exitCode: 2}), NOW),
+        {status: 'failed', message: 'exited with code 2'});
+    assert.deepEqual(parseClaudeRun(run('Segmentation fault', {exitCode: 139}), NOW),
+        {status: 'failed', message: 'exited with code 139'});
+    assert.deepEqual(parseClaudeRun(run(claudeAnswer(SUBSCRIPTION + 'Current session: 5% used'),
+        {exitCode: 1}), NOW), {status: 'failed', message: 'exited with code 1'});
+    assert.deepEqual(parseClaudeRun(run('', {exitCode: null, signal: 9}), NOW),
+        {status: 'failed', message: 'killed by signal 9'});
+
+    // A clean exit with something that is not JSON is a transient failure too.
+    assert.deepEqual(parseClaudeRun(run('hello'), NOW),
+        {status: 'failed', message: 'answered with something that is not JSON'});
 });
 
 test('pipelines the codex app-server messages, one per line', () => {
@@ -103,8 +142,8 @@ test('reads the codex bucket and its windows', () => {
         },
     }});
     assert.deepEqual(response, {status: 'ok', windows: [
-        {label: '5 h', usedPercent: 40, durationSeconds: 18000, resetsAt: 1794500000},
-        {label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850},
+        {slot: 'primary', label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850},
+        {slot: 'secondary', label: '5 h', usedPercent: 40, durationSeconds: 18000, resetsAt: 1794500000},
     ]});
 
     // With the map but no codex bucket, another feature's bucket is never shown.
@@ -117,7 +156,8 @@ test('reads the codex bucket and its windows', () => {
     const legacy = parseCodexResponse({id: 2, result: {
         rateLimits: bucket({usedPercent: 7, windowDurationMins: null, resetsAt: null}),
     }});
-    assert.deepEqual(legacy.windows, [{label: 'Quota', usedPercent: 7, durationSeconds: null, resetsAt: null}]);
+    assert.deepEqual(legacy.windows,
+        [{slot: 'primary', label: 'Quota', usedPercent: 7, durationSeconds: null, resetsAt: null}]);
 });
 
 test('tells an unusable codex from a transient failure', () => {
@@ -160,16 +200,21 @@ test('names the window in notifications', () => {
     assert.equal(notificationTitle('codex', {label: '5 h', usedPercent: 90}), 'Codex 5-hour quota at 90 %');
     assert.equal(notificationTitle('codex', {label: '30 d', usedPercent: 85}), 'Codex 30-day quota at 85 %');
     assert.equal(notificationTitle('codex', {label: 'Quota', usedPercent: 85}), 'Codex quota at 85 %');
+    assert.equal(notificationTitle('codex', {label: '90 min', usedPercent: 85}), 'Codex 90-minute quota at 85 %');
+    assert.equal(notificationTitle('codex', {label: '1 d', usedPercent: 85}), 'Codex 1-day quota at 85 %');
 });
 
 test('notifies each period once, after a quiet baseline', () => {
-    const week = usedPercent => ({label: 'Week', usedPercent, durationSeconds: 604800, resetsAt: NOW + 86400});
+    const week = usedPercent => ({
+        slot: 'week', label: 'Week', usedPercent, durationSeconds: 604800, resetsAt: NOW + 86400,
+    });
     const track = (windows, notified, baseline = false) =>
         trackPeriods({provider: 'claude', windows, notified, threshold: 80, baseline, now: NOW});
 
     // The baseline marks periods already over the threshold without notifying.
     const baseline = track([week(85)], [], true);
     assert.deepEqual(baseline.alerts, []);
+    assert.deepEqual(baseline.notified, ['claude:week:' + (NOW + 86400)]);
     assert.equal(track([week(90)], baseline.notified).alerts.length, 0);
 
     // A baseline under the threshold leaves the period free to notify when it crosses.
@@ -181,7 +226,7 @@ test('notifies each period once, after a quiet baseline', () => {
 
     // A new period that starts above the threshold notifies, and stale marks are dropped.
     const next = {...week(85), resetsAt: NOW + 8 * 86400};
-    const stale = 'claude:Week:' + (NOW - 10);
+    const stale = 'claude:week:' + (NOW - 10);
     const renewed = track([next], [...crossed.notified, stale]);
     assert.deepEqual(renewed.alerts, [next]);
     assert.ok(!renewed.notified.includes(stale));
@@ -190,19 +235,58 @@ test('notifies each period once, after a quiet baseline', () => {
     assert.deepEqual(track([{...week(99), resetsAt: NOW - 5}], []).alerts, []);
 
     // A window without a reset has no period: it never notifies nor leaves a mark.
-    assert.deepEqual(track([{...week(99), resetsAt: null}], ['claude:Week:none']),
+    assert.deepEqual(track([{...week(99), resetsAt: null}], ['claude:week:none']),
         {notified: [], alerts: []});
+});
+
+test('identifies a period by its slot, not by its label', () => {
+    const reset = NOW + 86400;
+    const window = (slot, label) => ({slot, label, usedPercent: 90, durationSeconds: null, resetsAt: reset});
+    const track = (windows, notified) =>
+        trackPeriods({provider: 'codex', windows, notified, threshold: 80, baseline: false, now: NOW});
+
+    // Two windows with the same label and reset time are two periods.
+    const both = track([window('primary', 'Week'), window('secondary', 'Week')], []);
+    assert.equal(both.alerts.length, 2);
+    assert.deepEqual(both.notified, ['codex:primary:' + reset, 'codex:secondary:' + reset]);
+
+    // A window whose length changed keeps its period, so it does not notify again.
+    assert.deepEqual(track([window('primary', '5 h')], both.notified).alerts, []);
+});
+
+test('forgets the periods of one provider', () => {
+    assert.deepEqual(forgetPeriods(['claude:week:10', 'codex:primary:20', 'codex:secondary:30'], 'codex'),
+        ['claude:week:10']);
+    assert.deepEqual(forgetPeriods(['claude:week:10'], 'codex'), ['claude:week:10']);
 });
 
 test('reads the quota cache defensively', () => {
     assert.deepEqual(readQuotaCache('not json'), {providers: {}, notified: []});
-    const window = {label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850};
+    const window = {
+        slot: 'primary', label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850,
+    };
     assert.deepEqual(readQuotaCache(JSON.stringify({
         providers: {
             codex: {windows: [window], readAt: NOW},
-            claude: {windows: [{label: 'Week'}], readAt: NOW},
+            claude: {windows: [{slot: 'week', label: 'Week'}], readAt: NOW},
             other: {windows: [window], readAt: NOW},
         },
-        notified: ['codex:Week:1795007850', 3],
-    })), {providers: {codex: {windows: [window], readAt: NOW}}, notified: ['codex:Week:1795007850']});
+        notified: ['codex:primary:1795007850', 'codex:Week:1795007850', 'other:week:1', 3],
+    })), {providers: {codex: {windows: [window], readAt: NOW}}, notified: ['codex:primary:1795007850']});
+
+    // A slot of another provider, a missing one, or a malformed number rejects the reading.
+    for (const bad of [{slot: 'week'}, {slot: undefined}, {resetsAt: 'soon'}, {durationSeconds: undefined}]) {
+        const cache = JSON.stringify({providers: {codex: {windows: [{...window, ...bad}], readAt: NOW}}});
+        assert.deepEqual(readQuotaCache(cache).providers, {}, JSON.stringify(bad));
+    }
+    const empty = JSON.stringify({providers: {codex: {windows: [], readAt: NOW}}});
+    assert.deepEqual(readQuotaCache(empty).providers, {});
+});
+
+test('drops a cached reading written before windows had slots', () => {
+    const old = {label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850};
+    assert.deepEqual(readQuotaCache(JSON.stringify({
+        providers: {codex: {windows: [old], readAt: NOW}},
+        notified: ['codex:Week:1795007850'],
+    })), {providers: {}, notified: []});
 });
