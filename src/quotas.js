@@ -293,22 +293,23 @@ export function notificationTitle(provider, window) {
 }
 
 function periodKey(provider, window) {
-    return provider + ':' + window.label + ':' + (window.resetsAt ?? 'none');
+    return provider + ':' + window.label + ':' + window.resetsAt;
 }
 
 /**
  * Finds the windows to notify. A period (provider, window, reset time) notifies once, when a
  * reading of it is at or above the threshold. A baseline reading only marks such periods.
- * Marks of periods whose reset has passed are dropped.
+ * A window without a reset time has no period and never notifies. Marks of periods whose reset
+ * has passed are dropped.
  */
 export function trackPeriods({provider, windows, notified, threshold, baseline, now}) {
     const marks = new Set(notified.filter(key => {
         const resetsAt = Number(key.split(':').pop());
-        return !Number.isFinite(resetsAt) || resetsAt > now;
+        return Number.isFinite(resetsAt) && resetsAt > now;
     }));
     const alerts = [];
     for (const window of windows) {
-        if (window.usedPercent < threshold || (window.resetsAt && window.resetsAt <= now))
+        if (window.usedPercent < threshold || !window.resetsAt || window.resetsAt <= now)
             continue;
         const key = periodKey(provider, window);
         if (marks.has(key))

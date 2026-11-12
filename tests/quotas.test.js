@@ -188,6 +188,10 @@ test('notifies each period once, after a quiet baseline', () => {
 
     // A reading past its reset says nothing about the new period.
     assert.deepEqual(track([{...week(99), resetsAt: NOW - 5}], []).alerts, []);
+
+    // A window without a reset has no period: it never notifies nor leaves a mark.
+    assert.deepEqual(track([{...week(99), resetsAt: null}], ['claude:Week:none']),
+        {notified: [], alerts: []});
 });
 
 test('reads the quota cache defensively', () => {
