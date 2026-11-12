@@ -21,6 +21,7 @@ A small GNOME Shell extension that watches your open GitHub pull requests and gi
 - Opens any issue or pull request of a watched repository from its number, with a configurable keyboard shortcut and an inline preview of its description and CI.
 - Sends a desktop notification when a pull request reaches a new green check run.
 - Lets you set the polling interval from 30 seconds to 10 minutes.
+- Optionally shows your Claude and Codex subscription quotas below the pull requests, with a pace mark and a notification at a threshold.
 
 The initial refresh establishes a baseline, so pull requests that are already green do not trigger startup notifications. Changing the repository or author filter also establishes a quiet baseline. The search is capped at the 30 most recently updated open pull requests.
 
@@ -28,6 +29,7 @@ The initial refresh establishes a baseline, so pull requests that are already gr
 
 - GNOME Shell 49 or 50
 - GitHub CLI (gh), authenticated for the account and host you want to monitor
+- For agent quotas, optional: Claude Code signed in with a Claude subscription, and the Codex CLI signed in with ChatGPT
 
 Check the GitHub CLI session with:
 
@@ -63,7 +65,7 @@ gnome-extensions enable greenlight@cr0ck.github.io
 The panel indicator shows how many pull requests Greenlight is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
 
 <p align="center">
-  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, and owners" width="70%">
+  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, and agent quotas" width="70%">
 </p>
 
 In Preferences, use **Discover accounts** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login; **Add** checks with GitHub that it exists first. Each owner then gets its own block, with a trash icon that removes it and a switch that pauses it. In a block, **Discover** lists the owner's repositories; **Monitor** then offers **All**, **All except…**, or **Only…**, and a collapsible list turns repositories on or off. **All except…** keeps new repositories monitored and turns off the ones to skip; **Only…** monitors just the repositories turned on. A switch on always means monitored, so changing between the two keeps the current choice and only changes what happens to new repositories. The **Save preferences** button applies owners, repositories, author, and refresh interval together. The **About** group at the bottom shows the installed version and links to this repository. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
@@ -77,6 +79,8 @@ Each pull request row shows its labels in their GitHub colors, its author, Draft
 Each refresh first checks, in one `gh api graphql` request, that the enabled owners and selected repositories still exist; any that do not are skipped and listed under **Refresh now**, with the rest still searched. Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. An owner with exclusions gets its own command with `-repo:` terms; exclusions that do not fit in the query are filtered from the results instead, and the search fetches more results until the owner's share is complete, so counts stay exact. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
 
 When a refresh fails, a row under **Refresh now** says why: `gh` missing from `PATH`, `gh` not signed in (run `gh auth login`), GitHub unreachable, or the rate limit; the last pull requests stay listed. A dimmed line under the row quotes gh's own message, for example to tell a primary rate limit from a secondary one; the shell log keeps it too (`journalctl --user -b | grep Greenlight`).
+
+**Agent quotas** in Preferences turns on the Claude and Codex gauges. Greenlight never handles a credential: it asks each agent's own CLI, `claude -p /usage` (no tokens used, no session saved, no hooks run) and `codex app-server`, looking in `PATH` and then `~/.local/bin`. Opening Preferences checks both; a provider whose CLI is missing, signed out, or not on a subscription stays off, with what to do in its subtitle. In the menu, an **Agent quotas** section below the pull requests, above Preferences, shows one line per window (`5 h`, `Week`): the share used, a mark at the share of the window elapsed, which is the even-spending budget, and the reset time. The bar turns yellow at the notification threshold and red at 100 %. Quotas refresh every hour by default (15 minutes to 4 hours), with **Refresh now**, and when the menu opens after more than 5 minutes. A provider that becomes unavailable is hidden; one whose refresh fails keeps its last reading, dimmed, with the cause. Each window notifies once per period when it reaches the threshold (80 % by default); the first reading after enabling a provider never notifies.
 
 Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
 

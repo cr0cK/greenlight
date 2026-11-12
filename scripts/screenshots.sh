@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates the README screenshots in docs/screenshots/. Runs the checkout in a headless
-# GNOME Shell on a private D-Bus session, with scripts/screenshots/gh standing in for the GitHub
-# CLI, so the images show fictional data and never a real account.
+# GNOME Shell on a private D-Bus session, with scripts/screenshots/gh, claude, and codex standing
+# in for the real CLIs, so the images show fictional data and never a real account.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -60,6 +60,8 @@ gs org.gnome.desktop.interface color-scheme "'prefer-dark'"
 EXT=org.gnome.shell.extensions.greenlight
 gs $EXT author-filter "''"
 gs $EXT owner-filters-configured true
+gs $EXT claude-quota-enabled true
+gs $EXT codex-quota-enabled true
 gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null,"excludedRepositories":["octocat/hello-world"]}]'
 
 gnome-shell --headless --wayland --no-x11 --wayland-display="$WAYLAND_DISPLAY" \
@@ -122,6 +124,7 @@ crop_menus() {
 wait_for "Main.extensionManager.lookup('$UUID')?.state === 1"
 STATE="Main.extensionManager.lookup('$UUID').stateObj"
 wait_for "${STATE}._loading === false && ${STATE}._prs.length === 5"
+wait_for "!!${STATE}._quotaState.claude?.windows && !!${STATE}._quotaState.codex?.windows"
 
 shell_eval "${STATE}._indicator.menu.open()" >/dev/null
 capture_menu menu.png
