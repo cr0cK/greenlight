@@ -7,6 +7,7 @@ import {
     formatAge,
     forgetPeriods,
     formatReset,
+    isAgySignInLine,
     notificationTitle,
     paceFraction,
     parseAgyRun,
@@ -267,6 +268,16 @@ test('tells an unusable agy from a transient failure', () => {
         {status: 'failed', message: 'exited with code 2'});
     assert.deepEqual(parseAgy(agyAnswer([GEMINI]), {exitCode: null, signal: 15}),
         {status: 'failed', message: 'killed by signal 15'});
+});
+
+test('recognizes the lines agy prints when it is signed out', () => {
+    assert.ok(isAgySignInLine('Authentication required. Please visit the URL to log in:'));
+    assert.ok(isAgySignInLine('Error: authentication required. Run \'agy\' to log in, then retry.'));
+    assert.ok(!isAgySignInLine('  https://accounts.google.com/o/oauth2/auth?access_type=offline'));
+    assert.ok(!isAgySignInLine('error: authentication failed or timed out'));
+    assert.ok(!isAgySignInLine('Waiting for authentication (timeout 60s)...'));
+    assert.ok(!isAgySignInLine('Authentication requirements changed'));
+    assert.ok(!isAgySignInLine(''));
 });
 
 test('places the pace mark at the elapsed share of the window', () => {

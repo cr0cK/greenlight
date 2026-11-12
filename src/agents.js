@@ -3,12 +3,12 @@ import GLib from 'gi://GLib';
 
 import {
     AGY_ARGS,
-    AGY_SIGN_IN_PREFIX,
     CLAUDE_ARGS,
     MESSAGES,
     PROVIDERS,
     codexMessages,
     failed,
+    isAgySignInLine,
     missingCliMessage,
     parseAgyRun,
     parseClaudeRun,
@@ -271,7 +271,7 @@ function readSignInLine(stream, cancellable) {
                 }
                 if (line === null)
                     resolve(false);
-                else if (line.startsWith(AGY_SIGN_IN_PREFIX))
+                else if (isAgySignInLine(line))
                     resolve(true);
                 else
                     next();
@@ -295,9 +295,14 @@ function readToEnd(stream, cancellable) {
                     return;
                 }
                 if (bytes.get_size() === 0) {
-                    const decoder = new TextDecoder();
-                    resolve(chunks.map(chunk => decoder.decode(chunk, {stream: true})).join('') +
-                        decoder.decode());
+                    // Decoded once, so a character split across two reads stays whole.
+                    const whole = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.length, 0));
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        whole.set(chunk, offset);
+                        offset += chunk.length;
+                    }
+                    resolve(new TextDecoder().decode(whole));
                 } else {
                     chunks.push(bytes.toArray());
                     next();
@@ -356,10 +361,12 @@ async function readAgy(path, cancellable) {
     const answer = readToEnd(stdout, reading);
     const exited = waitForExit(process, reading);
     try {
-        // The process ends on its own with an answer; signed out it waits for a browser instead.
+        // A signed-out agy waits for a browser, or ends by itself when stdin is closed with an
+        // error answer: either way its stderr line decides, so a process that ended is not
+        // read before stderr did.
         const isSignedOut = await new Promise(resolve => {
             signedOut.then(found => found && resolve(true));
-            Promise.all([answer, exited]).then(() => resolve(false));
+            Promise.all([answer, exited, signedOut]).then(() => resolve(false));
         });
         if (cancellable.is_cancelled())
             throw new Error('cancelled');

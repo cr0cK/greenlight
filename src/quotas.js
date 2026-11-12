@@ -34,8 +34,14 @@ export const PROVIDERS = {
 /** Arguments for agy: `/usage` answers without an agent turn, so it costs no tokens. */
 export const AGY_ARGS = ['-p', '/usage', '--output-format', 'json'];
 
-/** The first words agy prints on stderr when it is signed out, before it waits for a browser. */
-export const AGY_SIGN_IN_PREFIX = 'Authentication required';
+/**
+ * Whether a line of agy's stderr says it is signed out: `Authentication required. Please visit
+ * the URL to log in:` before it waits for a browser, or `Error: authentication required. Run
+ * 'agy' to log in, then retry.` from a profile that signed in before.
+ */
+export function isAgySignInLine(line) {
+    return /^(?:error: )?authentication required\b/i.test(line);
+}
 
 /** The Gemini buckets of agy's `/usage`, by id, with the length of their window. */
 const AGY_BUCKETS = {'gemini-5h': SESSION, 'gemini-weekly': WEEK};

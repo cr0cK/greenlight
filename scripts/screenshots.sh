@@ -144,6 +144,9 @@ PREFS="global.display.list_all_windows().find(w => w.get_wm_class() === 'org.gno
 wait_for "!!$PREFS" 90
 # Launched without a startup notification, the window opens unfocused; ScreenshotWindow
 # captures the focused window.
+# A session that starts in the overview would keep the window unfocused.
+shell_eval "Main.overview.hide()" >/dev/null
+wait_for "Main.overview.visible === false"
 shell_eval "$PREFS.activate(global.get_current_time())" >/dev/null
 # Tall enough to show the owners below the general settings.
 shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 780)" >/dev/null
