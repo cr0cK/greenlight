@@ -168,7 +168,16 @@ async function readCodex(path, version, cancellable) {
     } finally {
         clearTimeout();
         cancellable.disconnect(cancelledId);
-        process.force_exit();
+        // Closing stdin ends the server even behind a launcher that runs it as a child, which a
+        // kill of the launcher alone would leave waiting; SIGTERM lets a launcher forward it.
+        for (const stream of [process.get_stdin_pipe(), stdout]) {
+            try {
+                stream.close(null);
+            } catch {
+                // Already closed.
+            }
+        }
+        process.send_signal(15);
     }
 }
 

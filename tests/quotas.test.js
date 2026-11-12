@@ -107,6 +107,12 @@ test('reads the codex bucket and its windows', () => {
         {label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850},
     ]});
 
+    // With the map but no codex bucket, another feature's bucket is never shown.
+    assert.deepEqual(parseCodexResponse({id: 2, result: {
+        rateLimits: bucket({usedPercent: 92, windowDurationMins: 300, resetsAt: 1}),
+        rateLimitsByLimitId: {review: bucket({usedPercent: 92, windowDurationMins: 300, resetsAt: 1})},
+    }}), {status: 'unavailable', message: MESSAGES.codexNoQuota});
+
     // Without the map, the legacy single bucket; a window without a length reads Quota.
     const legacy = parseCodexResponse({id: 2, result: {
         rateLimits: bucket({usedPercent: 7, windowDurationMins: null, resetsAt: null}),

@@ -226,7 +226,11 @@ export function parseCodexResponse(message) {
     }
 
     const result = message.result ?? {};
-    const bucket = result.rateLimitsByLimitId?.codex ?? result.rateLimits;
+    // With the per-limit map, only its codex bucket is the subscription; other buckets meter
+    // other features. The single bucket is the fallback for servers without the map.
+    const bucket = result.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
+        ? result.rateLimitsByLimitId.codex
+        : result.rateLimits;
     const windows = [codexWindow(bucket?.primary), codexWindow(bucket?.secondary)].filter(Boolean);
     return windows.length > 0
         ? {status: 'ok', windows: sortWindows(windows)}

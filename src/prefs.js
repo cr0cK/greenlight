@@ -210,12 +210,16 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         for (const [provider, row] of Object.entries(quotaRows)) {
             readQuota(provider, {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
                 .then(result => {
-                    if (result.status === 'unavailable') {
+                    if (result.status === 'ok') {
+                        row.set_sensitive(true);
+                        row.set_subtitle('Uses the ' + PROVIDERS[provider].command + ' CLI');
+                    } else if (result.status === 'unavailable') {
                         row.set_active(false);
                         row.set_subtitle(result.message);
                     } else {
-                        row.set_sensitive(true);
-                        row.set_subtitle('Uses the ' + PROVIDERS[provider].command + ' CLI');
+                        // Not proven either way: keep the saved choice, locked.
+                        row.set_subtitle('Could not check: ' + result.message +
+                            '. Reopen Preferences to try again.');
                     }
                 })
                 .catch(() => {
