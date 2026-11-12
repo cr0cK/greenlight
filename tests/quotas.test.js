@@ -262,6 +262,17 @@ test('identifies a period by its slot, not by its label', () => {
     assert.deepEqual(track([window('primary', '5 h')], both.notified).alerts, []);
 });
 
+test('compares the rounded percentage with the threshold', () => {
+    const reset = NOW + 86400;
+    const window = usedPercent => ({slot: 'week', label: 'Week', usedPercent, durationSeconds: null, resetsAt: reset});
+    const track = usedPercent => trackPeriods({
+        provider: 'claude', windows: [window(usedPercent)], notified: [], threshold: 80, baseline: false, now: NOW,
+    }).alerts.length;
+    assert.equal(track(79.4), 0);
+    assert.equal(track(79.5), 1);
+    assert.equal(notificationTitle('claude', window(79.5)), 'Claude weekly quota at 80 %');
+});
+
 test('forgets the periods of one provider', () => {
     assert.deepEqual(forgetPeriods(['claude:week:10', 'codex:primary:20', 'codex:secondary:30'], 'codex'),
         ['claude:week:10']);

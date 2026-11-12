@@ -864,7 +864,7 @@ export default class GreenlightExtension extends Extension {
     }
 
     /**
-     * Lists each shown provider's windows above the pull requests. Unavailable providers and
+     * Lists each shown provider's windows below the pull requests. Unavailable providers and
      * providers without any reading are hidden; a failed refresh dims the last reading.
      */
     _renderQuotas() {
@@ -924,7 +924,7 @@ export default class GreenlightExtension extends Extension {
     _createQuotaItem(name, window, now, dimmed) {
         const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
         const expired = window.resetsAt !== null && window.resetsAt <= now;
-        const used = expired ? 0 : window.usedPercent;
+        const used = expired ? 0 : Math.round(window.usedPercent);
         const threshold = this._settings.get_int('agent-quota-threshold');
         const color = dimmed
             ? '#77767b'
@@ -1070,11 +1070,6 @@ export default class GreenlightExtension extends Extension {
         this._quickOpenSection = new PopupMenu.PopupMenuSection();
         menu.addMenuItem(this._quickOpenSection);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._quotaSection = new PopupMenu.PopupMenuSection();
-        menu.addMenuItem(this._quotaSection);
-        this._quotaSeparator = new PopupMenu.PopupSeparatorMenuItem();
-        this._quotaSeparator.visible = false;
-        menu.addMenuItem(this._quotaSeparator);
 
         // Only the pull request list scrolls, so the menu fits the screen while quick open,
         // its preview, and Preferences stay in view. The panel menu caps its height.
@@ -1093,6 +1088,13 @@ export default class GreenlightExtension extends Extension {
         this._contentSection.actor = this._contentScrollView;
         menu.addMenuItem(this._contentSection);
 
+        // The quota section sits below the list, between two separators; while it is hidden,
+        // the one before Preferences stays.
+        this._quotaSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this._quotaSeparator.visible = false;
+        menu.addMenuItem(this._quotaSeparator);
+        this._quotaSection = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(this._quotaSection);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         const preferencesItem = new PopupMenu.PopupMenuItem('Preferences…');
         preferencesItem.connect('activate', () => this.openPreferences());

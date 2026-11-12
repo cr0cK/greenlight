@@ -326,7 +326,7 @@ export function trackPeriods({provider, windows, notified, threshold, baseline, 
     }));
     const alerts = [];
     for (const window of windows) {
-        if (window.usedPercent < threshold || !window.resetsAt || window.resetsAt <= now)
+        if (Math.round(window.usedPercent) < threshold || !window.resetsAt || window.resetsAt <= now)
             continue;
         const key = periodKey(provider, window);
         if (marks.has(key))

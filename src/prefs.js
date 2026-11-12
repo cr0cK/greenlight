@@ -172,7 +172,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
         const quotaGroup = new Adw.PreferencesGroup({
             title: 'Agent quotas',
-            description: 'Show subscription usage above the pull requests. Each agent\'s own CLI ' +
+            description: 'Show subscription usage below the pull requests. Each agent\'s own CLI ' +
                 'reports it; Greenlight never handles a credential.',
         });
         // Each switch waits for its provider's check; an unavailable one stays off.
