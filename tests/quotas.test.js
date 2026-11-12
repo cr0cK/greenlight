@@ -308,6 +308,8 @@ test('reads an agy error answer: authentication errors are unavailable, others t
     assert.deepEqual(error({response: 'other', error: 'quota service down'}),
         {status: 'failed', message: 'quota service down'});
     assert.deepEqual(error({response: 'other', error: '  '}), {status: 'failed', message: 'other'});
+    // The whole error counts, unlike the response, whose first line does.
+    assert.deepEqual(error({response: 'x', error: 'token refresh failed\nUnauthorized'}), signedOut);
     // Only the first line of the response counts.
     assert.deepEqual(error({response: 'busy\nunauthorized'}), {status: 'failed', message: 'busy'});
 });
