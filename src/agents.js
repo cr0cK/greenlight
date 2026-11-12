@@ -8,7 +8,7 @@ import {
     PROVIDERS,
     codexMessages,
     failed,
-    isAgySignInLine,
+    isAgyAuthError,
     missingCliMessage,
     parseAgyRun,
     parseClaudeRun,
@@ -255,7 +255,7 @@ function ensureNoBrowser() {
 }
 
 /**
- * Reads lines of agy's stderr until the sign-in line. Resolves true when it arrives, and false
+ * Reads lines of agy's stderr until an authentication error. Resolves true when it arrives, and false
  * when the stream ends, fails, or is cancelled; it never rejects.
  */
 function readSignInLine(stream, cancellable) {
@@ -271,7 +271,7 @@ function readSignInLine(stream, cancellable) {
                 }
                 if (line === null)
                     resolve(false);
-                else if (isAgySignInLine(line))
+                else if (isAgyAuthError(line))
                     resolve(true);
                 else
                     next();

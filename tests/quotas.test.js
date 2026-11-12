@@ -7,7 +7,7 @@ import {
     formatAge,
     forgetPeriods,
     formatReset,
-    isAgySignInLine,
+    isAgyAuthError,
     notificationTitle,
     paceFraction,
     parseAgyRun,
@@ -276,14 +276,40 @@ test('tells an unusable agy from a transient failure', () => {
         {status: 'failed', message: 'killed by signal 15'});
 });
 
-test('recognizes the lines agy prints when it is signed out', () => {
-    assert.ok(isAgySignInLine('Authentication required. Please visit the URL to log in:'));
-    assert.ok(isAgySignInLine('Error: authentication required. Run \'agy\' to log in, then retry.'));
-    assert.ok(!isAgySignInLine('  https://accounts.google.com/o/oauth2/auth?access_type=offline'));
-    assert.ok(!isAgySignInLine('error: authentication failed or timed out'));
-    assert.ok(!isAgySignInLine('Waiting for authentication (timeout 60s)...'));
-    assert.ok(!isAgySignInLine('Authentication requirements changed'));
-    assert.ok(!isAgySignInLine(''));
+test('recognizes an agy authentication error by its failure phrase', () => {
+    for (const phrase of ['authentication required', 'authentication failed', 'unauthorized',
+        'unauthorised', 'unauthenticated', 'not logged in', 'not signed in']) {
+        assert.ok(isAgyAuthError(phrase), phrase);
+        assert.ok(isAgyAuthError(phrase.toUpperCase()), phrase);
+        assert.ok(isAgyAuthError(`Warning: ${phrase} (token refresh), retrying`), phrase);
+    }
+    assert.ok(isAgyAuthError('Authentication required. Please visit the URL to log in:'));
+    assert.ok(isAgyAuthError('Error: authentication required. Run \'agy\' to log in, then retry.'));
+    assert.ok(isAgyAuthError('error: authentication failed or timed out'));
+    assert.ok(isAgyAuthError('Warning: unauthorized token refresh'));
+    assert.ok(!isAgyAuthError('Authenticated successfully'));
+    assert.ok(!isAgyAuthError('design input'));
+    assert.ok(!isAgyAuthError('  https://accounts.google.com/o/oauth2/auth?access_type=offline'));
+    assert.ok(!isAgyAuthError('Waiting for authentication (timeout 60s)...'));
+    assert.ok(!isAgyAuthError('Authentication requirements changed'));
+    assert.ok(!isAgyAuthError('preunauthorized access'));
+    assert.ok(!isAgyAuthError(''));
+});
+
+test('reads an agy error answer: authentication errors are unavailable, others transient', () => {
+    const error = (extra, exit = {exitCode: 1}) => parseAgy(JSON.stringify({status: 'ERROR', ...extra}), exit);
+    const signedOut = {status: 'unavailable', message: MESSAGES.agyNotSignedIn};
+    assert.deepEqual(error({response: '', error: 'authentication failed or timed out'}), signedOut);
+    assert.deepEqual(error({response: 'Not signed in\nsee logs'}), signedOut);
+    assert.deepEqual(error({response: 'fine', error: 'Unauthorized'}), signedOut);
+    // The error field is the cause, before the response and the status.
+    assert.deepEqual(error({response: '', error: 'quota service down\nsee logs'}),
+        {status: 'failed', message: 'quota service down'});
+    assert.deepEqual(error({response: 'other', error: 'quota service down'}),
+        {status: 'failed', message: 'quota service down'});
+    assert.deepEqual(error({response: 'other', error: '  '}), {status: 'failed', message: 'other'});
+    // Only the first line of the response counts.
+    assert.deepEqual(error({response: 'busy\nunauthorized'}), {status: 'failed', message: 'busy'});
 });
 
 test('places the pace mark at the elapsed share of the window', () => {
