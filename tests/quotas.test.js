@@ -226,7 +226,13 @@ test('shows only the agy buckets that carry a fraction', () => {
     for (const remaining of ['0.5', null, NaN])
         assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', remaining)]}])).status, 'unavailable');
     // An unreadable reset time reads as none.
-    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, 'soon')]}])).windows[0].resetsAt, null);
+    for (const invalid of ['soon', '2026-02-30T10:00:00Z', '2026-13-01T10:00:00Z', '2026-11-12T25:00:00Z',
+        '2026-11-12T10:00:00', '2026-11-12', 12])
+        assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, invalid)]}])).windows[0].resetsAt, null, String(invalid));
+    // An offset is read, and a leap day exists in a leap year only.
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2028-02-29T12:00:00+02:00')]}])).windows[0].resetsAt,
+        Date.UTC(2028, 1, 29, 10) / 1000);
+    assert.equal(parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2027-02-29T12:00:00Z')]}])).windows[0].resetsAt, null);
     assert.equal(parseAgy(agyAnswer([{buckets: [{id: 'gemini-5h', remaining_fraction: 1}]}])).windows[0].resetsAt, null);
     // Whole epoch seconds keep periods storable in the cache.
     const fractional = parseAgy(agyAnswer([{buckets: [bucket('gemini-5h', 1, '2026-11-12T15:48:40.900Z')]}]));

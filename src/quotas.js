@@ -276,9 +276,17 @@ export function parseCodexResponse(message) {
     return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.codexNoQuota);
 }
 
-/** Reads a bucket's ISO 8601 `reset_time` as whole epoch seconds; null when it is not one. */
+/**
+ * Reads a bucket's ISO 8601 `reset_time` as whole epoch seconds; null when it is not one, has no
+ * zone, or names a day the month does not have, which Date.parse would roll into the next month.
+ */
 function parseIsoTime(text) {
-    const milliseconds = typeof text === 'string' ? Date.parse(text) : NaN;
+    const match = typeof text === 'string'
+        ? /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(text)
+        : null;
+    if (!match || Number(match[3]) > new Date(Date.UTC(Number(match[1]), Number(match[2]), 0)).getUTCDate())
+        return null;
+    const milliseconds = Date.parse(text);
     return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : null;
 }
 
