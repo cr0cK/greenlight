@@ -1,7 +1,7 @@
 {
   "uuid": "greenlight@cr0ck.github.io",
   "name": "Greenlight",
-  "description": "Watch your open GitHub pull requests from the top bar: review and CI status, a notification when checks pass, and quick open with inline previews of any issue or pull request.",
+  "description": "Your pull requests and your coding agents' quotas in the top bar: CI and review status, a notification when checks pass, Claude, Codex, and Gemini quota gauges with a pace mark, and quick open with previews.",
   "shell-version": [
     "49",
     "50"

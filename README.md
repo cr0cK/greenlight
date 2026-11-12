@@ -4,32 +4,35 @@
 [![Latest release](https://img.shields.io/github/v/release/cr0cK/greenlight)](https://github.com/cr0cK/greenlight/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A small GNOME Shell extension that watches your open GitHub pull requests and gives you the green light when their checks pass. It uses your existing local GitHub CLI authentication and stores no GitHub token.
+**Your PRs and your agents' quotas, in the GNOME top bar.**
+
+Claude Code, Codex, and Gemini now open your pull requests across a dozen repositories. Two
+questions come back all day: *which ones are green?* and *am I burning my quota too fast?*
+Greenlight answers both from one click in the top bar. You don't need a browser tab or a
+dashboard, and it stores no token.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges" width="49%">
+  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges, above the Claude, Codex, and Antigravity quota gauges" width="49%">
   <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="49%">
 </p>
 
-## Features
-
-- Shows your open pull requests in the GNOME top bar menu.
-- Shows each pull request's labels, author, draft/review status, CI pass count, and failure count.
-- Filters pull requests across multiple accounts and organizations: all of an owner's repositories, all except a few, or only a selection.
-- Groups pull requests by owner and sorts each group by last update, newest first.
-- Opens a pull request in your browser when selected.
-- Opens any issue or pull request of a watched repository from its number, with a configurable keyboard shortcut and an inline preview of its description and CI.
-- Sends a desktop notification when a pull request reaches a new green check run.
-- Lets you set the polling interval from 30 seconds to 10 minutes.
-- Optionally shows your Claude, Codex, and Antigravity (Gemini) subscription quotas below the pull requests, with a pace mark and a notification at a threshold.
-
-The initial refresh establishes a baseline, so pull requests that are already green do not trigger startup notifications. Changing the repository or author filter also establishes a quiet baseline. The search is capped at the 30 most recently updated open pull requests.
+- **Every open PR, at a glance.** Your PRs across accounts and organizations, grouped by owner,
+  with labels, review state, and CI results.
+- **The green light.** A desktop notification when a PR's checks turn green. Merge it, or hand it
+  back to the agent, as soon as it is ready.
+- **Agent quota gauges.** Your Claude, Codex, and Antigravity (Gemini) 5-hour and weekly
+  windows, each with a pace mark that shows whether you spend faster than the window allows,
+  and an alert at your threshold.
+- **Quick open.** <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>, type `api 42`, check the
+  preview, and press Enter.
+- **No credentials.** Greenlight reuses `gh` and each agent's own CLI. It never reads, stores,
+  or sends a token.
 
 ## Requirements
 
 - GNOME Shell 49 or 50
 - GitHub CLI (gh), authenticated for the account and host you want to monitor
-- For agent quotas, optional: Claude Code signed in with a Claude subscription, the Codex CLI signed in with ChatGPT, and the Antigravity CLI (`agy`) signed in with Google
+- Optional, for agent quotas: Claude Code on a Claude subscription, the Codex CLI signed in with ChatGPT, and/or the Antigravity CLI (`agy`) signed in with Google
 
 Check the GitHub CLI session with:
 
@@ -62,27 +65,93 @@ gnome-extensions enable greenlight@cr0ck.github.io
 
 ## Use
 
-The panel indicator shows how many pull requests Greenlight is monitoring, up to 30. Open its menu to review their statuses and click one to open it in your browser. Pull requests are sorted by most recently updated.
+### Set up
+
+Open **Preferences** from the menu:
+
+1. **Discover accounts** loads your account and organizations from `gh`. To add another owner,
+   enter its login.
+2. In each owner's block, choose **All**, **All except…**, or **Only…** repositories.
+3. Under **Agent quotas**, turn on the agents you use. Each switch checks its CLI first. If the
+   CLI is missing, signed out, or not on a subscription, the switch stays off and says what to do.
+4. Click **Save preferences**.
+
+Until you configure owners, Greenlight watches every repository `gh` can see.
 
 <p align="center">
   <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, and agent quotas" width="70%">
 </p>
 
-In Preferences, use **Discover accounts** to load the account and organizations available to the active `gh` authentication. You can also add any public organization or account by its login; **Add** checks with GitHub that it exists first. Each owner then gets its own block, with a trash icon that removes it and a switch that pauses it. In a block, **Discover** lists the owner's repositories; **Monitor** then offers **All**, **All except…**, or **Only…**, and a collapsible list turns repositories on or off. **All except…** keeps new repositories monitored and turns off the ones to skip; **Only…** monitors just the repositories turned on. A switch on always means monitored, so changing between the two keeps the current choice and only changes what happens to new repositories. The **Save preferences** button applies owners, repositories, author, and refresh interval together. The **About** group at the bottom shows the installed version and links to this repository. Before owner filters are configured, the extension searches all repositories visible to `gh`; after configuration, only enabled owners and their selected repositories are included.
+### Pull requests
 
-The menu groups pull requests under their account or organization. Each row puts the number, labels, title, CI badge, and an open icon on the first line, then the repository, author, review state, and any failure or pending counts on the second. The panel icon remains a neutral pull request symbol.
+- The indicator counts the pull requests Greenlight monitors, up to the 30 most recently updated.
+- Each row shows the number, labels, title, and CI badge (passed out of total checks), then the
+  repository, author, Draft or Ready for review, and the failed or pending checks.
+- To preview a pull request, click its row, or press <kbd>Space</kbd>. Click the row again to
+  close the preview. To open it in your browser, double-click the row, click its icon, or press
+  <kbd>Enter</kbd>.
+- A pull request is green when every check passed. Skipped checks count as passed once at least
+  one check passed. A pull request with no checks is never green.
+- Greenlight refreshes every 2 minutes (you can set 30 s to 10 min). The first refresh, and each
+  filter change, only records the current state: pull requests that are already green do not
+  notify.
 
-Use the quick open field under **Refresh now** to open an issue or pull request by number. Type part of a repository name and the number, such as `plat 42` or `plat#42`, then press Enter. `#42` alone lists only the watched repositories where #42 exists, with its title, `owner/repo#42` works for any repository, and a pasted GitHub URL opens as is. Suggestions come from repositories selected in Preferences, repositories of the pull requests in the menu, and recently opened repositories. Once a number is typed, a panel previews the highlighted suggestion: state, author, labels, branches, a CI bar with failed check names, and the description rendered as GitHub-flavored Markdown. The preview scrolls; click it to open the issue or pull request, or click a link inside it to open that link. It uses one `gh api graphql` request, cached for a minute. Super+Shift+G opens the menu with the field focused; change or clear the shortcut in Preferences. Click a listed pull request to open the same preview under it, and click it again to close it; click the open icon at the end of the row, double-click the row, or click its preview to open the pull request. With the keyboard, Space toggles the preview and Enter opens the pull request. Scrolling over the preview scrolls its description first, then the list.
+### Quick open
 
-Each pull request row shows its labels in their GitHub colors, its author, Draft or Ready for review status, passed checks out of total checks, and the number of failures, pending checks, skipped checks, and cancellations.
+<kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> opens the menu with the quick open field
+focused (you can change the shortcut in Preferences). Type `plat 42`, `plat#42`, `#42`,
+`owner/repo#42`, or paste a GitHub URL. The preview shows the state, the author, a CI bar with
+the names of the failed checks, and the description rendered as Markdown.
 
-Each refresh first checks, in one `gh api graphql` request, that the enabled owners and selected repositories still exist; any that do not are skipped and listed under **Refresh now**, with the rest still searched. Greenlight searches the selected owner or repository scopes through `gh search prs` and excludes archived repositories. It merges and sorts the results, then reads checks for the 30 most recently updated pull requests sequentially. Owner and repository search qualifiers are kept in separate commands. An owner with exclusions gets its own command with `-repo:` terms; exclusions that do not fit in the query are filtered from the results instead, and the search fetches more results until the owner's share is complete, so counts stay exact. A refresh normally runs every two minutes; the interval can be set to 30, 60, 120, 300, or 600 seconds.
+### Agent quotas
 
-When a refresh fails, a row under **Refresh now** says why: `gh` missing from `PATH`, `gh` not signed in (run `gh auth login`), GitHub unreachable, or the rate limit; the last pull requests stay listed. A dimmed line under the row quotes gh's own message, for example to tell a primary rate limit from a secondary one; the shell log keeps it too (`journalctl --user -b | grep Greenlight`).
+Each provider shows one line per window (`5 h`, `Week`):
 
-**Agent quotas** in Preferences turns on the Claude, Codex, and Antigravity gauges. Greenlight never handles a credential: it asks each agent's own CLI, `claude -p /usage` (no tokens used, no session saved, no hooks run) `codex app-server`, and `agy -p /usage` (Gemini models only; a signed-out `agy` never opens a browser), looking in `PATH` and then `~/.local/bin`. Opening Preferences checks each; a provider whose CLI is missing, signed out, or not on a subscription stays off, with what to do in its subtitle. In the menu, an **Agent quotas** section below the pull requests, above Preferences, shows one line per window (`5 h`, `Week`; Antigravity's name takes its own line above its windows): the share used, a mark at the share of the window elapsed, which is the even-spending budget, and the reset time. The bar turns yellow at the notification threshold and red at 100 %. Quotas refresh every hour by default (15 minutes to 4 hours), with **Refresh now**, and when the menu opens after more than 5 minutes. A provider that becomes unavailable is hidden; one whose refresh fails keeps its last reading, dimmed, with the cause. Each window notifies once per period when it reaches the threshold (80 % by default); the first reading after enabling a provider never notifies.
+- **The bar** is the share used. It turns yellow at your threshold (80 % by default) and red
+  at 100 %.
+- **The pace mark** is the share of the window that has elapsed. A bar that passes the mark
+  means you spend faster than the quota allows.
+- **The reset time** is when the window starts over.
 
-Skipped checks are treated as non-blocking when at least one check has passed. A pull request with no checks is not considered green.
+Each window notifies you once per period when it reaches the threshold. Quotas refresh every
+hour (you can set 15 min to 4 h), on **Refresh now**, and when you open the menu more than
+5 minutes after the last refresh. If a refresh fails, the last reading stays, dimmed, with the
+cause.
+
+Greenlight asks the agents' own CLIs, which it looks for in `PATH` and then in `~/.local/bin`:
+
+- `claude -p /usage` uses no tokens and saves no session.
+- `codex app-server` reads the Codex rate limits.
+- `agy -p /usage` reads the Gemini models only. A signed-out `agy` never opens a browser.
+
+### When something goes wrong
+
+A failed refresh adds a row under **Refresh now** that says why: `gh` is missing from `PATH`,
+`gh` is not signed in (run `gh auth login`), GitHub is unreachable, or you reached the rate
+limit. The last pull requests stay listed, and a dimmed line quotes gh's own message. The shell
+log keeps it too: `journalctl --user -b | grep Greenlight`.
+
+<details>
+<summary>How the search works</summary>
+
+Each refresh first checks, in one `gh api graphql` request, that the enabled owners and selected
+repositories still exist. It skips the ones that do not, lists them under **Refresh now**, and
+searches the rest. Greenlight searches each owner and repository scope with `gh search prs`,
+excludes archived repositories, merges the results, and reads the checks of the 30 most recently
+updated pull requests one after another. Owner and repository qualifiers go in separate
+commands. An owner with exclusions gets its own command with `-repo:` terms. Exclusions that do
+not fit in the query are filtered from the results instead, and the search fetches more results
+until the owner's share is complete, so the counts stay exact.
+
+**All except…** keeps new repositories monitored; **Only…** monitors just the repositories you
+turn on. A switch that is on always means monitored, so switching between the two modes keeps
+your choice and changes only what happens to new repositories.
+
+Quick open suggests the repositories selected in Preferences, the repositories of the pull
+requests in the menu, and the repositories you opened recently. `#42` alone lists only the
+watched repositories where #42 exists. A preview costs one `gh api graphql` request, cached for
+a minute.
+</details>
 
 To remove Greenlight:
 

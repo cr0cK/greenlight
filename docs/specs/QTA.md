@@ -1,6 +1,6 @@
 ---
 code: QTA
-status: active
+status: done
 version: v1.3
 created: 2026-11-12
 builds-on: PRM
