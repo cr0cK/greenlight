@@ -92,7 +92,7 @@ Bug reports, ideas, and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTIN
 development setup, the checks, and the sandbox that runs the extension in a windowed GNOME Shell.
 Report vulnerabilities privately as described in [SECURITY.md](.github/SECURITY.md).
 
-See [docs/specs/](docs/specs/) for the product contracts, and
+See [docs/specs/](docs/specs/) for the specs, and
 [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QTA — mockup</title>
+<!--
+  Spec mockup: one self-contained file, no build, no dependency.
+
+  Each state of the UI is a <template data-state> below. The viewer lists them on the left, grouped
+  by screen, renders the selected one on the right in an isolated frame, and keeps the selection in
+  the URL (#/@<id>), so a link points at one state.
+
+  Attributes of a state:
+    id              the state's id, unique, such as SIGNIN-ERROR
+    data-screen     the screen it belongs to; screens are listed in order of first appearance
+    data-summary    a few words under the id in the list
+    data-label      the title shown above the frame
+    data-route      where the user is: a URL, a menu path, a window
+    data-rules      the spec rules it shows, such as "Sign-in, Errors"
+    data-kind       happy, edge, or error
+
+  Interactive: any element with data-goto="<state id>" takes the viewer to that state when clicked,
+  so the mockup can be walked through like the product. "Flow" outlines those elements.
+
+  Product styles go in <style id="product">; they apply inside each frame only. Use the variables
+  below so both themes work. When the project has a design system that can build to static HTML,
+  compose the states from its real components instead of imitating them.
+-->
+<style id="product" media="not all">
+  :root[data-theme="dark"] { --desk:#1d1d20; --menu:#303033; --fg:#ffffff; --dim:rgba(255,255,255,.62); --line:rgba(255,255,255,.1); --field:#424245; --track:rgba(127,127,127,.25); --mark:#9a9996; --win:#222226; --box:#2e2e32; --rowline:rgba(0,0,0,.3); }
+  :root[data-theme="light"] { --desk:#deddda; --menu:#fafafb; --fg:#1f1f21; --dim:rgba(0,0,0,.6); --line:rgba(0,0,0,.1); --field:#ebebed; --track:rgba(127,127,127,.25); --mark:#9a9996; --win:#fafafb; --box:#ffffff; --rowline:rgba(0,0,0,.08); }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--desk); color: var(--fg); font: 15px/1.4 "Adwaita Sans", Cantarell, system-ui, sans-serif; padding: 24px; }
+  .menu { width: 680px; background: var(--menu); border: 1px solid var(--line); border-radius: 16px; padding: 8px 18px; }
+  .item { padding: 11px 0; }
+  .sep { height: 1px; background: var(--line); }
+  .field { background: var(--field); border-radius: 8px; padding: 9px 12px; color: var(--dim); cursor: text; }
+  .field.typed { color: var(--fg); }
+  .head { font-weight: 600; color: var(--dim); padding: 12px 0 6px; }
+  .q { display: grid; grid-template-columns: 72px 48px 160px 56px 1fr; column-gap: 12px; align-items: center; height: 30px; }
+  .q.dim { opacity: .55; }
+  .name { font-weight: 700; } .win, .reset, .small { color: var(--dim); } .reset, .small { font-size: 13px; }
+  .pct { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar { position: relative; height: 16px; }
+  .bar .track { position: absolute; left: 0; right: 0; top: 4px; height: 8px; border-radius: 4px; background: var(--track); }
+  .bar .fill { position: absolute; left: 0; top: 4px; height: 8px; border-radius: 4px; background: #26a269; }
+  .bar .fill.warn { background: #e5a50a; } .bar .fill.err { background: #c01c28; } .bar .fill.grey { background: #77767b; }
+  .bar .mark { position: absolute; top: 0; width: 2px; height: 16px; border-radius: 1px; background: var(--mark); }
+  .cause { font-size: 13px; color: var(--dim); padding: 2px 0 6px; }
+  .pr { padding: 8px 0; } .pr b { font-weight: 600; } .badge { border-radius: 4px; padding: 1px 6px; font-size: 13px; font-weight: 700; color: #fff; background: #3c5268; }
+  .ci { background: #276746; float: right; }
+  .link { cursor: pointer; }
+  .sugg { padding: 8px 0; } .preview { border: 1px solid var(--line); border-radius: 10px; padding: 12px; height: 140px; color: var(--dim); }
+  .win-prefs { width: 680px; background: var(--win); border: 1px solid var(--line); border-radius: 14px; padding: 12px 64px 24px; }
+  .title { text-align: center; font-weight: 700; padding: 4px 0 16px; }
+  .group h3 { margin: 18px 0 4px; font-size: 15px; } .group p { margin: 0 0 10px; color: var(--dim); font-size: 14px; }
+  .box { background: var(--box); border-radius: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--rowline); }
+  .row:last-child { border-bottom: 0; }
+  .row .t { flex: 1; } .row .t span { display: block; font-size: 12px; color: var(--dim); }
+  .row.locked .t, .row.locked .sw { opacity: .5; }
+  .sw { width: 46px; height: 26px; border-radius: 13px; background: #77767b; position: relative; }
+  .sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 10px; background: #fff; }
+  .sw.on { background: #3584e4; } .sw.on::after { left: 23px; }
+  .btn { background: #3584e4; color: #fff; border-radius: 8px; padding: 7px 14px; font-weight: 700; cursor: pointer; }
+  .faded { opacity: .45; }
+  .notif { width: 460px; background: var(--menu); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .notif .app { font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; }
+  .notif b { display: block; margin-top: 4px; }
+</style>
+<style id="chrome">
+  * { box-sizing: border-box; }
+  :root { --c-bg:#0b1118; --c-panel:#111a24; --c-fg:#dbe4ec; --c-muted:#7d8d9c; --c-border:#223040; --c-accent:#14b8a6; }
+  html, body { height: 100%; margin: 0; }
+  body.viewer { display: flex; background: var(--c-bg); color: var(--c-fg); font: 13px/1.4 system-ui, sans-serif; }
+  aside { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--c-border); background: var(--c-panel); }
+  aside .head { padding: 14px 16px; border-bottom: 1px solid var(--c-border); }
+  aside .head h1 { font-size: 14px; margin: 0 0 4px; }
+  aside .head p { margin: 0; color: var(--c-muted); font-size: 11px; }
+  nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+  nav h2 { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--c-muted); margin: 12px 16px 4px; font-weight: 600; }
+  nav .item { display: flex; align-items: center; }
+  nav .state { flex: 1; min-width: 0; text-align: left; background: none; border: 1px solid transparent; color: var(--c-fg); padding: 6px 14px; cursor: pointer; }
+  nav .state:hover { background: #ffffff0d; }
+  nav .state[aria-current="true"] { border-color: var(--c-accent); background: #14b8a614; }
+  nav .state[aria-current="true"] .id { color: var(--c-accent); }
+  nav .id { display: block; font: 11px/1.4 ui-monospace, monospace; }
+  nav .sum { display: block; color: var(--c-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  nav .copy { opacity: 0; background: none; border: 0; color: var(--c-muted); cursor: pointer; padding: 4px 8px; }
+  nav .item:hover .copy, nav .copy:focus-visible { opacity: 1; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--c-border); background: var(--c-panel); }
+  header button { background: none; color: var(--c-fg); border: 1px solid var(--c-border); border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  header button:disabled { opacity: .4; cursor: default; }
+  header button[aria-pressed="true"] { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+  header .count { color: var(--c-muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  header .title { flex: 1; min-width: 0; }
+  header .title b { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .title span { display: block; color: var(--c-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .kind { font-size: 10px; text-transform: uppercase; border: 1px solid var(--c-border); border-radius: 10px; padding: 2px 8px; color: var(--c-muted); }
+  header .kind.error { color: #f05252; border-color: #f0525266; }
+  header .kind.edge { color: #e3a008; border-color: #e3a00866; }
+  iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+</style>
+</head>
+<body>
+
+<!-- States of QTA. Each names the spec sections it shows. -->
+
+<template data-state id="MENU-OK" data-screen="Menu" data-summary="Both providers read" data-label="Menu — both providers" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="happy">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill " style="width:38%"></span><span class="mark" style="left:calc(57% - 1px)"></span></span><span class="pct">38 %</span><span class="reset">resets in 2 h 10 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-THRESHOLD" data-screen="Menu" data-summary="Threshold and limit" data-label="Menu — over the threshold, at the limit" data-route="Top bar › Greenlight" data-rules="Menu, Notifications" data-kind="edge">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill err" style="width:100%"></span><span class="mark" style="left:calc(84% - 1px)"></span></span><span class="pct">100 %</span><span class="reset">resets in 47 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill warn" style="width:84%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">84 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-FAILED" data-screen="Menu" data-summary="Refresh failed" data-label="Menu — a refresh failed" data-route="Top bar › Greenlight" data-rules="Availability, Errors" data-kind="error">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+<div class="head">Agent quotas</div><div class="q dim"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill grey" style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="cause">Claude: API Error: 529 Overloaded · last reading 3 h ago</div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 3 h ago</div><div class="sep"></div>
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-UNAVAILABLE" data-screen="Menu" data-summary="Claude only" data-label="Menu — Codex off or unavailable, so hidden" data-route="Top bar › Greenlight" data-rules="Availability" data-kind="edge">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-NONE" data-screen="Menu" data-summary="No provider to show" data-label="Menu — no provider enabled or available" data-route="Top bar › Greenlight" data-rules="Availability, Menu" data-kind="edge">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-RESET" data-screen="Menu" data-summary="Reset passed" data-label="Menu — a reading older than its reset" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="edge">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
+<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span></span><span class="pct"></span><span class="reset">reset · waiting for a new reading</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 2 h ago</div><div class="sep"></div>
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="MENU-QUICKOPEN" data-screen="Menu" data-summary="Quick open has text" data-label="Menu — quotas hide while quick open has text" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="edge">
+<div class="menu">
+<div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
+<div class="item"><div class="field typed" data-goto="MENU-OK">🔍 web 142</div><div class="sugg">acme/web-platform <span class="small">Add a dark theme to the settings page</span></div><div class="preview">Preview of #142…</div></div><div class="sep"></div>
+
+<div class="head">acme · 2 pull requests</div>
+<div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
+<div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+</template>
+<template data-state id="PREFS-CHECKING" data-screen="Preferences" data-summary="Checking providers" data-label="Preferences — checking the providers" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
+<div class="win-prefs"><div class="title">Greenlight</div>
+<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="box"><div class="row locked"><div class="t">Claude<span>Checking…</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>Checking…</span></div><div class="sw"></div></div>
+<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
+<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
+</template>
+<template data-state id="PREFS-READY" data-screen="Preferences" data-summary="Both available" data-label="Preferences — both providers available" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
+<div class="win-prefs"><div class="title">Greenlight</div>
+<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row"><div class="t">Codex<span>Uses the codex CLI</span></div><div class="sw on"></div></div>
+<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
+<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-OK">Save preferences</span></div></div>
+</template>
+<template data-state id="PREFS-UNAVAILABLE" data-screen="Preferences" data-summary="Codex signed out" data-label="Preferences — an unavailable provider is locked off" data-route="Preferences › Agent quotas" data-rules="Availability, Errors" data-kind="error">
+<div class="win-prefs"><div class="title">Greenlight</div>
+<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>Codex is not signed in. Run codex login.</span></div><div class="sw"></div></div>
+<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
+<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
+</template>
+<template data-state id="PREFS-MISSING" data-screen="Preferences" data-summary="codex not found" data-label="Preferences — a CLI is missing" data-route="Preferences › Agent quotas" data-rules="Availability, Finding the CLIs, Errors" data-kind="error">
+<div class="win-prefs"><div class="title">Greenlight</div>
+<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>codex not found in PATH or ~/.local/bin</span></div><div class="sw"></div></div>
+<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
+<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
+</template>
+<template data-state id="PREFS-UNCHECKED" data-screen="Preferences" data-summary="Check failed" data-label="Preferences — a check failed without an answer" data-route="Preferences › Agent quotas" data-rules="Availability" data-kind="error">
+<div class="win-prefs"><div class="title">Greenlight</div>
+<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="box"><div class="row locked"><div class="t">Claude<span>Could not check: timed out. Reopen Preferences to try again.</span></div><div class="sw on"></div></div><div class="row"><div class="t">Codex<span>Uses the codex CLI</span></div><div class="sw on"></div></div>
+<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
+<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-OK">Save preferences</span></div></div>
+</template>
+<template data-state id="NOTIFY" data-screen="Notification" data-summary="Threshold crossed" data-label="Notification — a window reaches Notify at" data-route="Desktop notification" data-rules="Notifications" data-kind="happy">
+<div class="notif" data-goto="MENU-THRESHOLD"><div class="app"><span>Greenlight</span><span>now</span></div><b>Claude weekly quota at 84 %</b><span class="small">Resets Sat 09:00</span></div>
+</template>
+
+<!-- Viewer: no need to edit below. -->
+<script>
+(() => {
+  const states = [...document.querySelectorAll('template[data-state]')];
+  const screens = [...new Set(states.map((s) => s.dataset.screen))];
+  const ordered = screens.flatMap((sc) => states.filter((s) => s.dataset.screen === sc));
+  const productCss = document.getElementById('product').textContent;
+  const code = document.title.split(' — ')[0];
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let theme = 'dark', flow = false;
+  const hashIndex = () => {
+    let id = location.hash.slice(3);
+    try { id = decodeURIComponent(id); } catch {}
+    return ordered.findIndex((s) => location.hash.startsWith('#/@') && s.id === id);
+  };
+  let index = Math.max(0, hashIndex());
+
+  document.body.className = 'viewer';
+  document.body.insertAdjacentHTML('beforeend', `
+    <aside><div class="head"><h1>${esc(code)} mockup</h1>
+      <p>${ordered.length} states · ← → to browse · click a highlighted element in Flow to follow it</p></div>
+      <nav></nav></aside>
+    <main><header>
+      <button data-act="prev">‹ Previous</button><button data-act="next">Next ›</button>
+      <span class="count"></span>
+      <div class="title"><b></b><span></span></div>
+      <span class="kind"></span>
+      <button data-act="flow" aria-pressed="false">Flow</button>
+      <button data-act="dark" aria-pressed="true">Dark</button><button data-act="light" aria-pressed="false">Light</button>
+    </header><iframe title="state"></iframe></main>`);
+  const nav = document.querySelector('nav'), frame = document.querySelector('iframe');
+
+  for (const sc of screens) {
+    nav.insertAdjacentHTML('beforeend', `<h2>${esc(sc)}</h2>`);
+    for (const s of ordered.filter((x) => x.dataset.screen === sc)) {
+      const i = ordered.indexOf(s);
+      nav.insertAdjacentHTML('beforeend', `<div class="item">
+        <button class="state" data-i="${i}"><span class="id">${esc(s.id)}</span><span class="sum">${esc(s.dataset.summary)}</span></button>
+        <button class="copy" title="Copy state id" data-copy="${esc(s.id)}">⧉</button></div>`);
+    }
+  }
+
+  function render() {
+    const s = ordered[index];
+    history.replaceState(null, '', '#/@' + encodeURIComponent(s.id));
+    nav.querySelectorAll('.state').forEach((b) => b.setAttribute('aria-current', String(+b.dataset.i === index)));
+    nav.querySelector(`[data-i="${index}"]`).scrollIntoView({ block: 'nearest' });
+    document.querySelector('.count').textContent = `${index + 1} / ${ordered.length}`;
+    document.querySelector('.title b').textContent = s.dataset.label || s.id;
+    document.querySelector('.title span').textContent =
+      [s.dataset.screen, s.dataset.route, s.dataset.rules && 'rules: ' + s.dataset.rules].filter(Boolean).join(' · ');
+    const kind = document.querySelector('.kind');
+    kind.textContent = s.dataset.kind || ''; kind.className = 'kind ' + (s.dataset.kind || '');
+    document.querySelector('[data-act=prev]').disabled = index === 0;
+    document.querySelector('[data-act=next]').disabled = index === ordered.length - 1;
+    for (const t of ['dark', 'light']) document.querySelector(`[data-act=${t}]`).setAttribute('aria-pressed', String(theme === t));
+    document.querySelector('[data-act=flow]').setAttribute('aria-pressed', String(flow));
+    frame.srcdoc = `<!DOCTYPE html><html data-theme="${theme}"><head><meta charset="utf-8"><style>${productCss}
+      ${flow ? '[data-goto]{outline:2px dashed #f59e0b;outline-offset:2px}' : ''}[data-goto]{cursor:pointer}</style></head>
+      <body>${s.innerHTML}<script>document.addEventListener('click',(e)=>{const t=e.target.closest('[data-goto]');
+      if(t){e.preventDefault();parent.postMessage({mockupGoto:t.dataset.goto},'*');}});
+      document.addEventListener('keydown',(e)=>{if(/^Arrow/.test(e.key)&&!e.target.closest('input,textarea,select,[contenteditable]')){
+      e.preventDefault();parent.postMessage({mockupKey:e.key},'*');}});<\/script></body></html>`;
+  }
+  const go = (i) => { index = Math.min(ordered.length - 1, Math.max(0, i)); render(); };
+
+  nav.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-copy]');
+    if (c) return navigator.clipboard?.writeText(c.dataset.copy);
+    const b = e.target.closest('.state'); if (b) go(+b.dataset.i);
+  });
+  document.querySelector('header').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-act]')?.dataset.act;
+    if (a === 'prev') go(index - 1); else if (a === 'next') go(index + 1);
+    else if (a === 'flow') { flow = !flow; render(); }
+    else if (a === 'dark' || a === 'light') { theme = a; render(); }
+  });
+  const step = (key) => {
+    if (key === 'ArrowRight' || key === 'ArrowDown') go(index + 1);
+    if (key === 'ArrowLeft' || key === 'ArrowUp') go(index - 1);
+  };
+  addEventListener('keydown', (e) => { if (/^Arrow/.test(e.key)) { e.preventDefault(); step(e.key); } });
+  addEventListener('message', (e) => {
+    if (e.source !== frame.contentWindow || !e.data) return;
+    if (e.data.mockupKey) return step(e.data.mockupKey);
+    const id = e.data.mockupGoto; if (!id) return;
+    const i = ordered.findIndex((s) => s.id === id);
+    if (i < 0) console.warn('mockup: no state', id); else go(i);
+  });
+  addEventListener('hashchange', () => {
+    const i = hashIndex(); if (i >= 0 && i !== index) go(i);
+  });
+  render();
+})();
+</script>
+</body>
+</html>

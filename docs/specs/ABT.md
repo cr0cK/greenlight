@@ -1,9 +1,16 @@
-# Greenlight v1.1 specification
+---
+code: ABT
+status: done
+version: v1.1
+created: 2026-10-12
+builds-on: PRM
+---
 
-## Goal
+# Greenlight — ABT specification
 
-Show which version of Greenlight is installed, so a bug report can name it without opening the
-Extensions app.
+ABT shows which version of Greenlight is installed, so a bug report can name it without opening
+the Extensions app. It builds on PRM, whose rules all still apply. It predates the spec delivery
+process, so it has no plans. It is the former v1.1 specification.
 
 ## Preferences
 
