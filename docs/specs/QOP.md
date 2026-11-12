@@ -29,7 +29,8 @@ of v1.2 on quick open and previews, as the product stands.
   closes the menu. Closing the menu clears the field.
 - Without a number, suggestions show dimmed with `add a number` and cannot be opened.
 - With a number and several candidates, only repositories where that issue or pull request exists
-  are listed, with its title. One `gh api graphql` request checks up to 20 ranked candidates,
+  are listed, with its title. One `gh api graphql` request, with `--hostname github.com`, checks
+  up to 20 ranked candidates,
   one alias per repository, 350 ms after the last change; results are cached for 60 seconds per
   repository and number. Meanwhile the menu reads `Looking up #<n> in <count> repositories…` and
   Enter does nothing. When no candidate holds the number, it reads
@@ -58,7 +59,8 @@ of v1.2 on quick open and previews, as the product stands.
 - It loads 350 ms after the last change with one `gh api graphql` request
   (`issueOrPullRequest`), with `--hostname github.com` so an inherited `GH_HOST` cannot redirect
   it. Results, not-found ones included, are cached for 60 seconds per repository and number. A
-  newer target or closing the menu cancels the pending request and kills its `gh` process. Only
+  newer target or closing the menu cancels the pending request and kills its `gh` process; closing
+  the menu also removes the preview. Only
   `github.com` targets are previewed.
 - Pull requests show their state (Open, Draft, Merged, or Closed), author, up to six labels in
   their GitHub colors, `head → base` branches, and added and removed lines. A proportional bar

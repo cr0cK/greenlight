@@ -18,8 +18,10 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 ## Environment
 
 - GNOME Shell 49 or 50. Earlier versions are out of scope.
-- The GitHub CLI (`gh`) must be installed and authenticated. Greenlight follows the account and
-  host of the active `gh` configuration.
+- The GitHub CLI (`gh`) must be installed and authenticated. Searches and check reads follow the
+  account and host of the active `gh` configuration. GraphQL requests (the owner check below,
+  and QOP's lookups and previews) pass `--hostname github.com`, so an inherited `GH_HOST` cannot
+  redirect them.
 - Greenlight never requests or stores a GitHub token. Every GitHub read goes through the local
   `gh` executable, started with an argument array and no shell.
 - Greenlight only reads from GitHub. Writes (merges, reruns, reviews) are out of scope.
@@ -41,7 +43,8 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
     watches nothing.
 - Names compare case-insensitively and keep their case for display. A saved repository that does
   not belong to its owner is ignored. Duplicate owners merge into the wider scope; a paused
-  duplicate never widens an enabled one. Malformed settings read as no owners.
+  duplicate never widens an enabled one. An owner without `excludedRepositories` has no
+  exclusions. Otherwise malformed settings read as no owners.
 - Until `owner-filters-configured` is set, Greenlight searches every repository visible to `gh`.
   Once it is set, only enabled owners and their scopes are searched, and an empty configuration
   watches nothing.
@@ -154,7 +157,8 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 - A failed refresh shows an error row under **Refresh now** that names the cause: `gh` missing
   from `PATH`, `gh` not signed in (exit code 4: `gh auth login`), GitHub unreachable, the rate
-  limit, or `gh`'s own first error line. The last pull requests stay listed.
+  limit, or `gh`'s own first error line. The last pull requests stay listed, and the
+  notification cache is left unchanged, so recovery notifies nothing twice.
 - For the sign-in, network, and rate-limit causes, a dimmed line under the row quotes `gh`'s first
   error line, so a primary rate limit can be told from a secondary one. The shell log line for
   the failure carries it too.
@@ -163,4 +167,4 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 - Pull requests the user contributes to without authoring them, unless the author filter is
   cleared.
-- Token entry, GitHub writes, and any host other than the one `gh` is configured for.
+- Token entry, GitHub writes, and GitHub Enterprise hosts for the GraphQL requests.

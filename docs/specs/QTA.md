@@ -45,6 +45,8 @@ QOP only in that the section hides while quick open has text. The mockup is
   switch turns off and stays insensitive, and its subtitle says why and what to do; saving then
   stores it off. A check that fails for another reason (timeout, crash) keeps the saved choice,
   locked, with `Could not check: <cause>. Reopen Preferences to try again.`
+- **Save preferences** during a check keeps the saved choice of a provider still checking, and
+  closes the window like any save. Closing the window cancels the checks still running.
 - Outside the preferences window, a disabled provider starts no process.
 - In the menu, an enabled provider that turns out unavailable is hidden, never shown as a broken
   row; the next quota refresh tries again. Without any provider left to show, the section is
@@ -75,7 +77,8 @@ QOP only in that the section hides while quick open has text. The mockup is
   reset time has passed reads `reset · waiting for a new reading`, without a bar fill or a mark.
 - A dimmed `Updated 12 min ago` line closes the section, from the oldest successful reading
   shown.
-- **Refresh now** refreshes the quotas along with the pull requests. Opening the menu refreshes
+- Quotas are read when the extension starts and when a provider is switched on. **Refresh now**
+  refreshes them along with the pull requests. Opening the menu refreshes
   a provider last tried more than 5 minutes ago; otherwise they follow their own timer,
   independent of `refresh-interval`.
 - Each provider has at most one refresh in flight; a refresh asked meanwhile joins it. Disabling
@@ -87,9 +90,11 @@ QOP only in that the section hides while quick open has text. The mockup is
   and the period has not notified yet. A period is identified by provider, window, and reset
   time. The notification names the provider, the window, the percentage, and the reset time:
   `Claude weekly quota at 82 %` / `Resets Sat 09:00`.
-- The first reading after a provider is enabled sets a quiet baseline: it marks the periods
+- The first reading after a provider is switched on sets a quiet baseline: it marks the periods
   already at or above the threshold as notified. A period that crosses it later, or starts later
-  above it, notifies.
+  above it, notifies. A restart of the extension or the session keeps the cached reading and the
+  marked periods, so it sets no baseline; switching a provider off forgets both.
+- A window without a reset time is shown but never notifies, since it has no period.
 - Changing **Notify at** does not notify periods already marked.
 - Errors never notify.
 
@@ -107,8 +112,12 @@ QOP only in that the section hides while quick open has text. The mockup is
 - Reads the JSON answer: `is_error` true, a non-zero exit, or output that is not JSON is a
   transient failure. In `result`, the line `Current session: N% used · resets <time> (<zone>)`
   is the `5 h` window, and `Current week (all models): N% used · resets <date>, <time> (<zone>)`
-  is the `Week` window. Per-model lines and the usage advice are ignored. The reset is converted
-  to a time with the named IANA zone.
+  is the `Week` window, such as `resets 2pm (Europe/Paris)` and `resets Nov 16, 7am
+  (Europe/Paris)`. Per-model lines and the usage advice are ignored.
+- A reset is read in the named IANA zone. With only a time, it is the next occurrence of that
+  time: today, or tomorrow when today's is more than a minute past. With a month and a day, it
+  falls in the current year, or the next one when that date is more than a day past. A reset
+  that does not parse, or names an unknown zone, reads as none.
 - Unavailable: a `result` that does not start with `You are currently using your subscription`
   (signed out or on an API key, `/usage` then prints session costs), or one without any window
   line.
@@ -171,7 +180,7 @@ QOP only in that the section hides while quick open has text. The mockup is
   - `npm run lint` and `make check` pass; `tests/quotas.test.js` covers parsing both answers
     (subscription, signed out or API key, unknown form, error), reset times across zones and
     years, window labels, pace, reset and age texts, notification titles, period tracking with
-    its baseline, the `codex` bucket choice, and the cache reader.
+    its baseline and windows without a reset, the `codex` bucket choice, and the cache reader.
   - In a headless GNOME Shell with the real CLIs and a `PATH` without `~/.local/bin`: both
     providers read and drawn; with Codex signed out (`CODEX_HOME` pointing at an empty
     directory), Codex hidden in the menu and its switch off and locked with its message.

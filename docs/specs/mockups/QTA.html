@@ -138,7 +138,7 @@
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
 <div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
-<template data-state id="MENU-UNAVAILABLE" data-screen="Menu" data-summary="Codex signed out" data-label="Menu — an unavailable provider is hidden" data-route="Top bar › Greenlight" data-rules="Availability" data-kind="edge">
+<template data-state id="MENU-UNAVAILABLE" data-screen="Menu" data-summary="Claude only" data-label="Menu — Codex off or unavailable, so hidden" data-route="Top bar › Greenlight" data-rules="Availability" data-kind="edge">
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
@@ -186,7 +186,7 @@
 <div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
-<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="PREFS-READY">Save preferences</span></div></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
 </template>
 <template data-state id="PREFS-READY" data-screen="Preferences" data-summary="Both available" data-label="Preferences — both providers available" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
 <div class="win-prefs"><div class="title">Greenlight</div>
@@ -208,15 +208,15 @@
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
 </template>
-<template data-state id="PREFS-MISSING" data-screen="Preferences" data-summary="CLI not found" data-label="Preferences — a CLI is missing" data-route="Preferences › Agent quotas" data-rules="Availability, Finding the CLIs, Errors" data-kind="error">
+<template data-state id="PREFS-MISSING" data-screen="Preferences" data-summary="codex not found" data-label="Preferences — a CLI is missing" data-route="Preferences › Agent quotas" data-rules="Availability, Finding the CLIs, Errors" data-kind="error">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
 <div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
-<div class="box"><div class="row locked"><div class="t">Claude<span>claude not found in PATH or ~/.local/bin</span></div><div class="sw"></div></div><div class="row"><div class="t">Codex<span>Uses the codex CLI</span></div><div class="sw on"></div></div>
+<div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>codex not found in PATH or ~/.local/bin</span></div><div class="sw"></div></div>
 <div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
-<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-OK">Save preferences</span></div></div>
+<div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
 </template>
 <template data-state id="PREFS-UNCHECKED" data-screen="Preferences" data-summary="Check failed" data-label="Preferences — a check failed without an answer" data-route="Preferences › Agent quotas" data-rules="Availability" data-kind="error">
 <div class="win-prefs"><div class="title">Greenlight</div>
