@@ -5,6 +5,19 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.3.0](https://github.com/cr0cK/greenlight/compare/v1.2.1...v1.3.0) (2026-11-12)
+
+
+### Added
+
+* show Antigravity's Gemini quota in the agent quotas ([#40](https://github.com/cr0cK/greenlight/issues/40)) ([13c3a27](https://github.com/cr0cK/greenlight/commit/13c3a27a1bd4bd794738af5b85c85a60a07dd5f9))
+* show Claude and Codex quota gauges in the menu ([#35](https://github.com/cr0cK/greenlight/issues/35)) ([56fea32](https://github.com/cr0cK/greenlight/commit/56fea32567fa2db36cb6dcc2a8bb4c65cb49ad3f))
+
+
+### Fixed
+
+* recognize agy authentication errors by their failure phrases ([#43](https://github.com/cr0cK/greenlight/issues/43)) ([f7e786e](https://github.com/cr0cK/greenlight/commit/f7e786e0cf168d7fd9e268b2d1ff451c15e6766b))
+
 ## [1.2.1](https://github.com/cr0cK/greenlight/compare/v1.2.0...v1.2.1) (2026-11-03)
 
 
