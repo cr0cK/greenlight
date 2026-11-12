@@ -41,6 +41,7 @@
   .q { display: grid; grid-template-columns: 72px 48px 160px 56px 1fr; column-gap: 12px; align-items: center; height: 30px; }
   .q.dim { opacity: .55; }
   .name { font-weight: 700; } .win, .reset, .small { color: var(--dim); } .reset, .small { font-size: 13px; }
+  .pname { font-weight: 700; padding-top: 4px; }
   .pct { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
   .bar { position: relative; height: 16px; }
   .bar .track { position: absolute; left: 0; right: 0; top: 4px; height: 8px; border-radius: 4px; background: var(--track); }
@@ -108,45 +109,41 @@
 
 <!-- States of QTA. Each names the spec sections it shows. -->
 
-<template data-state id="MENU-OK" data-screen="Menu" data-summary="Both providers read" data-label="Menu — both providers" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="happy">
+<template data-state id="MENU-OK" data-screen="Menu" data-summary="Three providers read" data-label="Menu — every provider" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="happy">
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill " style="width:38%"></span><span class="mark" style="left:calc(57% - 1px)"></span></span><span class="pct">38 %</span><span class="reset">resets in 2 h 10 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
 <div class="head">acme · 2 pull requests</div>
 <div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+<div class="sep"></div><div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill " style="width:38%"></span><span class="mark" style="left:calc(57% - 1px)"></span></span><span class="pct">38 %</span><span class="reset">resets in 2 h 10 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="pname">Antigravity</div><div class="q"><span class="name"></span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill " style="width:4%"></span><span class="mark" style="left:calc(3% - 1px)"></span></span><span class="pct">4 %</span><span class="reset">resets in 4 h 50 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="mark" style="left:calc(1% - 1px)"></span></span><span class="pct">0 %</span><span class="reset">resets Thu 11:53</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
 <template data-state id="MENU-THRESHOLD" data-screen="Menu" data-summary="Threshold and limit" data-label="Menu — over the threshold, at the limit" data-route="Top bar › Greenlight" data-rules="Menu, Notifications" data-kind="edge">
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill err" style="width:100%"></span><span class="mark" style="left:calc(84% - 1px)"></span></span><span class="pct">100 %</span><span class="reset">resets in 47 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill warn" style="width:84%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">84 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
 <div class="head">acme · 2 pull requests</div>
 <div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+<div class="sep"></div><div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span><span class="fill err" style="width:100%"></span><span class="mark" style="left:calc(84% - 1px)"></span></span><span class="pct">100 %</span><span class="reset">resets in 47 min</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill warn" style="width:84%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">84 %</span><span class="reset">resets Sat 09:00</span></div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
 <template data-state id="MENU-FAILED" data-screen="Menu" data-summary="Refresh failed" data-label="Menu — a refresh failed" data-route="Top bar › Greenlight" data-rules="Availability, Errors" data-kind="error">
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">Agent quotas</div><div class="q dim"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill grey" style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="cause">Claude: API Error: 529 Overloaded · last reading 3 h ago</div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 3 h ago</div><div class="sep"></div>
 <div class="head">acme · 2 pull requests</div>
 <div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+<div class="sep"></div><div class="head">Agent quotas</div><div class="q dim"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill grey" style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="cause">Claude: API Error: 529 Overloaded · last reading 3 h ago</div><div class="q"><span class="name">Codex</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:16%"></span><span class="mark" style="left:calc(31% - 1px)"></span></span><span class="pct">16 %</span><span class="reset">resets Tue 09:30</span></div><div class="small" style="padding:6px 0 10px">Updated 3 h ago</div><div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
-<template data-state id="MENU-UNAVAILABLE" data-screen="Menu" data-summary="Claude only" data-label="Menu — Codex off or unavailable, so hidden" data-route="Top bar › Greenlight" data-rules="Availability" data-kind="edge">
+<template data-state id="MENU-UNAVAILABLE" data-screen="Menu" data-summary="Claude only" data-label="Menu — the other providers off or unavailable, so hidden" data-route="Top bar › Greenlight" data-rules="Availability" data-kind="edge">
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div>
 <div class="head">acme · 2 pull requests</div>
 <div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+<div class="sep"></div><div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 12 min ago</div><div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
 <template data-state id="MENU-NONE" data-screen="Menu" data-summary="No provider to show" data-label="Menu — no provider enabled or available" data-route="Top bar › Greenlight" data-rules="Availability, Menu" data-kind="edge">
 <div class="menu">
@@ -162,11 +159,10 @@
 <div class="menu">
 <div class="item link" data-goto="MENU-OK">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field" data-goto="MENU-QUICKOPEN">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span></span><span class="pct"></span><span class="reset">reset · waiting for a new reading</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 2 h ago</div><div class="sep"></div>
 <div class="head">acme · 2 pull requests</div>
 <div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b> <span class="badge ci">CI 4/4</span><div class="small">web-platform @octocat</div></div>
 <div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
+<div class="sep"></div><div class="head">Agent quotas</div><div class="q"><span class="name">Claude</span><span class="win">5 h</span><span class="bar"><span class="track"></span></span><span class="pct"></span><span class="reset">reset · waiting for a new reading</span></div><div class="q"><span class="name"></span><span class="win">Week</span><span class="bar"><span class="track"></span><span class="fill " style="width:61%"></span><span class="mark" style="left:calc(74% - 1px)"></span></span><span class="pct">61 %</span><span class="reset">resets Sat 09:00</span></div><div class="small" style="padding:6px 0 10px">Updated 2 h ago</div><div class="sep"></div><div class="item link" data-goto="PREFS-CHECKING">Preferences…</div></div>
 </template>
 <template data-state id="MENU-QUICKOPEN" data-screen="Menu" data-summary="Quick open has text" data-label="Menu — quotas hide while quick open has text" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="edge">
 <div class="menu">
@@ -181,29 +177,29 @@
 <template data-state id="PREFS-CHECKING" data-screen="Preferences" data-summary="Checking providers" data-label="Preferences — checking the providers" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage below the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
 <div class="box"><div class="row locked"><div class="t">Claude<span>Checking…</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>Checking…</span></div><div class="sw"></div></div>
-<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row locked"><div class="t">Antigravity<span>Checking…</span></div><div class="sw"></div></div><div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
 </template>
-<template data-state id="PREFS-READY" data-screen="Preferences" data-summary="Both available" data-label="Preferences — both providers available" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
+<template data-state id="PREFS-READY" data-screen="Preferences" data-summary="All available" data-label="Preferences — every provider available" data-route="Preferences › Agent quotas" data-rules="Preferences, Availability" data-kind="happy">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage below the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
 <div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row"><div class="t">Codex<span>Uses the codex CLI</span></div><div class="sw on"></div></div>
-<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Antigravity<span>Uses the agy CLI</span></div><div class="sw on"></div></div><div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-OK">Save preferences</span></div></div>
 </template>
-<template data-state id="PREFS-UNAVAILABLE" data-screen="Preferences" data-summary="Codex signed out" data-label="Preferences — an unavailable provider is locked off" data-route="Preferences › Agent quotas" data-rules="Availability, Errors" data-kind="error">
+<template data-state id="PREFS-UNAVAILABLE" data-screen="Preferences" data-summary="Codex, agy signed out" data-label="Preferences — an unavailable provider is locked off" data-route="Preferences › Agent quotas" data-rules="Availability, Errors" data-kind="error">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage below the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
 <div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>Codex is not signed in. Run codex login.</span></div><div class="sw"></div></div>
-<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row locked"><div class="t">Antigravity<span>Antigravity is not signed in. Run agy and sign in.</span></div><div class="sw"></div></div><div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
@@ -211,9 +207,9 @@
 <template data-state id="PREFS-MISSING" data-screen="Preferences" data-summary="codex not found" data-label="Preferences — a CLI is missing" data-route="Preferences › Agent quotas" data-rules="Availability, Finding the CLIs, Errors" data-kind="error">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage below the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
 <div class="box"><div class="row"><div class="t">Claude<span>Uses the claude CLI</span></div><div class="sw on"></div></div><div class="row locked"><div class="t">Codex<span>codex not found in PATH or ~/.local/bin</span></div><div class="sw"></div></div>
-<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Antigravity<span>Uses the agy CLI</span></div><div class="sw"></div></div><div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-UNAVAILABLE">Save preferences</span></div></div>
@@ -221,9 +217,9 @@
 <template data-state id="PREFS-UNCHECKED" data-screen="Preferences" data-summary="Check failed" data-label="Preferences — a check failed without an answer" data-route="Preferences › Agent quotas" data-rules="Availability" data-kind="error">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group"><h3>Agent quotas</h3><p>Show subscription usage above the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
+<div class="group"><h3>Agent quotas</h3><p>Show subscription usage below the pull requests. Each agent's own CLI reports it; Greenlight never handles a credential.</p>
 <div class="box"><div class="row locked"><div class="t">Claude<span>Could not check: timed out. Reopen Preferences to try again.</span></div><div class="sw on"></div></div><div class="row"><div class="t">Codex<span>Uses the codex CLI</span></div><div class="sw on"></div></div>
-<div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
+<div class="row"><div class="t">Antigravity<span>Uses the agy CLI</span></div><div class="sw on"></div></div><div class="row"><div class="t">Refresh every<span>Opening the menu also refreshes quotas older than 5 minutes</span></div>1 hour ⌄</div>
 <div class="row"><div class="t">Notify at (%)<span>Once per window, when its usage reaches this share</span></div>80 &nbsp;− +</div></div></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t">Save preferences</div><span class="btn" data-goto="MENU-OK">Save preferences</span></div></div>
