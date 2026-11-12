@@ -32,6 +32,38 @@
       <summary>Recent quick open repositories</summary>
       <description>JSON list of repositories recently opened from quick open, newest first.</description>
     </key>
+    <key name="claude-quota-enabled" type="b">
+      <default>false</default>
+      <summary>Show the Claude quota</summary>
+      <description>Reads the Claude subscription usage through claude -p /usage.</description>
+    </key>
+    <key name="codex-quota-enabled" type="b">
+      <default>false</default>
+      <summary>Show the Codex quota</summary>
+      <description>Reads the Codex rate limits through codex app-server.</description>
+    </key>
+    <key name="agy-quota-enabled" type="b">
+      <default>false</default>
+      <summary>Show the Antigravity quota</summary>
+      <description>Reads the Antigravity Gemini quota through agy -p /usage.</description>
+    </key>
+    <key name="agent-quota-interval" type="i">
+      <default>60</default>
+      <summary>Agent quota refresh interval</summary>
+      <description>Time between agent quota checks, in minutes.</description>
+      <range min="15" max="240"/>
+    </key>
+    <key name="agent-quota-threshold" type="i">
+      <default>80</default>
+      <summary>Agent quota notification threshold</summary>
+      <description>A quota window notifies once per period when its usage reaches this percentage.</description>
+      <range min="50" max="100"/>
+    </key>
+    <key name="agent-quota-cache" type="s">
+      <default>'{}'</default>
+      <summary>Last agent quota readings</summary>
+      <description>Local data: each provider's last reading and the periods already notified.</description>
+    </key>
     <key name="state-cache" type="s">
       <default>'{}'</default>
       <summary>Previous pull request state</summary>

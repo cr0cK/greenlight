@@ -17,7 +17,7 @@ pre-commit install --install-hooks    # pre-commit and commit-msg hooks
 ## Layout
 
 Everything that ships lives in `src/`; `make check` packs it into the extension zip. Unit
-tests are in `tests/`, development scripts in `scripts/`, and product contracts in `docs/specs/`.
+tests are in `tests/`, development scripts in `scripts/`, and specs in `docs/specs/`.
 
 ## Checks
 
@@ -52,8 +52,9 @@ A change to the menu or the preferences window also regenerates the README scree
 scripts/screenshots.sh      # rewrites docs/screenshots/*.png
 ~~~
 
-It runs a headless GNOME Shell with `scripts/screenshots/gh`, a stand-in for the GitHub CLI that
-serves fictional pull requests, so the images never show a real account. It needs ImageMagick.
+It runs a headless GNOME Shell with `scripts/screenshots/gh`, `claude`, `codex`, and `agy`, stand-ins for
+the real CLIs that serve fictional pull requests and quotas, so the images never show a real
+account. It needs ImageMagick.
 It crops `menu.png` and `quick-open.png` to the same size, because the README shows them side by
 side at the same width; keep any new menu capture in that set.
 
@@ -64,8 +65,8 @@ side at the same width; keep any new menu capture in that set.
 - Use GNOME Shell ES modules and GSettings for extension preferences.
 - Keep subprocess calls as argument arrays; do not pass user or repository data through a shell.
 - Do not add or store GitHub credentials. Use the user's existing gh authentication.
-- Update README.md and the relevant docs/specs/v*.md when a change affects the user-visible
-  contract.
+- Update README.md and the spec in docs/specs/ that owns the behavior when a change affects the
+  user-visible contract. A new feature starts with a spec; see docs/specs/README.md.
 
 ## Commits and pull requests
 

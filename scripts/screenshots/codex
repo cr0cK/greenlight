@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Stand-in for the Codex CLI that serves fictional rate limits, so screenshots show no real account.
+
+It answers only `codex app-server` with `initialize` and `account/rateLimits/read`, the calls
+Greenlight makes.
+"""
+import json
+import sys
+import time
+
+if sys.argv[1:] != ['app-server']:
+    sys.exit('Unsupported codex call: ' + ' '.join(sys.argv[1:]))
+
+WEEK = {'usedPercent': 16, 'windowDurationMins': 10080, 'resetsAt': int(time.time()) + 5 * 86400}
+BUCKET = {'limitId': 'codex', 'primary': WEEK, 'secondary': None}
+
+for line in sys.stdin:
+    message = json.loads(line)
+    if message.get('method') == 'initialize':
+        reply = {'id': message['id'], 'result': {'userAgent': 'codex-screenshots'}}
+    elif message.get('method') == 'account/rateLimits/read':
+        reply = {'id': message['id'], 'result': {'rateLimits': BUCKET,
+                                                 'rateLimitsByLimitId': {'codex': BUCKET}}}
+    else:
+        continue
+    print(json.dumps(reply), flush=True)

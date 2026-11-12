@@ -7,6 +7,8 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 
 import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
 import {describeGhFailure} from './github.js';
+import {readQuota} from './agents.js';
+import {PROVIDERS} from './quotas.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
 // Repository scope modes, in ComboRow order.
@@ -17,6 +19,8 @@ const REPOSITORY_MODE_HINTS = {
     except: 'New repositories are monitored. Turn off the ones to skip.',
     only: 'Only the repositories turned on. New repositories are skipped.',
 };
+const QUOTA_INTERVALS = [15, 30, 60, 120, 240];
+const QUOTA_INTERVAL_LABELS = ['15 minutes', '30 minutes', '1 hour', '2 hours', '4 hours'];
 const INTERVAL_LABELS = [
     '30 seconds',
     '1 minute',
@@ -165,6 +169,63 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         });
         shortcutRow.connect('changed', () => shortcutRow.remove_css_class('error'));
         quickOpenGroup.add(shortcutRow);
+
+        const quotaGroup = new Adw.PreferencesGroup({
+            title: 'Agent quotas',
+            description: 'Show subscription usage below the pull requests. Each agent\'s own CLI ' +
+                'reports it; Greenlight never handles a credential.',
+        });
+        // Each switch waits for its provider's check; an unavailable one stays off.
+        const quotaRows = {};
+        for (const [provider, {name}] of Object.entries(PROVIDERS)) {
+            quotaRows[provider] = new Adw.SwitchRow({
+                title: name,
+                subtitle: 'Checking…',
+                active: settings.get_boolean(PROVIDERS[provider].setting),
+                sensitive: false,
+            });
+            quotaGroup.add(quotaRows[provider]);
+        }
+        const quotaIntervalRow = new Adw.ComboRow({
+            title: 'Refresh every',
+            subtitle: 'Opening the menu also refreshes quotas older than 5 minutes',
+            model: Gtk.StringList.new(QUOTA_INTERVAL_LABELS),
+        });
+        const currentQuotaInterval = QUOTA_INTERVALS.indexOf(settings.get_int('agent-quota-interval'));
+        quotaIntervalRow.set_selected(currentQuotaInterval >= 0 ? currentQuotaInterval : 2);
+        quotaGroup.add(quotaIntervalRow);
+        const thresholdRow = new Adw.SpinRow({
+            title: 'Notify at (%)',
+            subtitle: 'Once per window, when its usage reaches this share',
+            adjustment: new Gtk.Adjustment({
+                lower: 50,
+                upper: 100,
+                step_increment: 5,
+                value: settings.get_int('agent-quota-threshold'),
+            }),
+        });
+        quotaGroup.add(thresholdRow);
+
+        const quotaCancellable = new Gio.Cancellable();
+        for (const [provider, row] of Object.entries(quotaRows)) {
+            readQuota(provider, {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
+                .then(result => {
+                    if (result.status === 'ok') {
+                        row.set_sensitive(true);
+                        row.set_subtitle('Uses the ' + PROVIDERS[provider].command + ' CLI');
+                    } else if (result.status === 'unavailable') {
+                        row.set_active(false);
+                        row.set_subtitle(result.message);
+                    } else {
+                        // Not proven either way: keep the saved choice, locked.
+                        row.set_subtitle('Could not check: ' + result.message +
+                            '. Reopen Preferences to try again.');
+                    }
+                })
+                .catch(() => {
+                    // Cancelled when the window closes.
+                });
+        }
 
         const ownersGroup = new Adw.PreferencesGroup({
             title: 'Accounts and organizations',
@@ -612,7 +673,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         saveButton.add_css_class('suggested-action');
         const saveRow = new Adw.ActionRow({
             title: 'Save preferences',
-            subtitle: 'Apply owner, repository, author, refresh, and shortcut settings together.',
+            subtitle: 'Apply owner, repository, author, refresh, shortcut, and quota settings together.',
         });
         saveRow.add_suffix(saveButton);
         saveRow.set_activatable_widget(saveButton);
@@ -640,6 +701,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             settings.set_strv('quick-open-shortcut', shortcutText
                 ? [Gtk.accelerator_name(shortcutKey, shortcutModifiers)]
                 : []);
+            for (const [provider, row] of Object.entries(quotaRows))
+                settings.set_boolean(PROVIDERS[provider].setting, row.get_active());
+            const selectedQuotaInterval = quotaIntervalRow.get_selected();
+            if (selectedQuotaInterval < QUOTA_INTERVALS.length)
+                settings.set_int('agent-quota-interval', QUOTA_INTERVALS[selectedQuotaInterval]);
+            settings.set_int('agent-quota-threshold', Math.round(thresholdRow.get_value()));
             settings.apply();
             window.close();
         });
@@ -673,6 +740,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
         page.add(quickOpenGroup);
+        page.add(quotaGroup);
         page.add(ownersGroup);
         page.add(saveGroup);
         page.add(aboutGroup);
@@ -682,6 +750,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         window.connect('close-request', () => {
             taskGeneration++;
             cancellable.cancel();
+            quotaCancellable.cancel();
             return false;
         });
     }
