@@ -34,13 +34,17 @@ export const PROVIDERS = {
 /** Arguments for agy: `/usage` answers without an agent turn, so it costs no tokens. */
 export const AGY_ARGS = ['-p', '/usage', '--output-format', 'json'];
 
+const AGY_AUTH_ERROR = new RegExp('\\b(?:' + [
+    'authentication required', 'authentication failed', 'unauthorized', 'unauthorised',
+    'unauthenticated', 'not logged in', 'not signed in',
+].join('|').replaceAll(' ', '\\s+') + ')\\b', 'i');
+
 /**
- * Whether a line of agy's stderr says it is signed out: `Authentication required. Please visit
- * the URL to log in:` before it waits for a browser, or `Error: authentication required. Run
- * 'agy' to log in, then retry.` from a profile that signed in before.
+ * Whether a text from agy is an authentication error. agy reports no HTTP status, so the
+ * phrase decides, ignoring case and as whole words: `Authenticated successfully` is not one.
  */
-export function isAgySignInLine(line) {
-    return /^(?:error: )?authentication required\b/i.test(line);
+export function isAgyAuthError(text) {
+    return AGY_AUTH_ERROR.test(text);
 }
 
 /** The Gemini buckets of agy's `/usage`, by id, with the length of their window. */
@@ -292,8 +296,9 @@ function parseIsoTime(text) {
 
 /**
  * Reads a finished `agy -p /usage --output-format json` run. Stdout counts before the exit
- * status: a `status` other than `SUCCESS` is a transient failure whose cause is the first line
- * of `response`, or the status when that is empty. Output that is not JSON is a transient
+ * status: a `status` other than `SUCCESS` is unavailable when its `error`, or the first line of
+ * `response`, is an authentication error, and otherwise a transient failure whose cause is the
+ * first line of `error`, else of `response`, else the status. Output that is not JSON is a transient
  * failure after a signal or a non-zero exit, and an unknown form after a zero one. The windows
  * are the `gemini-5h` and `gemini-weekly` buckets of any group; the sign-in line on stderr is
  * the runner's business, not this parser's.
@@ -307,9 +312,11 @@ export function parseAgyRun({stdout, exitCode, signal}) {
     }
     const isAnswer = answer !== null && typeof answer === 'object' && !Array.isArray(answer);
     if (isAnswer && typeof answer.status === 'string' && answer.status !== 'SUCCESS') {
-        return failed(typeof answer.response === 'string' && answer.response.trim()
-            ? firstLine(answer.response)
-            : answer.status);
+        const error = typeof answer.error === 'string' ? answer.error : '';
+        const response = typeof answer.response === 'string' ? firstLine(answer.response) : '';
+        if (isAgyAuthError(error) || isAgyAuthError(response))
+            return unavailable(MESSAGES.agyNotSignedIn);
+        return failed(firstLine(error) || response || answer.status);
     }
     if (signal)
         return failed('killed by signal ' + signal);
