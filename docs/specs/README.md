@@ -33,4 +33,4 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
 - [`ABT`](ABT.md) (2026-10-12): the **About** group with the installed version. Predates the
   process.
 - [`QTA`](QTA.md) (2026-11-12): Claude and Codex subscription quota gauges in the menu; tracking
-  issue #TRACKING.
+  issue #36.
