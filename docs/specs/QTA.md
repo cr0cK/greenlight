@@ -13,8 +13,9 @@ QTA shows how much of the Claude and Codex subscription quotas is used, in the G
 next to the pull requests the agents open, so their use can be spread over the week instead of
 hitting a limit on Thursday. It covers the **Agent quotas** preferences, when a provider is
 available, the menu section with its gauges and pace mark, threshold notifications, and how
-Greenlight asks each agent's own CLI. It builds on PRM, whose rules all still apply, and changes
-QOP only in that the section hides while quick open has text. The mockup is
+Greenlight asks each agent's own CLI. It builds on PRM, whose rules all still apply. It amends
+PRM's menu order, and QOP's menu height: the section stays in view, and hides while quick open
+has text. The mockup is
 [`mockups/QTA.html`](mockups/QTA.html).
 
 ## Scope
@@ -32,7 +33,9 @@ QOP only in that the section hides while quick open has text. The mockup is
   - A **Claude** switch and a **Codex** switch (see Availability).
   - **Refresh every**: 15 minutes, 30 minutes, 1 hour (default), 2 hours, or 4 hours.
   - **Notify at**, in percent: 50 to 100 by steps of 5, default 80.
-- Every row applies on **Save preferences**.
+- Every row applies on **Save preferences**. The timer uses any stored interval from 15 to 240
+  minutes; the preferences show one outside the list as 1 hour, and saving stores 60. **Notify
+  at** applies any stored value from 50 to 100, on the grid or not.
 
 ## Availability
 
@@ -50,18 +53,25 @@ QOP only in that the section hides while quick open has text. The mockup is
 - Outside the preferences window, a disabled provider starts no process.
 - In the menu, an enabled provider that turns out unavailable is hidden, never shown as a broken
   row; the next quota refresh tries again. Without any provider left to show, the section is
-  absent.
-- A transient failure (timeout, crash, an error that is not about the sign-in) keeps the last
-  reading, dimmed, with the cause and its age. A provider without any reading is hidden.
+  absent. An unavailable answer forgets the provider's reading and marked periods, so its next
+  reading sets a quiet baseline (see Notifications).
+- A transient failure (timeout, crash, a CLI that cannot start, any failure the Claude and Codex
+  sections below do not call unavailable) keeps the last reading, dimmed, with the cause and its age. A provider without any
+  reading is hidden.
+- A restart shows the cached readings as they were read, undimmed, until the refresh at start
+  answers; a failure's cause is not cached.
 
 ## Menu
 
 - An **Agent quotas** section sits right above the pull request list, after quick open, when at
-  least one enabled provider has a reading to show (see Availability). It hides while quick open
-  has text, so the suggestions, the preview, and the list keep their room.
+  least one enabled provider has a reading to show (see Availability), followed by a separator.
+  It hides while quick open has text, so the suggestions, the preview, and the list keep their
+  room. It does not scroll: on a short screen the pull request list gives way, as QOP's menu
+  height says. A result that lands while the menu is open redraws the section in place.
 - Each provider gets one line per quota window it reports, labelled `5 h` or `Week`; another
   duration is labelled by its length (`1 d`, `30 d`, `90 min`), and a window without a duration reads
-  `Quota`:
+  `Quota`. A window is identified by its slot, not its label: `session` or `week` for Claude's
+  lines, `primary` or `secondary` for Codex's windows. Lines follow that slot order:
 
   ```text
   Claude  5 h   ███░░|░░░  38 %  resets in 2 h 10 min
@@ -72,12 +82,15 @@ QOP only in that the section hides while quick open has text. The mockup is
 - The bar fills with the used share. A pace mark (`|` above) shows the even-spending budget:
   `clamp(1 − (resetsAt − now) / duration, 0, 1)`. A fill past the mark means usage runs ahead of
   an even spread over the window. A window without a duration or a reset time has no mark.
-- The bar takes the warning color at or above **Notify at**, and the error color at 100 %.
+- The bar is green (`#26a269`) below **Notify at**, yellow (`#e5a50a`) at or above it, red
+  (`#c01c28`) at 100 %, and grey (`#77767b`) while dimmed. The pace mark is `#9a9996`.
 - A reset under a day away reads as a duration; later ones as a weekday and time. A window whose
-  reset time has passed reads `reset · waiting for a new reading`, without a bar fill or a mark.
+  reset time has passed reads `reset · waiting for a new reading`, without a percentage, a bar
+  fill, or a mark.
 - A dimmed `Updated 12 min ago` line closes the section, from the oldest successful reading
   shown.
-- Quotas are read when the extension starts and when a provider is switched on. **Refresh now**
+- Quotas are read when the extension starts and when a provider is switched on. The last try is
+  kept in memory only, so the read at start counts as one. **Refresh now**
   refreshes them along with the pull requests. Opening the menu refreshes
   a provider last tried more than 5 minutes ago; otherwise they follow their own timer,
   independent of `refresh-interval`.
@@ -87,10 +100,13 @@ QOP only in that the section hides while quick open has text. The mockup is
 ## Notifications
 
 - A window notifies once per period, when a reading of that period is at or above **Notify at**
-  and the period has not notified yet. A period is identified by provider, window, and reset
-  time. The notification names the provider, the window, the percentage, and the reset time:
-  `Claude weekly quota at 82 %` / `Resets Sat 09:00`.
-- The first reading after a provider is switched on sets a quiet baseline: it marks the periods
+  and the period has not notified yet. A period is identified by provider, window slot, and
+  reset time. The notification names the provider, the window, the percentage, and the reset
+  time: `Claude weekly quota at 82 %` / `Resets Sat 09:00`. The window's name comes from its
+  label: `weekly` for `Week`, and `<N>-day`, `<N>-hour`, or `<N>-minute` for `N d`, `N h`, or
+  `N min` (`5-hour`, `90-minute`); a `Quota` window is not named (`Codex quota at 90 %`).
+- The first reading after a provider is switched on, or after an unavailable answer, sets a
+  quiet baseline: it marks the periods
   already at or above the threshold as notified. A period that crosses it later, or starts later
   above it, notifies. A restart of the extension or the session keeps the cached reading and the
   marked periods, so it sets no baseline; switching a provider off forgets both.
@@ -109,8 +125,9 @@ QOP only in that the section hides while quick open has text. The mockup is
 - Runs `claude -p /usage --no-session-persistence --output-format json --settings
   {"disableAllHooks":true}` with an argument array and a 30-second timeout. The command costs
   no tokens, saves no session, and runs none of the user's hooks.
-- Reads the JSON answer: `is_error` true, a non-zero exit, or output that is not JSON is a
-  transient failure. In `result`, the line `Current session: N% used · resets <time> (<zone>)`
+- Reads stdout before the exit code: JSON with `is_error` true is a transient failure whose
+  cause is the first line of its `result`; otherwise a non-zero exit, or output that is not JSON,
+  is a transient failure. In `result`, the line `Current session: N% used · resets <time> (<zone>)`
   is the `5 h` window, and `Current week (all models): N% used · resets <date>, <time> (<zone>)`
   is the `Week` window, such as `resets 2pm (Europe/Paris)` and `resets Nov 16, 7am
   (Europe/Paris)`. Per-model lines and the usage advice are ignored.
@@ -137,7 +154,8 @@ QOP only in that the section hides while quick open has text. The mockup is
   and token refresh.
 - Reads the `codex` bucket from `result.rateLimitsByLimitId`, or `result.rateLimits` when that
   map is absent; with the map but no `codex` bucket, Codex is unavailable. Its `primary` and `secondary` windows (`usedPercent`, `windowDurationMins`,
-  `resetsAt`) map to lines by duration; a null window is not shown.
+  `resetsAt`) are the `primary` and `secondary` slots, labelled by their duration; a null window
+  is not shown.
 - Unavailable: an error response about authentication (`codex account authentication required
   to read rate limits`) or an unknown method, or an answer without any window. Other error
   responses are transient failures.
@@ -145,7 +163,7 @@ QOP only in that the section hides while quick open has text. The mockup is
 ## Units
 
 - Percentages are percentage points from 0 to 100; Codex `resetsAt` is in epoch seconds. Both
-  providers normalize to `{label, usedPercent, durationSeconds, resetsAt}` in epoch seconds
+  providers normalize to `{slot, label, usedPercent, durationSeconds, resetsAt}`, times in epoch seconds,
   before display, notification, or storage. A window without a numeric percentage is skipped;
   a missing or invalid length or reset reads as none.
 
@@ -157,8 +175,11 @@ QOP only in that the section hides while quick open has text. The mockup is
   `codex not found in PATH or ~/.local/bin`, `Codex is not signed in. Run codex login.`,
   `This codex cannot report rate limits. Update Codex.`,
   `Codex reports no subscription quota. Sign in with ChatGPT: codex login.`
-- Transient causes, in the menu under the dimmed lines: the provider name, then `timed out`,
-  `exited with code N`, or the CLI's own error message, then `· last reading 3 h ago`.
+- Transient causes, once per provider under its last dimmed line, as `<Provider>: <cause> ·
+  last reading <age>`, the cause being `timed out`, `exited with code N`, `killed by signal N`,
+  `could not start: <reason>`, or the CLI's own error message. A process ended at the timeout
+  reads `timed out`. A codex that exits before answering, an old one
+  without `app-server` included, reads `exited with code N`.
 - One provider failing never hides the other, nor the pull requests.
 
 ## Storage
@@ -178,15 +199,33 @@ QOP only in that the section hides while quick open has text. The mockup is
 - **Temporary restrictions**: none.
 - **Acceptance**:
   - `npm run lint` and `make check` pass; `tests/quotas.test.js` covers parsing both answers
-    (subscription, signed out or API key, unknown form, error), reset times across zones and
+    (subscription, signed out or API key, unknown form, error, and their slots), reset times across zones and
     years, window labels, pace, reset and age texts, notification titles, period tracking with
     its baseline and windows without a reset, the `codex` bucket choice, and the cache reader.
   - In a headless GNOME Shell with the real CLIs and a `PATH` without `~/.local/bin`: both
     providers read and drawn; with Codex signed out (`CODEX_HOME` pointing at an empty
     directory), Codex hidden in the menu and its switch off and locked with its message.
-  - In a headless GNOME Shell with scripted CLIs: a failed Claude refresh dims the last reading
-    with its cause; Codex crossing **Notify at** after a reading under it sends one
-    notification; no `JS ERROR` in the shell log, and no `codex app-server` left running.
+  - In a headless GNOME Shell with scripted `claude` and `codex` in a scratch directory first in
+    the shell's `PATH`, each answering from a file the test rewrites between steps, and refreshes
+    driven through Eval or by opening the menu, with each script logging its runs:
+    - a failed Claude refresh (`is_error` JSON, exit 1) dims the last reading with the CLI's
+      message;
+    - Codex crossing **Notify at** after a reading under it sends one notification; an
+      unavailable answer then a reading above it sends none;
+    - typing in quick open hides the section, and clearing it shows it again;
+    - a reading past its reset shows `reset · waiting for a new reading`, without a percentage;
+    - opening the menu reruns a provider whose last try the test ages past 5 minutes through
+      Eval, and not one tried within them; two refreshes asked at once run one process;
+    - a result landing while the menu is open redraws the section in place;
+    - after a restart of the shell, the cached reading shows undimmed before the refresh at start
+      answers;
+    - an unavailable answer hides the provider, and its next reading is a quiet baseline;
+    - on a 1280x600 virtual monitor with a row preview open, the section stays whole, the list
+      scrolls, and the menu fits the monitor;
+    - switching a provider off during a slow refresh ends its process and drops its result;
+    - in the preferences: a missing CLI locks its switch off with its message, a check that times
+      out locks it with `Could not check`, and saving during a check keeps the saved choice;
+    - no `JS ERROR` in the shell log, and no `codex app-server` left running.
   - `scripts/screenshots.sh` serves fictional quotas through `scripts/screenshots/claude` and
     `codex`, and the regenerated screenshots show the section and the preferences group.
 - **Technical notes**:

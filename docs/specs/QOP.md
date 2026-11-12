@@ -2,7 +2,7 @@
 code: QOP
 status: done
 version: v0.5
-amended: [v1.2]
+amended: [v1.2, v1.3]
 created: 2026-10-11
 builds-on: PRM
 ---
@@ -103,7 +103,8 @@ of v1.2 on quick open and previews, as the product stands.
 ## Menu height
 
 - Only the pull request list scrolls. **Refresh now**, quick open, its suggestions and preview,
-  and **Preferences…** stay in view, and the menu never exceeds the screen height.
+  the agent quotas section while shown (QTA), and **Preferences…** stay in view, and the menu never exceeds
+  the screen height: on a short screen, the list gives way.
 - Moving keyboard focus to a pull request scrolls it into view.
 
 ## Keyboard shortcut

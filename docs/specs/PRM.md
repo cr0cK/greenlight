@@ -2,7 +2,7 @@
 code: PRM
 status: done
 version: v0.1
-amended: [v0.2, v0.3, v0.4, v1.2]
+amended: [v0.2, v0.3, v0.4, v1.2, v1.3]
 created: 2026-10-11
 ---
 
@@ -94,7 +94,8 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 ## Menu
 
 - From top to bottom: **Refresh now** (reading `Refreshing…` while a refresh runs), its error
-  and warning rows, quick open (QOP), the pull request list, and **Preferences…**.
+  and warning rows, quick open (QOP), the agent quotas section when shown (QTA), the pull request list, and
+  **Preferences…**.
 - The list groups pull requests under `<owner> · <n> pull request(s)` headings, ordered by each
   owner's newest pull request, and sorts each group by last update. Only the list scrolls; the
   panel menu caps its height.
