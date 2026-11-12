@@ -61,6 +61,9 @@ test('reads claude /usage reset times in their zone', () => {
     assert.equal(parseClaudeReset('Feb 29, 9am (UTC)', NOW), null);
     assert.equal(parseClaudeReset('Nov 0, 9am (UTC)', NOW), null);
     assert.equal(parseClaudeReset('Nov 30, 9am (UTC)', NOW), Date.UTC(2026, 10, 30, 9) / 1000);
+    // A February 29 that only the next year has belongs to the next year.
+    const lateDecember2027 = Date.UTC(2027, 11, 30, 12) / 1000;
+    assert.equal(parseClaudeReset('Feb 29, 9am (UTC)', lateDecember2027), Date.UTC(2028, 1, 29, 9) / 1000);
     assert.equal(parseClaudeReset('13pm (UTC)', NOW), null);
 });
 

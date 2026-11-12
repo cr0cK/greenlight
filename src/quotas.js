@@ -144,12 +144,12 @@ export function parseClaudeReset(text, now) {
         const dayOfMonth = Number(dayText);
         const exists = candidate =>
             dayOfMonth >= 1 && dayOfMonth <= new Date(Date.UTC(candidate, monthIndex + 1, 0)).getUTCDate();
-        if (!exists(year))
-            return null;
         // A reset is never far in the past: a date before yesterday belongs to next year.
-        const thisYear = zonedTime(year, monthIndex, dayOfMonth, hour, minute, timeZone);
-        if (thisYear >= now - DAY)
-            return thisYear;
+        if (exists(year)) {
+            const thisYear = zonedTime(year, monthIndex, dayOfMonth, hour, minute, timeZone);
+            if (thisYear >= now - DAY)
+                return thisYear;
+        }
         return exists(year + 1) ? zonedTime(year + 1, monthIndex, dayOfMonth, hour, minute, timeZone) : null;
     } catch {
         return null;
