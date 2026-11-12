@@ -68,15 +68,22 @@ function readClaude(path, cancellable) {
         return Promise.resolve(failed('could not start: ' + error.message));
     }
 
+    // Reads stop on the caller's cancel or on the timeout, even when a child of the CLI still
+    // holds its output open after the process is killed.
+    const reading = new Gio.Cancellable();
     let timedOut = false;
     const clearTimeout = startTimeout(CLAUDE_TIMEOUT_SECONDS, () => {
         timedOut = true;
         process.force_exit();
+        reading.cancel();
     });
-    const cancelledId = cancellable.connect(() => process.force_exit());
+    const cancelledId = cancellable.connect(() => {
+        process.force_exit();
+        reading.cancel();
+    });
 
     return new Promise((resolve, reject) => {
-        process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
+        process.communicate_utf8_async(null, reading, (subprocess, result) => {
             clearTimeout();
             cancellable.disconnect(cancelledId);
             try {

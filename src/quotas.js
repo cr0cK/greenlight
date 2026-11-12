@@ -140,11 +140,17 @@ export function parseClaudeReset(text, now) {
         const monthIndex = MONTHS.indexOf(monthName.slice(0, 3).toLowerCase());
         if (monthIndex < 0)
             return null;
+        // A day the month does not have, such as Nov 31, is not a reset.
+        const dayOfMonth = Number(dayText);
+        const exists = candidate =>
+            dayOfMonth >= 1 && dayOfMonth <= new Date(Date.UTC(candidate, monthIndex + 1, 0)).getUTCDate();
+        if (!exists(year))
+            return null;
         // A reset is never far in the past: a date before yesterday belongs to next year.
-        const thisYear = zonedTime(year, monthIndex, Number(dayText), hour, minute, timeZone);
-        return thisYear >= now - DAY
-            ? thisYear
-            : zonedTime(year + 1, monthIndex, Number(dayText), hour, minute, timeZone);
+        const thisYear = zonedTime(year, monthIndex, dayOfMonth, hour, minute, timeZone);
+        if (thisYear >= now - DAY)
+            return thisYear;
+        return exists(year + 1) ? zonedTime(year + 1, monthIndex, dayOfMonth, hour, minute, timeZone) : null;
     } catch {
         return null;
     }
