@@ -20,7 +20,7 @@ new `src/*.js` modules on its own.
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `tests/` | `node --test` suites for the pure modules |
-| `docs/specs/v*.md` | Product contracts, one per minor version |
+| `docs/specs/<CODE>.md` | Specs by topic, with their index in `docs/specs/README.md` and mockups in `docs/specs/mockups/` |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` from fictional data served by `scripts/screenshots/gh` |
 
@@ -126,7 +126,10 @@ devkit shows its own monitor, and the panel would land on an invisible one.
   failing on the old config. Run `gh pr update-branch <release PR>` to merge main into it.
 - The gitleaks pre-commit hook only scans staged changes. CI scans the full history with a
   checksum-pinned gitleaks binary; bump its version and SHA-256 together.
-- A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
+- Specs follow the spec delivery process of the `sdp` Claude Code plugin, enabled in
+  `.claude/settings.json`: a new feature starts with a spec PR (`sdp:spec`), and its plans ship
+  as their own PRs. `docs/specs/README.md` holds the project settings the plugin reads.
+- A user-visible change updates README.md and the spec that owns the behavior in the same PR. When
   it changes the menu or the preferences window, run `scripts/screenshots.sh`, look at the new
   images, and commit them; extend `scripts/screenshots/gh` rather than capturing real data.
   The README shows the menu screenshots side by side at equal widths, so `crop_menus` gives them

@@ -1,0 +1,193 @@
+---
+code: QTA
+status: draft
+version: v1.3
+created: 2026-11-12
+builds-on: PRM
+tracking: "#TRACKING"
+---
+
+# Greenlight — QTA specification
+
+QTA shows how much of the Claude and Codex subscription quotas is used, in the Greenlight menu
+next to the pull requests the agents open, so their use can be spread over the week instead of
+hitting a limit on Thursday. It covers the **Agent quotas** preferences, when a provider is
+available, the menu section with its gauges and pace mark, threshold notifications, and how
+Greenlight asks each agent's own CLI. It builds on PRM, whose rules all still apply, and changes
+QOP only in that the section hides while quick open has text. The mockup is
+[`mockups/QTA.html`](mockups/QTA.html).
+
+## Scope
+
+- Two providers: Claude (Claude Code on a Claude subscription) and Codex (ChatGPT sign-in). Both
+  are off by default. Other agents, API-key billing, per-model windows, and a panel indicator are
+  out of scope.
+- Greenlight never reads, stores, or sends a credential. Each provider asks its own CLI, the way
+  pull requests ask `gh`.
+
+## Preferences
+
+- A new **Agent quotas** group, after **Quick open** and before **Accounts and organizations**,
+  holds (state `PREFS-READY`):
+  - A **Claude** switch and a **Codex** switch (see Availability).
+  - **Refresh every**: 15 minutes, 30 minutes, 1 hour (default), 2 hours, or 4 hours.
+  - **Notify at**, in percent: 50 to 100 by steps of 5, default 80.
+- Every row applies on **Save preferences**.
+
+## Availability
+
+- A provider is available when its CLI is found and answers with at least one quota window. It
+  is unavailable when the CLI is missing, is not signed in, is not on a subscription, or answers
+  in a form Greenlight does not recognize.
+- Opening the preferences window checks each provider with the same command the menu uses.
+  While it runs, the switch is insensitive and subtitled `Checking…`. An available provider's
+  switch is subtitled `Uses the claude CLI` or `Uses the codex CLI`. An unavailable provider's
+  switch turns off and stays insensitive, and its subtitle says why and what to do; saving then
+  stores it off. A check that fails for another reason (timeout, crash) keeps the saved choice,
+  locked, with `Could not check: <cause>. Reopen Preferences to try again.`
+- Outside the preferences window, a disabled provider starts no process.
+- In the menu, an enabled provider that turns out unavailable is hidden, never shown as a broken
+  row; the next quota refresh tries again. Without any provider left to show, the section is
+  absent.
+- A transient failure (timeout, crash, an error that is not about the sign-in) keeps the last
+  reading, dimmed, with the cause and its age. A provider without any reading is hidden.
+
+## Menu
+
+- An **Agent quotas** section sits right above the pull request list, after quick open, when at
+  least one enabled provider has a reading to show (see Availability). It hides while quick open
+  has text, so the suggestions, the preview, and the list keep their room.
+- Each provider gets one line per quota window it reports, labelled `5 h` or `Week`; another
+  duration is labelled by its length (`1 d`, `30 d`, `90 min`), and a window without a duration reads
+  `Quota`:
+
+  ```text
+  Claude  5 h   ███░░|░░░  38 %  resets in 2 h 10 min
+          Week  █████░|░░  61 %  resets Sat 09:00
+  Codex   Week  █░░░|░░░░  16 %  resets Tue 09:30
+  ```
+
+- The bar fills with the used share. A pace mark (`|` above) shows the even-spending budget:
+  `clamp(1 − (resetsAt − now) / duration, 0, 1)`. A fill past the mark means usage runs ahead of
+  an even spread over the window. A window without a duration or a reset time has no mark.
+- The bar takes the warning color at or above **Notify at**, and the error color at 100 %.
+- A reset under a day away reads as a duration; later ones as a weekday and time. A window whose
+  reset time has passed reads `reset · waiting for a new reading`, without a bar fill or a mark.
+- A dimmed `Updated 12 min ago` line closes the section, from the oldest successful reading
+  shown.
+- **Refresh now** refreshes the quotas along with the pull requests. Opening the menu refreshes
+  a provider last tried more than 5 minutes ago; otherwise they follow their own timer,
+  independent of `refresh-interval`.
+- Each provider has at most one refresh in flight; a refresh asked meanwhile joins it. Disabling
+  a provider or the extension cancels its refresh, and a cancelled result is dropped.
+
+## Notifications
+
+- A window notifies once per period, when a reading of that period is at or above **Notify at**
+  and the period has not notified yet. A period is identified by provider, window, and reset
+  time. The notification names the provider, the window, the percentage, and the reset time:
+  `Claude weekly quota at 82 %` / `Resets Sat 09:00`.
+- The first reading after a provider is enabled sets a quiet baseline: it marks the periods
+  already at or above the threshold as notified. A period that crosses it later, or starts later
+  above it, notifies.
+- Changing **Notify at** does not notify periods already marked.
+- Errors never notify.
+
+## Finding the CLIs
+
+- GNOME Shell does not inherit the login shell's `PATH`, which usually lacks `~/.local/bin`,
+  where both CLIs install. Greenlight looks for `claude` and `codex` in `PATH`, then in
+  `~/.local/bin`, and runs them with their own directory first in `PATH`.
+
+## Claude
+
+- Runs `claude -p /usage --no-session-persistence --output-format json --settings
+  {"disableAllHooks":true}` with an argument array and a 30-second timeout. The command costs
+  no tokens, saves no session, and runs none of the user's hooks.
+- Reads the JSON answer: `is_error` true, a non-zero exit, or output that is not JSON is a
+  transient failure. In `result`, the line `Current session: N% used · resets <time> (<zone>)`
+  is the `5 h` window, and `Current week (all models): N% used · resets <date>, <time> (<zone>)`
+  is the `Week` window. Per-model lines and the usage advice are ignored. The reset is converted
+  to a time with the named IANA zone.
+- Unavailable: a `result` that does not start with `You are currently using your subscription`
+  (signed out or on an API key, `/usage` then prints session costs), or one without any window
+  line.
+
+## Codex
+
+- Runs `codex app-server` with an argument array and keeps stdin open: closing it makes the
+  server quit before answering. Messages are one JSON object per line, written at once, since
+  the server handles them in order:
+  1. request `initialize` (id 1) with `clientInfo` `{name: "greenlight", version}`;
+  2. notification `initialized`;
+  3. request `account/rateLimits/read` (id 2).
+- Greenlight reads lines until the response with id 1, then the one with id 2; other messages
+  are skipped. An error response to `initialize` is a transient failure.
+- After that response, or after 15 seconds, Greenlight closes the pipes, which ends the server
+  even behind a launcher that runs it as a child, and sends SIGTERM. Codex handles its own sign-in
+  and token refresh.
+- Reads the `codex` bucket from `result.rateLimitsByLimitId`, or `result.rateLimits` when that
+  map is absent; with the map but no `codex` bucket, Codex is unavailable. Its `primary` and `secondary` windows (`usedPercent`, `windowDurationMins`,
+  `resetsAt`) map to lines by duration; a null window is not shown.
+- Unavailable: an error response about authentication (`codex account authentication required
+  to read rate limits`) or an unknown method, or an answer without any window. Other error
+  responses are transient failures.
+
+## Units
+
+- Percentages are percentage points from 0 to 100; Codex `resetsAt` is in epoch seconds. Both
+  providers normalize to `{label, usedPercent, durationSeconds, resetsAt}` in epoch seconds
+  before display, notification, or storage. A window without a numeric percentage is skipped;
+  a missing or invalid length or reset reads as none.
+
+## Errors
+
+- Unavailability messages, in the preferences: `claude not found in PATH or ~/.local/bin`,
+  `Claude Code is not signed in with a Claude subscription. Run claude, then /login.`,
+  `Claude Code answered /usage in an unknown form. Update Claude Code.`,
+  `codex not found in PATH or ~/.local/bin`, `Codex is not signed in. Run codex login.`,
+  `This codex cannot report rate limits. Update Codex.`,
+  `Codex reports no subscription quota. Sign in with ChatGPT: codex login.`
+- Transient causes, in the menu under the dimmed lines: the provider name, then `timed out`,
+  `exited with code N`, or the CLI's own error message, then `· last reading 3 h ago`.
+- One provider failing never hides the other, nor the pull requests.
+
+## Storage
+
+- New settings: `claude-quota-enabled` and `codex-quota-enabled` (booleans, false),
+  `agent-quota-interval` (minutes, 60), `agent-quota-threshold` (percent, 80), and
+  `agent-quota-cache` (JSON: each provider's last normalized reading, its time, and the periods
+  already notified, pruned once their reset has passed).
+- Parsing both answers, window labels, pace, period tracking, and messages live in a pure
+  `src/quotas.js` covered by `node --test`; the extension only finds and runs the CLIs.
+
+## Plans
+
+### QTA-P1: Agent quotas for Claude and Codex
+
+- **Scope**: the whole spec.
+- **Temporary restrictions**: none.
+- **Acceptance**:
+  - `npm run lint` and `make check` pass; `tests/quotas.test.js` covers parsing both answers
+    (subscription, signed out or API key, unknown form, error), reset times across zones and
+    years, window labels, pace, reset and age texts, notification titles, period tracking with
+    its baseline, the `codex` bucket choice, and the cache reader.
+  - In a headless GNOME Shell with the real CLIs and a `PATH` without `~/.local/bin`: both
+    providers read and drawn; with Codex signed out (`CODEX_HOME` pointing at an empty
+    directory), Codex hidden in the menu and its switch off and locked with its message.
+  - In a headless GNOME Shell with scripted CLIs: a failed Claude refresh dims the last reading
+    with its cause; Codex crossing **Notify at** after a reading under it sends one
+    notification; no `JS ERROR` in the shell log, and no `codex app-server` left running.
+  - `scripts/screenshots.sh` serves fictional quotas through `scripts/screenshots/claude` and
+    `codex`, and the regenerated screenshots show the section and the preferences group.
+- **Technical notes**:
+  - Pure logic in `src/quotas.js` (no `gi://` import); the Gio runners in `src/agents.js`,
+    shared by `extension.js` and `prefs.js`.
+  - `claude -p /usage` exits 0 and prints session costs when signed out or on an API key; only
+    the subscription first line means quotas follow. Check `--no-session-persistence` and
+    `--settings` against the installed version.
+  - `codex app-server` quits when stdin closes, before answering: write the three messages at
+    once and keep stdin open. GNOME Shell ignores SIGPIPE.
+  - Menu sections are persistent (PRM): add the quota section and its own separator in
+    `_buildMenu()`, never `menu.removeAll()`. The pace mark overlays the bar through a
+    `Clutter.BinLayout`; sizes go through St CSS, like the preview's CI bar.
