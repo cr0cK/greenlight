@@ -22,6 +22,16 @@
       <summary>Pull request author filter</summary>
       <description>GitHub login to monitor; @me is the default and empty includes every author.</description>
     </key>
+    <key name="owner-order-mode" type="s">
+      <default>'newest'</default>
+      <summary>Owner order in the menu</summary>
+      <description>'newest' orders the owner sections by their newest pull request; 'custom' follows owner-order.</description>
+    </key>
+    <key name="owner-order" type="as">
+      <default>[]</default>
+      <summary>Custom owner order</summary>
+      <description>Owner logins in the order of their sections in the menu, used by the custom mode.</description>
+    </key>
     <key name="quick-open-shortcut" type="as">
       <default><![CDATA[['<Super><Shift>g']]]></default>
       <summary>Quick open shortcut</summary>

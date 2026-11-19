@@ -14,6 +14,7 @@ new `src/*.js` modules on its own.
 | `src/extension.js` | Panel indicator, refresh loop, notifications, menu, quick open, previews |
 | `src/prefs.js` | Adwaita preferences window; every setting is applied by **Save preferences** |
 | `src/filters.js` | Owner and repository filter storage |
+| `src/order.js` | Owner section order, and the unsaved row order of the preferences (pure) |
 | `src/quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
 | `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |

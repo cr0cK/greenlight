@@ -7,6 +7,14 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 
 import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
 import {describeGhFailure} from './github.js';
+import {
+    OWNER_ORDER_MODES,
+    buttonFocusedAfterMove,
+    canMoveOwnerRow,
+    moveOwnerRow,
+    readOwnerOrderMode,
+    reconcileOwnerRows,
+} from './order.js';
 import {readQuota} from './agents.js';
 import {PROVIDERS} from './quotas.js';
 
@@ -18,6 +26,12 @@ const REPOSITORY_MODE_HINTS = {
     all: 'Every repository, including new ones.',
     except: 'New repositories are monitored. Turn off the ones to skip.',
     only: 'Only the repositories turned on. New repositories are skipped.',
+};
+// Owner order modes, in ComboRow order: OWNER_ORDER_MODES.
+const OWNER_ORDER_LABELS = ['Newest pull request', 'Custom order'];
+const OWNER_ORDER_HINTS = {
+    newest: 'Newest pull request first moves an owner up with each update',
+    custom: 'Owners without open pull requests take no room in the menu',
 };
 const QUOTA_INTERVALS = [15, 30, 60, 120, 240];
 const QUOTA_INTERVAL_LABELS = ['15 minutes', '30 minutes', '1 hour', '2 hours', '4 hours'];
@@ -307,10 +321,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 : 'Pull requests of enabled owners appear in the menu.'));
         };
 
+        const ownerKind = owner => owner.kind === 'user'
+            ? 'Personal account'
+            : owner.kind === 'organization' ? 'Organization' : 'GitHub owner';
+
         const ownerDescription = owner => {
-            const kind = owner.kind === 'user'
-                ? 'Personal account'
-                : owner.kind === 'organization' ? 'Organization' : 'GitHub owner';
+            const kind = ownerKind(owner);
             const noun = names => names.length === 1 ? ' repository' : ' repositories';
             const {repositories, excludedRepositories: excluded} = owner;
             const scope = owner.mode === 'only'
@@ -320,6 +336,102 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     : 'All repositories';
             return kind + ' · ' + (owner.enabled ? 'Monitoring' : 'Paused') + ' · ' + scope;
         };
+
+        // The rows of the Menu order group, as the keys of `owners` in their displayed order. This
+        // list is the unsaved order: `owners` keeps the order of the blocks, which Add changes.
+        const menuOrderGroup = new Adw.PreferencesGroup({
+            title: 'Menu order',
+            description: 'The order of the owner sections in the pull request list.',
+        });
+        const orderModeRow = new Adw.ComboRow({
+            title: 'Order owners by',
+            model: Gtk.StringList.new(OWNER_ORDER_LABELS),
+            selected: OWNER_ORDER_MODES.indexOf(readOwnerOrderMode(settings.get_string('owner-order-mode'))),
+        });
+        menuOrderGroup.add(orderModeRow);
+        let orderedLogins = reconcileOwnerRows(
+            settings.get_strv('owner-order'),
+            [...owners.values()].map(owner => owner.login)
+        );
+        let orderWidgets = [];
+        let orderButtons = new Map();
+        let orderFocusSourceId = 0;
+        const orderMode = () => OWNER_ORDER_MODES[orderModeRow.get_selected()] ?? 'newest';
+
+        /** Rebuilds the owner rows from the list; `focus` names the button to focus afterwards. */
+        const renderOrderRows = (focus = null) => {
+            for (const widget of orderWidgets)
+                menuOrderGroup.remove(widget);
+            orderWidgets = [];
+            orderButtons = new Map();
+            const mode = orderMode();
+            orderModeRow.set_subtitle(OWNER_ORDER_HINTS[mode]);
+
+            if (orderedLogins.length === 0) {
+                const emptyRow = new Adw.ActionRow({title: 'Owners you add below appear here.'});
+                emptyRow.add_css_class('dim-label');
+                menuOrderGroup.add(emptyRow);
+                orderWidgets.push(emptyRow);
+            }
+
+            orderedLogins.forEach((login, index) => {
+                const owner = owners.get(login.toLowerCase());
+                // The activity mode keeps the saved order visible, but locked.
+                const row = new Adw.ActionRow({
+                    title: login,
+                    use_markup: false,
+                    subtitle: ownerKind(owner) + (owner.enabled ? '' : ' · Paused'),
+                    sensitive: mode === 'custom',
+                    // The Tab order goes to the buttons, not to the row around them.
+                    focusable: false,
+                });
+                const buttons = {};
+                for (const [name, direction] of [['up', -1], ['down', 1]]) {
+                    const label = 'Move ' + login + ' ' + name;
+                    const button = new Gtk.Button({
+                        icon_name: 'go-' + name + '-symbolic',
+                        valign: Gtk.Align.CENTER,
+                        tooltip_text: label,
+                        sensitive: canMoveOwnerRow(mode, orderedLogins.length, index, direction),
+                    });
+                    button.add_css_class('flat');
+                    // An icon alone does not say which owner it moves.
+                    button.update_property([Gtk.AccessibleProperty.LABEL], [label]);
+                    button.connect('clicked', () => {
+                        const newIndex = index + direction;
+                        orderedLogins = moveOwnerRow(orderedLogins, index, direction);
+                        renderOrderRows({
+                            login,
+                            button: buttonFocusedAfterMove(orderedLogins.length, newIndex, direction),
+                        });
+                    });
+                    row.add_suffix(button);
+                    buttons[name] = button;
+                }
+                orderButtons.set(login.toLowerCase(), buttons);
+                menuOrderGroup.add(row);
+                orderWidgets.push(row);
+            });
+
+            if (focus) {
+                // A button removed and added again in the same tick can refuse the focus.
+                if (orderFocusSourceId)
+                    GLib.Source.remove(orderFocusSourceId);
+                orderFocusSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    orderFocusSourceId = 0;
+                    orderButtons.get(focus.login.toLowerCase())?.[focus.button].grab_focus();
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
+        };
+
+        /** Follows the owner blocks: an added owner joins the end, a removed one leaves. */
+        const syncOrderRows = () => {
+            orderedLogins = reconcileOwnerRows(orderedLogins, [...owners.values()].map(owner => owner.login));
+            renderOrderRows();
+        };
+        orderModeRow.connect('notify::selected', () => renderOrderRows());
+        renderOrderRows();
 
         /** Reads the switches back into the list of the current mode; a switch on is monitored. */
         const syncSelection = owner => {
@@ -374,6 +486,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 ownerSettingsTouched = true;
                 owner.syncEnabled();
                 group.set_description(ownerDescription(owner));
+                renderOrderRows();
                 updateOwnerStatus();
             });
             // Removal, like every change here, only applies on Save preferences.
@@ -381,6 +494,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 owners.delete(owner.login.toLowerCase());
                 ownerGroups.splice(ownerGroups.indexOf(group), 1);
                 page.remove(group);
+                syncOrderRows();
                 ownerSettingsTouched = true;
                 updateOwnerStatus(owner.login + ' will be removed when you save.');
             });
@@ -521,6 +635,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             page.add(saveGroup);
             page.add(aboutGroup);
+            syncOrderRows();
             updateOwnerStatus();
             updateGhButtons();
         };
@@ -688,25 +803,46 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 return;
             }
 
+            // One batch, and only the keys that differ: the shell refreshes from gh on the
+            // owner and author keys without comparing values, and an order-only save must not.
+            const setString = (key, value) => {
+                if (settings.get_string(key) !== value)
+                    settings.set_string(key, value);
+            };
+            const setBoolean = (key, value) => {
+                if (settings.get_boolean(key) !== value)
+                    settings.set_boolean(key, value);
+            };
+            const setInt = (key, value) => {
+                if (settings.get_int(key) !== value)
+                    settings.set_int(key, value);
+            };
+            const setStrv = (key, value) => {
+                if (JSON.stringify(settings.get_strv(key)) !== JSON.stringify(value))
+                    settings.set_strv(key, value);
+            };
+
             settings.delay();
             if (ownerSettingsTouched) {
-                settings.set_string('owner-filters',
+                setString('owner-filters',
                     serializeOwnerFilters([...owners.values()].map(savedOwner)));
-                settings.set_boolean('owner-filters-configured', true);
+                setBoolean('owner-filters-configured', true);
             }
-            settings.set_string('author-filter', authorEntry.get_text().trim());
+            setString('owner-order-mode', orderMode());
+            setStrv('owner-order', orderedLogins);
+            setString('author-filter', authorEntry.get_text().trim());
             const selectedInterval = intervalRow.get_selected();
             if (selectedInterval < INTERVALS.length)
-                settings.set_int('refresh-interval', INTERVALS[selectedInterval]);
-            settings.set_strv('quick-open-shortcut', shortcutText
+                setInt('refresh-interval', INTERVALS[selectedInterval]);
+            setStrv('quick-open-shortcut', shortcutText
                 ? [Gtk.accelerator_name(shortcutKey, shortcutModifiers)]
                 : []);
             for (const [provider, row] of Object.entries(quotaRows))
-                settings.set_boolean(PROVIDERS[provider].setting, row.get_active());
+                setBoolean(PROVIDERS[provider].setting, row.get_active());
             const selectedQuotaInterval = quotaIntervalRow.get_selected();
             if (selectedQuotaInterval < QUOTA_INTERVALS.length)
-                settings.set_int('agent-quota-interval', QUOTA_INTERVALS[selectedQuotaInterval]);
-            settings.set_int('agent-quota-threshold', Math.round(thresholdRow.get_value()));
+                setInt('agent-quota-interval', QUOTA_INTERVALS[selectedQuotaInterval]);
+            setInt('agent-quota-threshold', Math.round(thresholdRow.get_value()));
             settings.apply();
             window.close();
         });
@@ -739,6 +875,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
+        page.add(menuOrderGroup);
         page.add(quickOpenGroup);
         page.add(quotaGroup);
         page.add(ownersGroup);
@@ -751,6 +888,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             taskGeneration++;
             cancellable.cancel();
             quotaCancellable.cancel();
+            if (orderFocusSourceId) {
+                GLib.Source.remove(orderFocusSourceId);
+                orderFocusSourceId = 0;
+            }
             return false;
         });
     }
