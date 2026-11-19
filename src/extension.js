@@ -12,6 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} from './filters.js';
+import {UNKNOWN_OWNER, orderOwnerSections, readOwnerOrder, readOwnerOrderMode} from './order.js';
 import {describeGhFailure, parseReachability, reachabilityArguments} from './github.js';
 import {
     MAX_SUGGESTIONS,
@@ -204,24 +205,25 @@ function filterSignature(settings) {
     });
 }
 
-/** Groups PR rows by owner and keeps each section ordered by last update. */
-function groupPullRequestsByOwner(pullRequests) {
+/**
+ * Groups PR rows by owner, keeps each section ordered by last update, and orders the sections as
+ * the owner order setting says.
+ */
+function groupPullRequestsByOwner(pullRequests, mode, order) {
     const groups = new Map();
     for (const pullRequest of pullRequests) {
-        const owner = pullRequest.owner || 'Unknown owner';
+        const owner = pullRequest.owner || UNKNOWN_OWNER;
         if (!groups.has(owner))
             groups.set(owner, []);
         groups.get(owner).push(pullRequest);
     }
 
-    return [...groups.entries()]
+    return orderOwnerSections([...groups.entries()]
         .map(([owner, pullRequests]) => ({
             owner,
             pullRequests: pullRequests.sort(compareUpdatedPullRequests),
             latestUpdate: Date.parse(pullRequests[0]?.updatedAt ?? '') || 0,
-        }))
-        .sort((first, second) => second.latestUpdate - first.latestUpdate ||
-            first.owner.localeCompare(second.owner));
+        })), mode, order);
 }
 
 /** Creates a compact semantic badge with a high-contrast label for CI and review metadata. */
@@ -362,6 +364,9 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::owner-filters', () => this._scheduleFilterRefresh()),
             this._settings.connect('changed::owner-filters-configured', () => this._scheduleFilterRefresh()),
             this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
+            // The order only re-sorts the pull requests already loaded: no gh call.
+            this._settings.connect('changed::owner-order', () => this._renderPullRequestList()),
+            this._settings.connect('changed::owner-order-mode', () => this._renderPullRequestList()),
             ...Object.entries(PROVIDERS).map(([provider, {setting}]) =>
                 this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
             this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
@@ -1813,10 +1818,6 @@ export default class GreenlightExtension extends Extension {
             return;
 
         this._refreshSection.removeAll();
-        const menu = this._contentSection;
-        menu.removeAll();
-        this._pullRequestItems = [];
-
         const refreshItem = new PopupMenu.PopupMenuItem(
             this._loading ? 'Refreshing…' : 'Refresh now',
             {reactive: !this._loading, can_focus: !this._loading}
@@ -1837,6 +1838,17 @@ export default class GreenlightExtension extends Extension {
                 '. Remove or pause them in Preferences.'));
         }
 
+        this._renderPullRequestList();
+    }
+
+    /** Rebuilds the pull request list alone; a new owner order re-sorts it from `_prs`. */
+    _renderPullRequestList() {
+        const menu = this._contentSection;
+        if (!menu)
+            return;
+        menu.removeAll();
+        this._pullRequestItems = [];
+
         if (this._prs.length === 0 && this._loading) {
             menu.addMenuItem(new PopupMenu.PopupMenuItem(
                 'Loading open pull requests…',
@@ -1852,7 +1864,11 @@ export default class GreenlightExtension extends Extension {
                 {reactive: false, can_focus: false}
             ));
         } else {
-            for (const group of groupPullRequestsByOwner(this._prs)) {
+            for (const group of groupPullRequestsByOwner(
+                this._prs,
+                readOwnerOrderMode(this._settings.get_string('owner-order-mode')),
+                readOwnerOrder(this._settings.get_strv('owner-order'))
+            )) {
                 const heading = new PopupMenu.PopupMenuItem(
                     group.owner + ' · ' + group.pullRequests.length +
                     (group.pullRequests.length === 1 ? ' pull request' : ' pull requests'),

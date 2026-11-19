@@ -62,14 +62,23 @@ gs org.gnome.desktop.interface color-scheme "'prefer-dark'"
 EXT=org.gnome.shell.extensions.greenlight
 gs $EXT author-filter "''"
 gs $EXT owner-filters-configured true
+# A custom order, so the preferences show the Menu order group with its buttons live. It is the
+# order the menu has by default, which keeps the menu captures as they were.
+gs $EXT owner-order-mode "'custom'"
+gs $EXT owner-order "['acme', 'octo-org', 'octocat']"
 gs $EXT claude-quota-enabled true
 gs $EXT codex-quota-enabled true
 gs $EXT agy-quota-enabled true
 gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null,"excludedRepositories":["octocat/hello-world"]}]'
 
-gnome-shell --headless --wayland --no-x11 --wayland-display="$WAYLAND_DISPLAY" \
-    --virtual-monitor 1280x800 >"$WORK/shell.log" 2>&1 &
-SHELL_PID=$!
+# The menu captures need an 800 px screen, as the menu height follows it; the preferences window
+# gets a taller one in a second run (see below).
+start_shell() {
+    gnome-shell --headless --wayland --no-x11 --wayland-display="$WAYLAND_DISPLAY" \
+        --virtual-monitor "$1" >>"$WORK/shell.log" 2>&1 &
+    SHELL_PID=$!
+}
+start_shell 1280x800
 
 # Runs JavaScript in the shell and prints its result.
 shell_eval() {
@@ -138,6 +147,13 @@ capture_menu quick-open.png
 shell_eval "${STATE}._indicator.menu.close()" >/dev/null
 crop_menus menu.png quick-open.png
 
+# Restart on a tall screen: the window must show the Menu order group and the first owner block
+# below the general settings.
+kill "$SHELL_PID"
+wait "$SHELL_PID" 2>/dev/null || true
+start_shell 1280x1700
+wait_for "Main.extensionManager.lookup('$UUID')?.state === 1"
+
 gnome-extensions prefs "$UUID"
 # The preferences service can wait on portal timeouts before it shows its window.
 PREFS="global.display.list_all_windows().find(w => w.get_wm_class() === 'org.gnome.Shell.Extensions')"
@@ -148,8 +164,7 @@ wait_for "!!$PREFS" 90
 shell_eval "Main.overview.hide()" >/dev/null
 wait_for "Main.overview.visible === false"
 shell_eval "$PREFS.activate(global.get_current_time())" >/dev/null
-# Tall enough to show the owners below the general settings.
-shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 780)" >/dev/null
+shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 1600)" >/dev/null
 wait_for "$PREFS.has_focus()"
 sleep 1.5
 gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Screenshot \

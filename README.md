@@ -74,12 +74,14 @@ Open **Preferences** from the menu:
 2. In each owner's block, choose **All**, **All except…**, or **Only…** repositories.
 3. Under **Agent quotas**, turn on the agents you use. Each switch checks its CLI first. If the
    CLI is missing, signed out, or not on a subscription, the switch stays off and says what to do.
-4. Click **Save preferences**.
+4. Under **Menu order**, keep the owners sorted by their newest pull request, or pick **Custom
+   order** and move each owner with its up and down buttons.
+5. Click **Save preferences**.
 
 Until you configure owners, Greenlight watches every repository `gh` can see.
 
 <p align="center">
-  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, quick open shortcut, and agent quotas" width="70%">
+  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, the Menu order group with the owners in a custom order, quick open shortcut, and agent quotas" width="70%">
 </p>
 
 ### Pull requests
@@ -92,6 +94,10 @@ Until you configure owners, Greenlight watches every repository `gh` can see.
   <kbd>Enter</kbd>.
 - A pull request is green when every check passed. Skipped checks count as passed once at least
   one check passed. A pull request with no checks is never green.
+- Owners are listed under their own heading, the owner with the newest pull request first. With
+  **Custom order** in **Menu order**, the sections follow your order instead; owners you have not
+  placed come after, newest first, and pull requests without an owner come last. Saving a new
+  order re-sorts the list without calling GitHub.
 - Greenlight refreshes every 2 minutes (you can set 30 s to 10 min). The first refresh, and each
   filter change, only records the current state: pull requests that are already green do not
   notify.

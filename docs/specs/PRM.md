@@ -2,7 +2,7 @@
 code: PRM
 status: done
 version: v0.1
-amended: [v0.2, v0.3, v0.4, v1.2, v1.3]
+amended: [v0.2, v0.3, v0.4, v1.2, v1.3, v1.4]
 created: 2026-10-11
 ---
 
@@ -96,9 +96,9 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 - From top to bottom: **Refresh now** (reading `Refreshing…` while a refresh runs), its error
   and warning rows, quick open (QOP), the pull request list, the agent quotas section when shown
   (QTA), and **Preferences…**.
-- The list groups pull requests under `<owner> · <n> pull request(s)` headings, ordered by each
-  owner's newest pull request, and sorts each group by last update. Only the list scrolls; the
-  panel menu caps its height.
+- The list groups pull requests under `<owner> · <n> pull request(s)` headings, ordered as ORD says
+  (by default, by each owner's newest pull request), and sorts each group by last update. Only
+  the list scrolls; the panel menu caps its height.
 - Each row has a status icon, then:
   - first line: the `#number` badge, up to three labels in their GitHub color (text dark on light
     colors, white on dark ones, the number badge color when a label has no valid color), a `+N`
@@ -127,6 +127,7 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 - **Monitoring** holds **Author** (an entry, `@me or username`) and **Refresh interval** (30
   seconds to 10 minutes).
+- **Menu order** holds the order of the owner sections, as ORD says.
 - **Accounts and organizations** holds **Discover accounts** (`gh api user` and `gh api
   user/orgs --paginate`: the gh account and its organizations) and **Add an owner**. **Add**
   checks the login with `gh api users/<login>` and takes its kind from the answer; an unknown
