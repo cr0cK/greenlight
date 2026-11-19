@@ -1,3 +1,5 @@
+import {compareOwnersKindThenLogin} from './order.js';
+
 const MAX_QUERY_QUALIFIERS = 16;
 const MAX_QUERY_LENGTH = 220;
 // gh search returns at most 1000 results, whatever the limit asked.
@@ -96,16 +98,28 @@ export function readOwnerFilters(settings) {
     }
 }
 
-/** Serializes a canonical document so filter signatures do not depend on row order. */
+/**
+ * Serializes a canonical document in the kind-then-login order, so it does not depend on the
+ * order of the owner blocks: that order lives in `owner-order` alone.
+ */
 export function serializeOwnerFilters(filters) {
-    const owners = normalizeOwnerFilters(filters)
-        .sort((first, second) => first.login.localeCompare(second.login));
+    const owners = normalizeOwnerFilters(filters).sort(compareOwnersKindThenLogin);
     for (const owner of owners) {
         if (owner.repositories)
             owner.repositories.sort((first, second) => first.localeCompare(second));
         owner.excludedRepositories.sort((first, second) => first.localeCompare(second));
     }
     return JSON.stringify(owners);
+}
+
+/**
+ * Tells what a save writes to `owner-filters`: the serialized owners of the window, or null when
+ * they match the stored document, both in the kind-then-login order, so that moving blocks, or
+ * putting the owners back as they were, writes nothing and refreshes nothing.
+ */
+export function ownerFiltersToSave(stored, windowOwners) {
+    const next = serializeOwnerFilters(windowOwners);
+    return next === serializeOwnerFilters(stored) ? null : next;
 }
 
 /** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */

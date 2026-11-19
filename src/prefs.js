@@ -5,15 +5,14 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
+import {ownerFiltersToSave, readOwnerFilters} from './filters.js';
 import {describeGhFailure} from './github.js';
 import {
-    OWNER_ORDER_MODES,
     buttonFocusedAfterMove,
     canMoveOwnerRow,
+    initialBlockOrder,
     moveOwnerRow,
-    readOwnerOrderMode,
-    reconcileOwnerRows,
+    readOwnerOrder,
 } from './order.js';
 import {readQuota} from './agents.js';
 import {PROVIDERS} from './quotas.js';
@@ -26,12 +25,6 @@ const REPOSITORY_MODE_HINTS = {
     all: 'Every repository, including new ones.',
     except: 'New repositories are monitored. Turn off the ones to skip.',
     only: 'Only the repositories turned on. New repositories are skipped.',
-};
-// Owner order modes, in ComboRow order: OWNER_ORDER_MODES.
-const OWNER_ORDER_LABELS = ['Newest pull request', 'Custom order'];
-const OWNER_ORDER_HINTS = {
-    newest: 'Newest pull request first moves an owner up with each update',
-    custom: 'Owners without open pull requests take no room in the menu',
 };
 const QUOTA_INTERVALS = [15, 30, 60, 120, 240];
 const QUOTA_INTERVAL_LABELS = ['15 minutes', '30 minutes', '1 hour', '2 hours', '4 hours'];
@@ -244,7 +237,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         const ownersGroup = new Adw.PreferencesGroup({
             title: 'Accounts and organizations',
             description: 'Each owner gets its own block below: discover its repositories, ' +
-                'choose what to monitor, then pick repositories.',
+                'choose what to monitor, then pick repositories. ' +
+                'The menu lists the owners in the order of their blocks.',
         });
         const discoverRow = new Adw.ActionRow({
             title: 'Discover accounts',
@@ -297,13 +291,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             repositoryRows: new Map(),
         });
 
-        const kindRank = owner => owner.kind === 'user' ? 0 : owner.kind === 'organization' ? 1 : 2;
-        // Map order is block order: saved owners sorted, added ones first, discovered ones last.
-        let owners = new Map(readOwnerFilters(settings)
-            .sort((first, second) => kindRank(first) - kindRank(second) ||
-                first.login.localeCompare(second.login))
-            .map(owner => [owner.login.toLowerCase(), createOwner(owner, owner.enabled)]));
+        // Map order is block order: the saved order, then the owners it misses, kind then login.
+        // Add puts a block first, Discover accounts last, and a move reorders the map.
+        const configuredOwners = readOwnerFilters(settings);
+        let owners = new Map(initialBlockOrder(readOwnerOrder(settings.get_strv('owner-order')), configuredOwners)
+            .map(login => {
+                const owner = configuredOwners.find(candidate =>
+                    candidate.login.toLowerCase() === login.toLowerCase());
+                return [login.toLowerCase(), createOwner(owner, owner.enabled)];
+            }));
         const ownerGroups = [];
+        // Owners trashed since the running task started: its answer must not add them back.
+        const removedKeys = new Set();
 
         let ownerSettingsTouched = false;
         let cancellable = new Gio.Cancellable();
@@ -337,110 +336,120 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             return kind + ' · ' + (owner.enabled ? 'Monitoring' : 'Paused') + ' · ' + scope;
         };
 
-        // The rows of the Menu order group, as the keys of `owners` in their displayed order. This
-        // list is the unsaved order: `owners` keeps the order of the blocks, which Add changes.
-        const menuOrderGroup = new Adw.PreferencesGroup({
-            title: 'Menu order',
-            description: 'The order of the owner sections in the pull request list.',
-        });
-        const orderModeRow = new Adw.ComboRow({
-            title: 'Order owners by',
-            model: Gtk.StringList.new(OWNER_ORDER_LABELS),
-            selected: OWNER_ORDER_MODES.indexOf(readOwnerOrderMode(settings.get_string('owner-order-mode'))),
-        });
-        menuOrderGroup.add(orderModeRow);
-        let orderedLogins = reconcileOwnerRows(
-            settings.get_strv('owner-order'),
-            [...owners.values()].map(owner => owner.login)
-        );
-        let orderWidgets = [];
-        let orderButtons = new Map();
-        let orderFocusSourceId = 0;
-        const orderMode = () => OWNER_ORDER_MODES[orderModeRow.get_selected()] ?? 'newest';
+        // The one pending focus action: a move, a trash, or an answer that laid the blocks out
+        // again. The next one, a key press, a click, or closing the window cancels it.
+        let pendingFocus = null;
+        const cancelPendingFocus = () => {
+            if (!pendingFocus)
+                return;
+            if (pendingFocus.idleId)
+                GLib.Source.remove(pendingFocus.idleId);
+            if (pendingFocus.tickId)
+                window.remove_tick_callback(pendingFocus.tickId);
+            pendingFocus = null;
+        };
 
-        /** Rebuilds the owner rows from the list; `focus` names the button to focus afterwards. */
-        const renderOrderRows = (focus = null) => {
-            // A rebuild that no move asked for, such as an added owner, keeps the focus in place.
-            if (!focus) {
-                for (const [login, buttons] of orderButtons) {
-                    for (const [name, button] of Object.entries(buttons)) {
-                        if (button.has_focus)
-                            focus = {login, button: name};
-                    }
+        /** Scrolls the page so the widget shows, from its bounds relative to the viewport. */
+        const scrollIntoView = widget => {
+            const scrolled = widget.get_ancestor(Gtk.ScrolledWindow);
+            const viewport = scrolled?.get_child();
+            if (!viewport)
+                return;
+            const [ok, bounds] = widget.compute_bounds(viewport);
+            if (!ok)
+                return;
+            const adjustment = scrolled.get_vadjustment();
+            const margin = 12;
+            const top = bounds.get_y();
+            const bottom = top + bounds.get_height();
+            if (top < margin)
+                adjustment.set_value(adjustment.get_value() + top - margin);
+            else if (bottom > adjustment.get_page_size() - margin)
+                adjustment.set_value(adjustment.get_value() + bottom - adjustment.get_page_size() + margin);
+        };
+
+        /** Reads the caret and selection of an entry, null for any other widget. */
+        const captureText = widget => {
+            if (!(widget instanceof Gtk.Editable))
+                return null;
+            const [hasSelection, start, end] = widget.get_selection_bounds();
+            return {widget, hasSelection, start, end, position: widget.get_position()};
+        };
+
+        /**
+         * Focuses what `resolve` returns once the widgets are back in the window, then scrolls it
+         * into view once the new layout is done. A widget removed and added again in the same
+         * tick can refuse the focus, hence the idle source; the tick callbacks wait for the
+         * layout, which comes after them in the frame that maps the blocks.
+         */
+        const focusLater = (resolve, saved = null) => {
+            cancelPendingFocus();
+            const pending = {idleId: 0, tickId: 0};
+            pendingFocus = pending;
+            pending.idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                pending.idleId = 0;
+                const target = resolve();
+                if (!target || target.get_root() !== window) {
+                    pendingFocus = null;
+                    return GLib.SOURCE_REMOVE;
                 }
-            }
-            for (const widget of orderWidgets)
-                menuOrderGroup.remove(widget);
-            orderWidgets = [];
-            orderButtons = new Map();
-            const mode = orderMode();
-            orderModeRow.set_subtitle(OWNER_ORDER_HINTS[mode]);
-
-            if (orderedLogins.length === 0) {
-                const emptyRow = new Adw.ActionRow({title: 'Owners you add below appear here.'});
-                emptyRow.add_css_class('dim-label');
-                menuOrderGroup.add(emptyRow);
-                orderWidgets.push(emptyRow);
-            }
-
-            orderedLogins.forEach((login, index) => {
-                const owner = owners.get(login.toLowerCase());
-                // The activity mode keeps the saved order visible, but locked.
-                const row = new Adw.ActionRow({
-                    title: login,
-                    use_markup: false,
-                    subtitle: ownerKind(owner) + (owner.enabled ? '' : ' · Paused'),
-                    sensitive: mode === 'custom',
-                    // The Tab order goes to the buttons, not to the row around them.
-                    focusable: false,
-                });
-                const buttons = {};
-                for (const [name, direction] of [['up', -1], ['down', 1]]) {
-                    const label = 'Move ' + login + ' ' + name;
-                    const button = new Gtk.Button({
-                        icon_name: 'go-' + name + '-symbolic',
-                        valign: Gtk.Align.CENTER,
-                        tooltip_text: label,
-                        sensitive: canMoveOwnerRow(mode, orderedLogins.length, index, direction),
-                    });
-                    button.add_css_class('flat');
-                    // An icon alone does not say which owner it moves.
-                    button.update_property([Gtk.AccessibleProperty.LABEL], [label]);
-                    button.connect('clicked', () => {
-                        const newIndex = index + direction;
-                        orderedLogins = moveOwnerRow(orderedLogins, index, direction);
-                        renderOrderRows({
-                            login,
-                            button: buttonFocusedAfterMove(orderedLogins.length, newIndex, direction),
-                        });
-                    });
-                    row.add_suffix(button);
-                    buttons[name] = button;
-                }
-                orderButtons.set(login.toLowerCase(), buttons);
-                menuOrderGroup.add(row);
-                orderWidgets.push(row);
-            });
-
-            if (focus) {
-                // A button removed and added again in the same tick can refuse the focus.
-                if (orderFocusSourceId)
-                    GLib.Source.remove(orderFocusSourceId);
-                orderFocusSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-                    orderFocusSourceId = 0;
-                    orderButtons.get(focus.login.toLowerCase())?.[focus.button].grab_focus();
+                // The caret and selection read before the widget left the window, else now.
+                const text = saved?.widget === target ? saved : captureText(target);
+                target.grab_focus();
+                // Grabbing the focus selects the text of an entry: keep the caret and selection.
+                if (text?.hasSelection)
+                    target.select_region(text.position === text.start ? text.end : text.start, text.position);
+                else if (text)
+                    target.set_position(text.position);
+                let frames = 0;
+                pending.tickId = window.add_tick_callback(() => {
+                    if (++frames < 3)
+                        return GLib.SOURCE_CONTINUE;
+                    pending.tickId = 0;
+                    if (pendingFocus === pending)
+                        pendingFocus = null;
+                    scrollIntoView(target);
                     return GLib.SOURCE_REMOVE;
                 });
-            }
+                return GLib.SOURCE_REMOVE;
+            });
         };
 
-        /** Follows the owner blocks: an added owner joins the end, a removed one leaves. */
-        const syncOrderRows = () => {
-            orderedLogins = reconcileOwnerRows(orderedLogins, [...owners.values()].map(owner => owner.login));
-            renderOrderRows();
+        const keyController = new Gtk.EventControllerKey({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+        keyController.connect('key-pressed', () => {
+            cancelPendingFocus();
+            return false;
+        });
+        window.add_controller(keyController);
+        const clickGesture = new Gtk.GestureClick({
+            button: 0,
+            propagation_phase: Gtk.PropagationPhase.CAPTURE,
+        });
+        clickGesture.connect('pressed', () => cancelPendingFocus());
+        window.add_controller(clickGesture);
+
+        /** Keeps each block's move buttons in step with its place: no up first, no down last. */
+        const updateMoveButtons = () => {
+            const count = owners.size;
+            [...owners.values()].forEach((owner, index) => {
+                owner.upButton?.set_sensitive(canMoveOwnerRow(count, index, -1));
+                owner.downButton?.set_sensitive(canMoveOwnerRow(count, index, 1));
+            });
         };
-        orderModeRow.connect('notify::selected', () => renderOrderRows());
-        renderOrderRows();
+
+        /** Swaps a block with its neighbor, from its place now, and refocuses the button used. */
+        const moveOwner = (key, direction) => {
+            const keys = [...owners.keys()];
+            const index = keys.indexOf(key);
+            const moved = moveOwnerRow(keys, index, direction);
+            if (moved === keys)
+                return;
+            owners = new Map(moved.map(movedKey => [movedKey, owners.get(movedKey)]));
+            renderOwners();
+            const owner = owners.get(key);
+            const name = buttonFocusedAfterMove(owners.size, index + direction, direction);
+            focusLater(() => name === 'up' ? owner.upButton : owner.downButton);
+        };
 
         /** Reads the switches back into the list of the current mode; a switch on is monitored. */
         const syncSelection = owner => {
@@ -472,12 +481,30 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             owner.groupRows = [];
 
             const header = new Gtk.Box({spacing: 6, valign: Gtk.Align.CENTER});
+            const moveButtons = {};
+            for (const [name, direction] of [['up', -1], ['down', 1]]) {
+                const label = 'Move ' + owner.login + ' ' + name;
+                moveButtons[name] = new Gtk.Button({
+                    icon_name: 'go-' + name + '-symbolic',
+                    valign: Gtk.Align.CENTER,
+                    tooltip_text: label,
+                });
+                moveButtons[name].add_css_class('flat');
+                // An icon alone does not say which owner it moves.
+                moveButtons[name].update_property([Gtk.AccessibleProperty.LABEL], [label]);
+                // The place is read at each press, never when the button was built.
+                moveButtons[name].connect('clicked',
+                    () => moveOwner(owner.login.toLowerCase(), direction));
+            }
+            owner.upButton = moveButtons.up;
+            owner.downButton = moveButtons.down;
             const removeButton = new Gtk.Button({
                 icon_name: 'user-trash-symbolic',
                 valign: Gtk.Align.CENTER,
                 tooltip_text: 'Remove ' + owner.login,
             });
             removeButton.add_css_class('flat');
+            owner.removeButton = removeButton;
             const enabledSwitch = new Gtk.Switch({
                 active: owner.enabled,
                 valign: Gtk.Align.CENTER,
@@ -486,6 +513,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             // Icon and switch alone do not say which owner they act on.
             removeButton.update_property([Gtk.AccessibleProperty.LABEL], ['Remove ' + owner.login]);
             enabledSwitch.update_property([Gtk.AccessibleProperty.LABEL], ['Monitor ' + owner.login]);
+            header.append(moveButtons.up);
+            header.append(moveButtons.down);
             header.append(removeButton);
             header.append(enabledSwitch);
             group.set_header_suffix(header);
@@ -495,15 +524,25 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 ownerSettingsTouched = true;
                 owner.syncEnabled();
                 group.set_description(ownerDescription(owner));
-                renderOrderRows();
                 updateOwnerStatus();
             });
             // Removal, like every change here, only applies on Save preferences.
             removeButton.connect('clicked', () => {
-                owners.delete(owner.login.toLowerCase());
+                // GTK drops the focus with the removed subtree: pick the target first, the block
+                // that takes this one's place, or the one above when this was the last.
+                const key = owner.login.toLowerCase();
+                const keys = [...owners.keys()];
+                const index = keys.indexOf(key);
+                const successor = owners.get(keys[index + 1] ?? keys[index - 1]);
+                owners.delete(key);
+                removedKeys.add(key);
                 ownerGroups.splice(ownerGroups.indexOf(group), 1);
                 page.remove(group);
-                syncOrderRows();
+                updateMoveButtons();
+                focusLater(() => successor
+                    ? [successor.upButton, successor.downButton, successor.removeButton]
+                        .find(button => button.get_sensitive())
+                    : ownerEntry);
                 ownerSettingsTouched = true;
                 updateOwnerStatus(owner.login + ' will be removed when you save.');
             });
@@ -629,8 +668,15 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             discoverRepositoriesButton.connect('clicked', () => loadRepositories(owner));
         }
 
-        /** Lays the owner blocks out in order, between the owners group and the Save group. */
-        const renderOwners = () => {
+        /**
+         * Lays the owner blocks out in order, between the owners group and the Save group. The
+         * blocks leave the window and come back, which drops the focus: it returns to the widget
+         * that held it, or to `starter`, the button of the task that asked for the layout.
+         */
+        const renderOwners = starter => {
+            const focused = window.get_focus();
+            // GTK clears the selection of an entry that leaves the window: read it first.
+            const text = captureText(focused);
             for (const group of ownerGroups.splice(0))
                 page.remove(group);
             page.remove(saveGroup);
@@ -644,9 +690,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             page.add(saveGroup);
             page.add(aboutGroup);
-            syncOrderRows();
+            updateMoveButtons();
             updateOwnerStatus();
             updateGhButtons();
+            if (starter || focused)
+                focusLater(() => focused?.get_root() === window ? focused : starter, text);
         };
 
         /** Serializes gh requests and drops callbacks after a newer task or window close. */
@@ -710,6 +758,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         }
 
         discoverButton.connect('clicked', () => {
+            if (ghBusy)
+                return;
+            removedKeys.clear();
             ownerStatus.set_subtitle('Reading the authenticated account and organization memberships…');
             startGhTask(async requestGeneration => {
                 const account = (await runGh(['api', 'user', '--jq', '.login'], cancellable)).trim();
@@ -730,6 +781,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 ];
                 for (const candidate of discovered) {
                     const key = candidate.login.toLowerCase();
+                    // An owner trashed while the answer was pending stays removed.
+                    if (removedKeys.has(key))
+                        continue;
                     const existing = owners.get(key);
                     if (existing) {
                         if (existing.kind === 'owner') {
@@ -742,7 +796,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 }
 
                 ownerSettingsTouched = true;
-                renderOwners();
+                renderOwners(discoverButton);
                 updateOwnerStatus(
                     discovered.length + ' owners found, including ' + account + '.'
                 );
@@ -777,9 +831,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 // A new owner's block comes first, where the user is looking.
                 const kind = {User: 'user', Organization: 'organization'}[type] ?? 'owner';
                 owners = new Map([[key, createOwner({login, kind}, true)], ...owners]);
-                ownerEntry.set_text('');
+                // A login typed meanwhile is the next draft: keep it.
+                if (ownerEntry.get_text().trim() === login)
+                    ownerEntry.set_text('');
                 ownerSettingsTouched = true;
-                renderOwners();
+                renderOwners(addButton);
                 updateOwnerStatus(login + ' added.');
             }, error => {
                 const result = error?.ghResult;
@@ -833,12 +889,17 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             settings.delay();
             if (ownerSettingsTouched) {
-                setString('owner-filters',
-                    serializeOwnerFilters([...owners.values()].map(savedOwner)));
-                setBoolean('owner-filters-configured', true);
+                // Both sides in kind-then-login order: a save that only moved blocks, or put
+                // the owners back as they were, leaves owner-filters alone and refreshes nothing.
+                const saved = ownerFiltersToSave(
+                    readOwnerFilters(settings), [...owners.values()].map(savedOwner)
+                );
+                if (saved !== null) {
+                    settings.set_string('owner-filters', saved);
+                    setBoolean('owner-filters-configured', true);
+                }
             }
-            setString('owner-order-mode', orderMode());
-            setStrv('owner-order', orderedLogins);
+            setStrv('owner-order', [...owners.values()].map(owner => owner.login));
             setString('author-filter', authorEntry.get_text().trim());
             const selectedInterval = intervalRow.get_selected();
             if (selectedInterval < INTERVALS.length)
@@ -884,7 +945,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
-        page.add(menuOrderGroup);
         page.add(quickOpenGroup);
         page.add(quotaGroup);
         page.add(ownersGroup);
@@ -897,10 +957,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             taskGeneration++;
             cancellable.cancel();
             quotaCancellable.cancel();
-            if (orderFocusSourceId) {
-                GLib.Source.remove(orderFocusSourceId);
-                orderFocusSourceId = 0;
-            }
+            cancelPendingFocus();
             return false;
         });
     }

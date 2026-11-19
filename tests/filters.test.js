@@ -5,6 +5,7 @@ import {
     nextSearchLimit,
     normalizeOwnerFilters,
     searchScopes,
+    ownerFiltersToSave,
     serializeOwnerFilters,
     withoutUnreachable,
 } from '../src/filters.js';
@@ -83,6 +84,27 @@ test('serializes exclusions in a stable order', () => {
     assert.deepEqual(saved[0].excludedRepositories, ['acme/api', 'acme/web']);
 });
 
+test('serializes owners in the kind-then-login order, whatever their order in the window', () => {
+    const owners = [
+        owner('zed', {kind: 'organization'}),
+        owner('amy', {kind: 'organization'}),
+        owner('Zoe', {kind: 'user'}),
+        owner('ann', {kind: 'owner'}),
+    ];
+    const names = JSON.parse(serializeOwnerFilters(owners)).map(entry => entry.login);
+    assert.deepEqual(names, ['Zoe', 'amy', 'zed', 'ann']);
+    assert.equal(serializeOwnerFilters([...owners].reverse()), serializeOwnerFilters(owners));
+});
+
+test('a stored document in another order serializes like the window\'s owners', () => {
+    const stored = JSON.stringify([
+        {login: 'octo', kind: 'organization', enabled: true, repositories: null},
+        {login: 'cat', kind: 'user', enabled: true, repositories: null},
+    ]);
+    const window = [owner('cat', {kind: 'user'}), owner('octo', {kind: 'organization'})];
+    assert.equal(serializeOwnerFilters(JSON.parse(stored)), serializeOwnerFilters(window));
+});
+
 test('gives an owner with exclusions its own scope', () => {
     const scopes = searchScopes([
         owner('acme'),
@@ -125,4 +147,17 @@ test('drops owners and selected repositories gh cannot find', () => {
     ], {owners: ['gone'], repositories: ['ACME/old', 'hub/old']});
     assert.deepEqual(kept.map(entry => [entry.login, entry.repositories]),
         [['acme', ['acme/web']], ['octo', null]]);
+});
+
+test('a save writes owner-filters only when the owners changed, whatever the block order', () => {
+    const stored = [owner('octo', {kind: 'organization'}), owner('cat', {kind: 'user'})];
+    // The same owners, blocks moved: nothing to write.
+    assert.equal(ownerFiltersToSave(stored, [stored[1], stored[0]]), null);
+    assert.equal(ownerFiltersToSave(stored, [stored[0], stored[1]]), null);
+    // A paused owner, an added owner, a removed one: the serialized document.
+    assert.ok(ownerFiltersToSave(stored, [owner('cat', {kind: 'user', enabled: false}), stored[0]]));
+    assert.ok(ownerFiltersToSave(stored, [...stored, owner('new', {kind: 'user'})]));
+    assert.ok(ownerFiltersToSave(stored, [stored[0]]));
+    // Owners added then removed again, on an empty store: nothing to write.
+    assert.equal(ownerFiltersToSave([], []), null);
 });

@@ -97,7 +97,7 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   and warning rows, quick open (QOP), the pull request list, the agent quotas section when shown
   (QTA), and **Preferences…**.
 - The list groups pull requests under `<owner> · <n> pull request(s)` headings, ordered as ORD says
-  (by default, by each owner's newest pull request), and sorts each group by last update. Only
+  (by the order of the owner blocks in the preferences), and sorts each group by last update. Only
   the list scrolls; the panel menu caps its height.
 - Each row has a status icon, then:
   - first line: the `#number` badge, up to three labels in their GitHub color (text dark on light
@@ -127,7 +127,6 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 - **Monitoring** holds **Author** (an entry, `@me or username`) and **Refresh interval** (30
   seconds to 10 minutes).
-- **Menu order** holds the order of the owner sections, as ORD says.
 - **Accounts and organizations** holds **Discover accounts** (`gh api user` and `gh api
   user/orgs --paginate`: the gh account and its organizations) and **Add an owner**. **Add**
   checks the login with `gh api users/<login>` and takes its kind from the answer; an unknown
@@ -135,8 +134,10 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   the owners and the enabled ones.
 - Each owner gets its own block, titled with its login and described as
   `<kind> · Monitoring|Paused · <scope>`, the scope reading `All repositories`,
-  `All except N repositories`, or `N selected repositories`. Its header has a trash icon that
-  removes the owner and a switch that pauses it. A paused owner's rows are greyed out.
+  `All except N repositories`, or `N selected repositories`. Its header has a move-up and a
+  move-down button, a trash icon that removes the owner, and a switch that pauses it. A paused
+  owner's rows are greyed out. The blocks open in the order last saved, and the move buttons
+  reorder them, as ORD says.
 - A block has three steps:
   1. **Repositories**, with **Discover**: runs `gh repo list` for that owner only, on demand.
   2. **Monitor**: **All**, **All except…**, or **Only…**. It shows the saved mode and can only

@@ -12,7 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} from './filters.js';
-import {UNKNOWN_OWNER, orderOwnerSections, readOwnerOrder, readOwnerOrderMode} from './order.js';
+import {UNKNOWN_OWNER, initialBlockOrder, orderOwnerSections, readOwnerOrder} from './order.js';
 import {describeGhFailure, parseReachability, reachabilityArguments} from './github.js';
 import {
     MAX_SUGGESTIONS,
@@ -207,9 +207,9 @@ function filterSignature(settings) {
 
 /**
  * Groups PR rows by owner, keeps each section ordered by last update, and orders the sections as
- * the owner order setting says.
+ * the owner blocks of the preferences are, `blockOrder` being their logins in order.
  */
-function groupPullRequestsByOwner(pullRequests, mode, order) {
+function groupPullRequestsByOwner(pullRequests, blockOrder) {
     const groups = new Map();
     for (const pullRequest of pullRequests) {
         const owner = pullRequest.owner || UNKNOWN_OWNER;
@@ -223,7 +223,7 @@ function groupPullRequestsByOwner(pullRequests, mode, order) {
             owner,
             pullRequests: pullRequests.sort(compareUpdatedPullRequests),
             latestUpdate: Date.parse(pullRequests[0]?.updatedAt ?? '') || 0,
-        })), mode, order);
+        })), blockOrder);
 }
 
 /** Creates a compact semantic badge with a high-contrast label for CI and review metadata. */
@@ -366,7 +366,6 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
             // The order only re-sorts the pull requests already loaded: no gh call.
             this._settings.connect('changed::owner-order', () => this._renderPullRequestList()),
-            this._settings.connect('changed::owner-order-mode', () => this._renderPullRequestList()),
             ...Object.entries(PROVIDERS).map(([provider, {setting}]) =>
                 this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
             this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
@@ -1864,11 +1863,12 @@ export default class GreenlightExtension extends Extension {
                 {reactive: false, can_focus: false}
             ));
         } else {
-            for (const group of groupPullRequestsByOwner(
-                this._prs,
-                readOwnerOrderMode(this._settings.get_string('owner-order-mode')),
-                readOwnerOrder(this._settings.get_strv('owner-order'))
-            )) {
+            // The saved order completed by the owner filters, as the preferences window opens.
+            const blockOrder = initialBlockOrder(
+                readOwnerOrder(this._settings.get_strv('owner-order')),
+                readOwnerFilters(this._settings)
+            );
+            for (const group of groupPullRequestsByOwner(this._prs, blockOrder)) {
                 const heading = new PopupMenu.PopupMenuItem(
                     group.owner + ' · ' + group.pullRequests.length +
                     (group.pullRequests.length === 1 ? ' pull request' : ' pull requests'),
