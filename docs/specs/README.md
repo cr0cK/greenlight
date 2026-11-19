@@ -35,4 +35,4 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
 - [`QTA`](QTA.md) (2026-11-12): Claude, Codex, and Antigravity subscription quota gauges in the
   menu; tracking issue #36.
 - [`ORD`](ORD.md) (2026-11-19): the order of quick open suggestions, newest activity first, and
-  a custom order of the owner sections in the menu; tracking issue #47.
+  the owner sections in the menu in the order of the owner blocks; tracking issue #47.
