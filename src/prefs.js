@@ -368,13 +368,21 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 adjustment.set_value(adjustment.get_value() + bottom - adjustment.get_page_size() + margin);
         };
 
+        /** Reads the caret and selection of an entry, null for any other widget. */
+        const captureText = widget => {
+            if (!(widget instanceof Gtk.Editable))
+                return null;
+            const [hasSelection, start, end] = widget.get_selection_bounds();
+            return {widget, hasSelection, start, end, position: widget.get_position()};
+        };
+
         /**
          * Focuses what `resolve` returns once the widgets are back in the window, then scrolls it
          * into view once the new layout is done. A widget removed and added again in the same
          * tick can refuse the focus, hence the idle source; the tick callbacks wait for the
          * layout, which comes after them in the frame that maps the blocks.
          */
-        const focusLater = resolve => {
+        const focusLater = (resolve, saved = null) => {
             cancelPendingFocus();
             const pending = {idleId: 0, tickId: 0};
             pendingFocus = pending;
@@ -385,15 +393,14 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     pendingFocus = null;
                     return GLib.SOURCE_REMOVE;
                 }
-                const editable = target instanceof Gtk.Editable;
-                const [hasSelection, start, end] = editable ? target.get_selection_bounds() : [false, 0, 0];
-                const position = editable ? target.get_position() : -1;
+                // The caret and selection read before the widget left the window, else now.
+                const text = saved?.widget === target ? saved : captureText(target);
                 target.grab_focus();
                 // Grabbing the focus selects the text of an entry: keep the caret and selection.
-                if (hasSelection)
-                    target.select_region(position === start ? end : start, position);
-                else if (position >= 0)
-                    target.set_position(position);
+                if (text?.hasSelection)
+                    target.select_region(text.position === text.start ? text.end : text.start, text.position);
+                else if (text)
+                    target.set_position(text.position);
                 let frames = 0;
                 pending.tickId = window.add_tick_callback(() => {
                     if (++frames < 3)
@@ -668,6 +675,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
          */
         const renderOwners = starter => {
             const focused = window.get_focus();
+            // GTK clears the selection of an entry that leaves the window: read it first.
+            const text = captureText(focused);
             for (const group of ownerGroups.splice(0))
                 page.remove(group);
             page.remove(saveGroup);
@@ -685,7 +694,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             updateOwnerStatus();
             updateGhButtons();
             if (starter || focused)
-                focusLater(() => focused?.get_root() === window ? focused : starter);
+                focusLater(() => focused?.get_root() === window ? focused : starter, text);
         };
 
         /** Serializes gh requests and drops callbacks after a newer task or window close. */
