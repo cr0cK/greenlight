@@ -5,7 +5,7 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {readOwnerFilters, serializeOwnerFilters} from './filters.js';
+import {ownerFiltersToSave, readOwnerFilters} from './filters.js';
 import {describeGhFailure} from './github.js';
 import {
     buttonFocusedAfterMove,
@@ -385,10 +385,14 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     pendingFocus = null;
                     return GLib.SOURCE_REMOVE;
                 }
-                const position = target instanceof Gtk.Editable ? target.get_position() : -1;
+                const editable = target instanceof Gtk.Editable;
+                const [hasSelection, start, end] = editable ? target.get_selection_bounds() : [false, 0, 0];
+                const position = editable ? target.get_position() : -1;
                 target.grab_focus();
-                // Grabbing the focus selects the text of an entry: keep the caret where it was.
-                if (position >= 0)
+                // Grabbing the focus selects the text of an entry: keep the caret and selection.
+                if (hasSelection)
+                    target.select_region(position === start ? end : start, position);
+                else if (position >= 0)
                     target.set_position(position);
                 let frames = 0;
                 pending.tickId = window.add_tick_callback(() => {
@@ -410,7 +414,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             return false;
         });
         window.add_controller(keyController);
-        const clickGesture = new Gtk.GestureClick({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+        const clickGesture = new Gtk.GestureClick({
+            button: 0,
+            propagation_phase: Gtk.PropagationPhase.CAPTURE,
+        });
         clickGesture.connect('pressed', () => cancelPendingFocus());
         window.add_controller(clickGesture);
 
@@ -815,7 +822,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 // A new owner's block comes first, where the user is looking.
                 const kind = {User: 'user', Organization: 'organization'}[type] ?? 'owner';
                 owners = new Map([[key, createOwner({login, kind}, true)], ...owners]);
-                ownerEntry.set_text('');
+                // A login typed meanwhile is the next draft: keep it.
+                if (ownerEntry.get_text().trim() === login)
+                    ownerEntry.set_text('');
                 ownerSettingsTouched = true;
                 renderOwners(addButton);
                 updateOwnerStatus(login + ' added.');
@@ -873,10 +882,13 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             if (ownerSettingsTouched) {
                 // Both sides in kind-then-login order: a save that only moved blocks, or put
                 // the owners back as they were, leaves owner-filters alone and refreshes nothing.
-                const saved = serializeOwnerFilters([...owners.values()].map(savedOwner));
-                if (saved !== serializeOwnerFilters(readOwnerFilters(settings)))
+                const saved = ownerFiltersToSave(
+                    readOwnerFilters(settings), [...owners.values()].map(savedOwner)
+                );
+                if (saved !== null) {
                     settings.set_string('owner-filters', saved);
-                setBoolean('owner-filters-configured', true);
+                    setBoolean('owner-filters-configured', true);
+                }
             }
             setStrv('owner-order', [...owners.values()].map(owner => owner.login));
             setString('author-filter', authorEntry.get_text().trim());

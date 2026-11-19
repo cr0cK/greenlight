@@ -5,6 +5,7 @@ import {
     nextSearchLimit,
     normalizeOwnerFilters,
     searchScopes,
+    ownerFiltersToSave,
     serializeOwnerFilters,
     withoutUnreachable,
 } from '../src/filters.js';
@@ -146,4 +147,17 @@ test('drops owners and selected repositories gh cannot find', () => {
     ], {owners: ['gone'], repositories: ['ACME/old', 'hub/old']});
     assert.deepEqual(kept.map(entry => [entry.login, entry.repositories]),
         [['acme', ['acme/web']], ['octo', null]]);
+});
+
+test('a save writes owner-filters only when the owners changed, whatever the block order', () => {
+    const stored = [owner('octo', {kind: 'organization'}), owner('cat', {kind: 'user'})];
+    // The same owners, blocks moved: nothing to write.
+    assert.equal(ownerFiltersToSave(stored, [stored[1], stored[0]]), null);
+    assert.equal(ownerFiltersToSave(stored, [stored[0], stored[1]]), null);
+    // A paused owner, an added owner, a removed one: the serialized document.
+    assert.ok(ownerFiltersToSave(stored, [owner('cat', {kind: 'user', enabled: false}), stored[0]]));
+    assert.ok(ownerFiltersToSave(stored, [...stored, owner('new', {kind: 'user'})]));
+    assert.ok(ownerFiltersToSave(stored, [stored[0]]));
+    // Owners added then removed again, on an empty store: nothing to write.
+    assert.equal(ownerFiltersToSave([], []), null);
 });

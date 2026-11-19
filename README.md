@@ -93,9 +93,9 @@ Until you configure owners, Greenlight watches every repository `gh` can see.
   <kbd>Enter</kbd>.
 - A pull request is green when every check passed. Skipped checks count as passed once at least
   one check passed. A pull request with no checks is never green.
-- Owners are listed under their own heading, in the order of their blocks in the preferences. An
-  owner you never placed follows your accounts first, then your organizations, each by login. Pull
-  requests without an owner come last. Saving a new order re-sorts the list without calling
+- Owners are listed under their own heading, in the order of their blocks in the preferences. Owners
+  you have not placed yet follow, your accounts first, then your organizations, each by login.
+  Pull requests without an owner come last. Saving a new order re-sorts the list without calling
   GitHub.
 - Greenlight refreshes every 2 minutes (you can set 30 s to 10 min). The first refresh, and each
   filter change, only records the current state: pull requests that are already green do not
