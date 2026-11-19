@@ -13,10 +13,12 @@ ORD covers the order of what the menu lists: the quick open suggestions for a nu
 activity first, so a pull request merged a minute ago is the first suggestion; and the order of
 the owner sections in the pull request list, which follows the order the user gives the owner
 blocks in the preferences. It builds on QOP and PRM, whose rules all still apply except three it
-replaces (ORD-P3 rewrites PRM's lines on them, including the **Menu order** line ORD-P2 added): QOP's order of the suggestions once the number lookup answered (**Quick open** section,
-the ranking rule as it applies to looked up suggestions), PRM's order of the owner sections
-(**Menu** section, `ordered by each owner's newest pull request`), and PRM's order of the owner
-blocks when the window opens (saved owners sorted by kind, then login). The mockup is
+replaces (ORD-P3 rewrites PRM's lines on them, including the **Menu order** line ORD-P2 added):
+QOP's order of the suggestions once the number lookup answered (**Quick open** section, the
+ranking rule as it applies to looked up suggestions), PRM's order of the owner sections (**Menu**
+section, `ordered by each owner's newest pull request`), and the order of the owner blocks when
+the window opens, which PRM left unstated and the code took as kind, then login: it now comes
+from the saved order. The mockup is
 [`mockups/ORD.html`](mockups/ORD.html).
 
 ## Quick open order
@@ -67,8 +69,10 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
 - The owner sections follow the order of the owner blocks in the preferences, as last saved:
   the first block's owner comes first. There is no automatic order and no setting to pick one.
   (MENU-ORDER)
-- A section is matched to its block by login, case-insensitively. A section whose owner has no
-  block comes after the ordered ones, those among themselves by newest pull request, which means
+- A section is matched to its block by login, case-insensitively. An owner has a block when it is
+  in the owner filters, enabled or paused, whether or not `owner-order` names it: the menu
+  completes the saved order exactly as the window does (see **Owner order in the preferences**),
+  so both always agree. A section whose owner has no block comes after the ordered ones, those among themselves by newest pull request, which means
   the latest `updatedAt` among the section's pull requests, equal values ordered by owner name;
   the `Unknown owner` section, for a pull request without an owner, comes last. This happens
   before any owner is configured, when PRM's search is not scoped to owners: the window then has
@@ -104,15 +108,22 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
   filters, and whether its list is open.
 - Removing an owner with its trash icon updates the edge buttons of the blocks left: the new first
   block's up and the new last block's down become insensitive.
-- Keyboard: moving a block keeps the focus on the button just used, on the block's new position,
-  unless that button became insensitive, in which case the focus goes to the block's other move
-  button. The page scrolls so the focused button stays in view.
+- Focus: moving a block, from the keyboard or with a click, keeps the focus on the button just
+  used, on the block's new position, unless that button became insensitive, in which case the
+  focus goes to the block's other move button. The page scrolls so the focused button stays in
+  view.
+- Any other change that lays the blocks out again (**Add**, **Discover accounts**, a trash icon)
+  keeps the focus where it was when that widget is still in the window. After a trash icon, the
+  focus goes to the block that took the removed one's place, or to the one above when it was the
+  last, or to the **Add an owner** entry when no block is left.
 - When the window opens, the blocks follow the saved order. Configured owners missing from it (an
   owner from before ORD-P3, or one whose order was never saved) follow, in PRM's order: personal
   accounts, then organizations, then other owners, each by login. A saved login with no configured
   owner is ignored.
 - PRM's placement of new blocks is unchanged: an owner added with **Add** gets the first block, and
-  owners found by **Discover accounts** get the last ones. Removing an owner with its trash icon
+  owners found by **Discover accounts** get the last ones, relative to the order when the `gh`
+  call answers. The move buttons make no `gh` call, so they stay usable while one runs; only the
+  buttons PRM names, and **Save preferences**, wait for it. Removing an owner with its trash icon
   never reorders the others.
 - As with every setting, nothing applies before **Save preferences**, which stores the login of
   every configured owner, enabled or paused, in block order, spelled as the owner block shows it. Closing the window without saving
@@ -122,9 +133,14 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
 
 ## Storage
 
-- `owner-order` (`as`, default `[]`): owner logins, in block order. Reading it ignores non-string
+- `owner-order` (`as`, default `[]`): owner logins, in block order. It alone holds the order:
+  `owner-filters` is saved in a fixed order (kind, then login, as PRM's fallback), so a save that
+  only moves blocks never changes `owner-filters` and never triggers a refresh. An installation
+  whose `owner-filters` was saved in another order gets it rewritten once, at its first save that
+  touches the owners, a refresh that save already causes. Reading it ignores non-string
   entries and duplicates (case-insensitive), keeping the first.
 - `owner-order-mode` is removed from the schema. No release shipped it, so no migration reads it.
+- ORD's version stays v1.4: nothing of ORD-P2 was released, and ORD-P3 ships in the same release.
 - An installation with an empty `owner-order` shows its blocks in PRM's order (kind, then login)
   and lists the menu sections in that same order until the first save.
 
@@ -272,7 +288,10 @@ ORD-P3 replaces that UI and removes the mode.
     insensitive; the focus ring sits on the expected button after a middle move, after a move that
     makes the used button insensitive, and after a move past an open block that takes the button
     out of the visible area, which the page scrolls back into view; pressing the same button twice
-    moves the block two places; a moved block keeps a repository switch changed before the move,
+    moves the block two places; a move while a **Discover** runs is kept and the discovered owners
+    land last; the focus stays in a block's filter entry when another block's **Discover**
+    answers, and after a trash icon it lands where **Owner order in the preferences** says; a
+    save that only moves blocks leaves `owner-filters` unchanged; a moved block keeps a repository switch changed before the move,
     its open list, and its filter text with the rows it filters; a paused block moves; removing
     the first block makes the new first block's up insensitive; adding an owner puts it first
     without undoing a move; closing without saving keeps the stored order; at the screenshot
@@ -282,7 +301,8 @@ ORD-P3 replaces that UI and removes the mode.
     `preferences.png`, which shows the move buttons on the owner blocks; README.md describes
     the order and its alt text names the buttons; in PRM, the **Menu** rule says the sections
     follow the owner blocks' order as ORD says, the **Preferences** section drops the
-    **Menu order** line, and its owner block rule names the move buttons, in the same PR.
+    **Menu order** line, and its owner block rule names the move buttons and says the blocks open
+    in the saved order; PRM's `amended` already lists v1.4, which stays; all in the same PR.
 - **Technical notes**:
   - `src/schemas/`: remove `owner-order-mode`; keep `owner-order`, its summary and description
     rewritten for the block order.
@@ -304,7 +324,13 @@ ORD-P3 replaces that UI and removes the mode.
     the header box built around line 476, before the trash button, with
     `update_property([Gtk.AccessibleProperty.LABEL], [...])` and the same tooltip; their
     sensitivity updates on every `renderOwners()`. Refocus the target button from
-    `GLib.idle_add`, as ORD-P2 does; if the button is not yet allocated then, retry once the page
-    has laid it out (its `map` or a later idle), so the viewport scrolls to its final position.
+    `GLib.idle_add`, as ORD-P2 does. The re-added button is mapped at once (its page is mapped)
+    but may not be allocated yet: when its allocated height is 0, or its bounds against the page's
+    scrolled window fall outside the visible range, retry from `add_tick_callback` or a later idle,
+    at most 3 times. Keep the source id and remove it on `close-request`, as P2's
+    `orderFocusSourceId` does. `renderOwners()` records `window.get_focus()` before laying the
+    blocks out and restores it the same way when the widget is still in the window.
+  - Save: serialize `owner-filters` in kind-then-login order, not map order, so the block order
+    lives in `owner-order` only.
     **Save preferences** writes `owner-order` from each owner's `login` in map order, not the
     lowercased keys, only when it changed (the save handler already compares values).
