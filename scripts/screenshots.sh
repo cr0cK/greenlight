@@ -62,9 +62,8 @@ gs org.gnome.desktop.interface color-scheme "'prefer-dark'"
 EXT=org.gnome.shell.extensions.greenlight
 gs $EXT author-filter "''"
 gs $EXT owner-filters-configured true
-# A custom order, so the preferences show the Menu order group with its buttons live. It is the
-# order the menu has by default, which keeps the menu captures as they were.
-gs $EXT owner-order-mode "'custom'"
+# The order of the owner blocks and of the menu sections, which keeps the menu captures as they
+# were: the kind-then-login order would put the personal account first.
 gs $EXT owner-order "['acme', 'octo-org', 'octocat']"
 gs $EXT claude-quota-enabled true
 gs $EXT codex-quota-enabled true
@@ -147,7 +146,7 @@ capture_menu quick-open.png
 shell_eval "${STATE}._indicator.menu.close()" >/dev/null
 crop_menus menu.png quick-open.png
 
-# Restart on a tall screen: the window must show the Menu order group and the first owner block
+# Restart on a tall screen: the window must show the first owner block, with its move buttons,
 # below the general settings.
 kill "$SHELL_PID"
 wait "$SHELL_PID" 2>/dev/null || true

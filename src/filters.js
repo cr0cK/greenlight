@@ -1,3 +1,5 @@
+import {compareOwnersKindThenLogin} from './order.js';
+
 const MAX_QUERY_QUALIFIERS = 16;
 const MAX_QUERY_LENGTH = 220;
 // gh search returns at most 1000 results, whatever the limit asked.
@@ -96,10 +98,12 @@ export function readOwnerFilters(settings) {
     }
 }
 
-/** Serializes a canonical document so filter signatures do not depend on row order. */
+/**
+ * Serializes a canonical document in the kind-then-login order, so it does not depend on the
+ * order of the owner blocks: that order lives in `owner-order` alone.
+ */
 export function serializeOwnerFilters(filters) {
-    const owners = normalizeOwnerFilters(filters)
-        .sort((first, second) => first.login.localeCompare(second.login));
+    const owners = normalizeOwnerFilters(filters).sort(compareOwnersKindThenLogin);
     for (const owner of owners) {
         if (owner.repositories)
             owner.repositories.sort((first, second) => first.localeCompare(second));

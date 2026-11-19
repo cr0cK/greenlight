@@ -5,13 +5,16 @@ It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo
 user, user/orgs, and users/<login>, and the gh api graphql reachability, lookup, and preview
 queries.
 
-Two optional environment variables serve the automated checks of the quick open order. With
-GH_FIXTURE_DIR set, every invocation is appended to invocations.log there, and a file named
-fail-lookup there makes the lookup query exit 1 with no output.
+One optional environment variable serves the automated checks of the quick open and owner order.
+With GH_FIXTURE_DIR set, every invocation is appended, with its arguments, to invocations.log
+there; a file named fail-lookup there makes the lookup query exit 1 with no output; and a file
+named hold-discover there holds the answer of `gh api user/orgs`, the one of Discover accounts,
+until the file is removed.
 """
 import json
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 PULL_REQUESTS = [
@@ -50,6 +53,8 @@ REPOSITORIES = {
     'acme': ['acme/web-platform', 'acme/web-client', 'acme/api-gateway', 'acme/infra'],
     'octo-org': ['octo-org/docs', 'octo-org/website'],
     'octocat': ['octocat/dotfiles', 'octocat/hello-world'],
+    # Found by Discover accounts, which the screenshot seed does not configure.
+    'globex': ['globex/core'],
 }
 
 PREVIEW_BODY = """\
@@ -223,7 +228,10 @@ def main(args):
     elif args[:2] == ['api', 'user']:
         print('octocat')
     elif args[:2] == ['api', 'user/orgs']:
-        print('acme\nocto-org')
+        hold = os.path.join(os.environ.get('GH_FIXTURE_DIR', os.devnull), 'hold-discover')
+        while os.path.exists(hold):
+            time.sleep(0.1)
+        print('acme\nocto-org\nglobex')
     elif args[:1] == ['api'] and args[1].startswith('users/'):
         return user(args[1].split('/', 1)[1])
     else:
@@ -235,5 +243,5 @@ def main(args):
 if __name__ == '__main__':
     if os.environ.get('GH_FIXTURE_DIR'):
         with open(os.path.join(os.environ['GH_FIXTURE_DIR'], 'invocations.log'), 'a') as log:
-            log.write(' '.join(sys.argv[1:3]) + (' lookup' if 'o0=' in ' '.join(sys.argv) else '') + '\n')
+            log.write(' '.join(sys.argv[1:]) + '\n')
     sys.exit(main(sys.argv[1:]) or 0)
