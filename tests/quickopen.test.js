@@ -132,6 +132,12 @@ test('formats an age of 30 days or more as a local date', () => {
     assert.equal(formatActivityAge(local(2026, 0, 1), now), 'Jan 1');
     assert.equal(formatActivityAge(local(2025, 11, 31), now), 'Dec 31, 2025');
     assert.equal(formatActivityAge(local(2025, 2, 4), now), 'Mar 4, 2025');
+    // Close to midnight, the local calendar day differs from the UTC one in most time zones.
+    const at = (year, month, day, hour) => new Date(year, month, day, hour, 30).toISOString();
+    assert.equal(formatActivityAge(at(2026, 8, 2, 0), now), 'Sep 2');
+    assert.equal(formatActivityAge(at(2026, 8, 2, 23), now), 'Sep 2');
+    assert.equal(formatActivityAge(at(2025, 11, 31, 23), now), 'Dec 31, 2025');
+    assert.equal(formatActivityAge(at(2025, 0, 1, 0), now), 'Jan 1, 2025');
 });
 
 test('reads a future date as now and a missing or invalid date as no age', () => {
@@ -186,5 +192,6 @@ test('puts exact repository matches first, whatever their age', () => {
 test('sorts every looked up candidate before the cut to five suggestions', () => {
     const suggestions = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((name, index) =>
         found('acme/' + name, new Date(Date.UTC(2026, 0, 1 + (name === 'g' ? 300 : index))).toISOString()));
-    assert.equal(sortByActivity(suggestions, '').slice(0, MAX_SUGGESTIONS)[0].repository, 'acme/g');
+    assert.deepEqual(names(sortByActivity(suggestions, '').slice(0, MAX_SUGGESTIONS)),
+        ['acme/g', 'acme/f', 'acme/e', 'acme/d', 'acme/c']);
 });

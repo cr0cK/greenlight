@@ -123,8 +123,11 @@ def checks(args):
 
 
 def find(repository, number):
-    return next((pr for pr in PULL_REQUESTS
-                 if pr[0].lower() == repository.lower() and pr[1] == number), None)
+    """Returns the pull request row, or one made from LOOKUP_ITEMS, so previews and lookups agree."""
+    pr = next((pr for pr in PULL_REQUESTS
+               if pr[0].lower() == repository.lower() and pr[1] == number), None)
+    item = LOOKUP_ITEMS.get((repository.lower(), number))
+    return pr or (item and (repository, number, item[0], 'octocat', False, 'pass'))
 
 
 def lookup(values):
@@ -136,11 +139,10 @@ def lookup(values):
         repository = values[f'o{index}'] + '/' + values[f'n{index}']
         pr = find(repository, number)
         key = (repository.lower(), number)
-        title, minutes = (pr[2], LOOKUP_MINUTES.get(key, 90)) if pr else LOOKUP_ITEMS.get(
-            key, (None, None))
-        updated = datetime.now(timezone.utc) - timedelta(minutes=minutes or 0)
-        data[f'r{index}'] = {'issueOrPullRequest': title and {
-            '__typename': 'PullRequest', 'title': title,
+        minutes = LOOKUP_ITEMS[key][1] if key in LOOKUP_ITEMS else LOOKUP_MINUTES.get(key, 90)
+        updated = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        data[f'r{index}'] = {'issueOrPullRequest': pr and {
+            '__typename': 'PullRequest', 'title': pr[2],
             'updatedAt': updated.strftime('%Y-%m-%dT%H:%M:%SZ')}}
         index += 1
     print(json.dumps({'data': data}))

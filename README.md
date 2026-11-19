@@ -104,7 +104,7 @@ focused (you can change the shortcut in Preferences). Type `plat 42`, `plat#42`,
 the names of the failed checks, and the description rendered as Markdown.
 
 When a number exists in several repositories, they are listed newest activity first, each with
-its age (`12 min`, `5 h`, `3 d`, then the date), so the pull request you just merged comes first.
+its age (`12 min`, `5 h`, `3 d`, then the date), so the one updated last comes first.
 A repository you typed in full (`acme/web#42`, `web 42`) stays first. If the lookup fails, the
 repositories are listed by name match, without ages.
 
