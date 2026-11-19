@@ -360,6 +360,15 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
         /** Rebuilds the owner rows from the list; `focus` names the button to focus afterwards. */
         const renderOrderRows = (focus = null) => {
+            // A rebuild that no move asked for, such as an added owner, keeps the focus in place.
+            if (!focus) {
+                for (const [login, buttons] of orderButtons) {
+                    for (const [name, button] of Object.entries(buttons)) {
+                        if (button.has_focus)
+                            focus = {login, button: name};
+                    }
+                }
+            }
             for (const widget of orderWidgets)
                 menuOrderGroup.remove(widget);
             orderWidgets = [];

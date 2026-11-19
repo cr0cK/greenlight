@@ -365,8 +365,8 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::owner-filters-configured', () => this._scheduleFilterRefresh()),
             this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
             // The order only re-sorts the pull requests already loaded: no gh call.
-            this._settings.connect('changed::owner-order', () => this._renderMenu()),
-            this._settings.connect('changed::owner-order-mode', () => this._renderMenu()),
+            this._settings.connect('changed::owner-order', () => this._renderPullRequestList()),
+            this._settings.connect('changed::owner-order-mode', () => this._renderPullRequestList()),
             ...Object.entries(PROVIDERS).map(([provider, {setting}]) =>
                 this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
             this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
@@ -1818,10 +1818,6 @@ export default class GreenlightExtension extends Extension {
             return;
 
         this._refreshSection.removeAll();
-        const menu = this._contentSection;
-        menu.removeAll();
-        this._pullRequestItems = [];
-
         const refreshItem = new PopupMenu.PopupMenuItem(
             this._loading ? 'Refreshing…' : 'Refresh now',
             {reactive: !this._loading, can_focus: !this._loading}
@@ -1841,6 +1837,17 @@ export default class GreenlightExtension extends Extension {
                 'Not found on GitHub or not visible to gh: ' + this._unreachable.join(', ') +
                 '. Remove or pause them in Preferences.'));
         }
+
+        this._renderPullRequestList();
+    }
+
+    /** Rebuilds the pull request list alone; a new owner order re-sorts it from `_prs`. */
+    _renderPullRequestList() {
+        const menu = this._contentSection;
+        if (!menu)
+            return;
+        menu.removeAll();
+        this._pullRequestItems = [];
 
         if (this._prs.length === 0 && this._loading) {
             menu.addMenuItem(new PopupMenu.PopupMenuItem(
