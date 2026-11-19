@@ -5,6 +5,15 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.4.0](https://github.com/cr0cK/greenlight/compare/v1.3.0...v1.4.0) (2026-11-19)
+
+
+### Added
+
+* list quick open suggestions newest activity first ([#49](https://github.com/cr0cK/greenlight/issues/49)) ([949f0fb](https://github.com/cr0cK/greenlight/commit/949f0fb0c5b411c235fa8d241657086470a5f951))
+* order the owner sections from the move buttons on the owner blocks ([#54](https://github.com/cr0cK/greenlight/issues/54)) ([86d0b00](https://github.com/cr0cK/greenlight/commit/86d0b00e2a6a29d1f9d176d559ce8ae9006b685d))
+* order the owner sections of the menu from the preferences ([#52](https://github.com/cr0cK/greenlight/issues/52)) ([c7db905](https://github.com/cr0cK/greenlight/commit/c7db90511a57ec324629891c54d3ed07c7e456de))
+
 ## [1.3.0](https://github.com/cr0cK/greenlight/compare/v1.2.1...v1.3.0) (2026-11-12)
 
 
