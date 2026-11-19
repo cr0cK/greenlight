@@ -346,5 +346,8 @@ ORD-P3 replaces that UI and removes the mode.
     group, since GTK drops the focus with the removed subtree.
   - Save: serialize `owner-filters` in kind-then-login order, not map order, so the block order
     lives in `owner-order` only.
+  - `scripts/screenshots/gh`: log each invocation with its arguments; add a file switch that holds
+    the **Discover accounts** answer (`api user/orgs`) until the file is removed, and make that
+    answer include one organization the screenshot seed does not configure.
     **Save preferences** writes `owner-order` from each owner's `login` in map order, not the
     lowercased keys, only when it changed (the save handler already compares values).
