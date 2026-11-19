@@ -56,7 +56,7 @@ export function lookupArguments(repositories, number) {
         variables.push('$o' + index + ': String!, $n' + index + ': String!');
         fields.push('r' + index + ': repository(owner: $o' + index + ', name: $n' + index + ') {' +
             ' issueOrPullRequest(number: $number) {' +
-            ' __typename ... on Issue { title } ... on PullRequest { title } } }');
+            ' __typename ... on Issue { title updatedAt } ... on PullRequest { title updatedAt } } }');
         values.push('-f', 'o' + index + '=' + owner, '-f', 'n' + index + '=' + name);
     });
 
@@ -70,7 +70,8 @@ export function lookupArguments(repositories, number) {
 
 /**
  * Maps a lookup response back to its repositories. A missing or inaccessible repository and a
- * missing number both read as not found; a response without data throws.
+ * missing number both read as not found; a response without data throws. updatedAt is the last
+ * activity as GitHub returns it, or null when absent.
  */
 export function parseLookupResponse(stdout, repositories) {
     const data = JSON.parse(stdout)?.data;
@@ -79,7 +80,12 @@ export function parseLookupResponse(stdout, repositories) {
 
     return repositories.map((repository, index) => {
         const node = data['r' + index]?.issueOrPullRequest;
-        return {repository, found: Boolean(node), title: node?.title ?? null};
+        return {
+            repository,
+            found: Boolean(node),
+            title: node?.title ?? null,
+            updatedAt: node?.updatedAt ?? null,
+        };
     });
 }
 

@@ -15,10 +15,13 @@ import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} fro
 import {describeGhFailure, parseReachability, reachabilityArguments} from './github.js';
 import {
     MAX_SUGGESTIONS,
+    ageAccessibleText,
+    formatActivityAge,
     parseQuickOpenQuery,
     quickOpenSuggestions,
     readRecentRepositories,
     rememberRepository,
+    sortByActivity,
 } from './quickopen.js';
 import {parseMarkdown} from './markdown.js';
 import {readQuota} from './agents.js';
@@ -1198,7 +1201,7 @@ export default class GreenlightExtension extends Extension {
         // Several repositories could hold the number: list only those where it exists.
         let lookup = null;
         if (number !== null && !url && candidates.length > 1)
-            lookup = this._lookupSuggestions(candidates);
+            lookup = this._lookupSuggestions(candidates, repositoryQuery);
         else
             this._cancelLookup();
         this._quickOpenSuggestions = lookup?.status === 'loading'
@@ -1227,7 +1230,9 @@ export default class GreenlightExtension extends Extension {
             return;
         }
 
+        const renderedAt = Date.now();
         for (const suggestion of this._quickOpenSuggestions) {
+            const age = formatActivityAge(suggestion.updatedAt, renderedAt);
             const actionable = suggestion.url !== null;
             const item = new PopupMenu.PopupBaseMenuItem({
                 reactive: actionable,
@@ -1247,11 +1252,14 @@ export default class GreenlightExtension extends Extension {
                 title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
                 item.add_child(title);
             }
+            if (age)
+                item.add_child(createDimLabel(age, {style: 'margin-left: 4px;'}));
             if (actionable) {
                 item.add_child(createBadge('#' + suggestion.number, '#3c5268'));
                 if (this._quickOpenItems.length === 0)
                     item.add_child(createDimLabel('↵'));
-                item.accessible_name = 'Open ' + suggestion.repository + ' #' + suggestion.number;
+                item.accessible_name = 'Open ' + suggestion.repository + ' #' + suggestion.number +
+                    (age ? ', ' + ageAccessibleText(age) : '');
                 item.connect('activate', () => this._openQuickOpenSuggestion(suggestion));
                 item.connect('key-focus-in', () =>
                     this._schedulePreviewTarget(suggestion, 'quick-open', PREVIEW_FOCUS_DELAY_MS));
@@ -1286,7 +1294,7 @@ export default class GreenlightExtension extends Extension {
      * every candidate is known, otherwise starts one debounced batched request and reports
      * loading; a failed request falls back to the unfiltered candidates.
      */
-    _lookupSuggestions(candidates) {
+    _lookupSuggestions(candidates, repositoryQuery) {
         const number = candidates[0].number;
         const now = GLib.get_monotonic_time();
         const known = candidates.map(candidate => {
@@ -1297,9 +1305,13 @@ export default class GreenlightExtension extends Extension {
             this._cancelLookup();
             return {
                 status: 'ready',
-                suggestions: candidates
-                    .map((candidate, index) => ({...candidate, title: known[index].title}))
-                    .filter((_candidate, index) => known[index].found),
+                suggestions: sortByActivity(candidates
+                    .map((candidate, index) => ({
+                        ...candidate,
+                        title: known[index].title,
+                        updatedAt: known[index].updatedAt,
+                    }))
+                    .filter((_candidate, index) => known[index].found), repositoryQuery),
             };
         }
 
@@ -1326,8 +1338,10 @@ export default class GreenlightExtension extends Extension {
             // gh exits with 1 when any alias is NOT_FOUND but still prints every result.
             const result = await this._runGh(lookupArguments(repositories, number), cancellable);
             const time = GLib.get_monotonic_time();
-            for (const {repository, found, title} of parseLookupResponse(result.stdout, repositories))
-                this._lookupCache.set(repository.toLowerCase() + '#' + number, {time, found, title});
+            for (const entry of parseLookupResponse(result.stdout, repositories)) {
+                this._lookupCache.set(entry.repository.toLowerCase() + '#' + number,
+                    {time, found: entry.found, title: entry.title, updatedAt: entry.updatedAt});
+            }
         } catch {
             if (!cancellable.is_cancelled()) {
                 console.error('Greenlight: could not look up the issue or pull request number.');

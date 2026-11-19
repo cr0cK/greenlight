@@ -4,9 +4,15 @@
 It answers only the calls Greenlight makes: gh search prs, gh pr checks, gh repo list, gh api
 user, user/orgs, and users/<login>, and the gh api graphql reachability, lookup, and preview
 queries.
+
+Two optional environment variables serve the automated checks of the quick open order. With
+GH_FIXTURE_DIR set, every invocation is appended to invocations.log there, and a file named
+fail-lookup there makes the lookup query exit 1 with no output.
 """
 import json
+import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 PULL_REQUESTS = [
     ('acme/web-platform', 142, 'Add a dark theme to the settings page', 'octocat', False, 'pass'),
@@ -15,6 +21,18 @@ PULL_REQUESTS = [
     ('acme/web-platform', 139, 'Cache avatar requests', 'monalisa', True, 'pending'),
     ('octocat/dotfiles', 12, 'Switch the prompt to starship', 'octocat', False, 'pass'),
 ]
+
+# Issues and pull requests the lookup finds besides PULL_REQUESTS, with their title and how many
+# minutes ago they were last updated. Number 142 exists in three repositories whose dates reverse
+# their alphabetical order, and 77 in acme/web and acme/web-client, the latter newer. A pull
+# request not listed here was updated 90 minutes ago.
+LOOKUP_ITEMS = {
+    ('acme/web-client', 142): ('Pin the avatar proxy version', 5 * 60),
+    ('acme/api-gateway', 142): ('Rate limit the status endpoint', 3 * 24 * 60),
+    ('acme/web', 77): ('Fix the footer links', 2 * 24 * 60),
+    ('acme/web-client', 77): ('Fix the footer links in the client', 20),
+}
+LOOKUP_MINUTES = {('acme/web-platform', 142): 12}
 
 LABELS = {
     142: [('enhancement', 'a2eeef'), ('ui', '5319e7')],
@@ -110,13 +128,20 @@ def find(repository, number):
 
 
 def lookup(values):
+    """Answers the lookup with updatedAt relative to now, so the ages read the same on every run."""
     number = int(values['number'])
     data = {}
     index = 0
     while f'o{index}' in values:
-        pr = find(values[f'o{index}'] + '/' + values[f'n{index}'], number)
-        data[f'r{index}'] = {'issueOrPullRequest': pr and {
-            '__typename': 'PullRequest', 'title': pr[2]}}
+        repository = values[f'o{index}'] + '/' + values[f'n{index}']
+        pr = find(repository, number)
+        key = (repository.lower(), number)
+        title, minutes = (pr[2], LOOKUP_MINUTES.get(key, 90)) if pr else LOOKUP_ITEMS.get(
+            key, (None, None))
+        updated = datetime.now(timezone.utc) - timedelta(minutes=minutes or 0)
+        data[f'r{index}'] = {'issueOrPullRequest': title and {
+            '__typename': 'PullRequest', 'title': title,
+            'updatedAt': updated.strftime('%Y-%m-%dT%H:%M:%SZ')}}
         index += 1
     print(json.dumps({'data': data}))
 
@@ -188,7 +213,11 @@ def main(args):
         values = fields(args)
         if 'login0' in values or 'owner0' in values:
             return reachability(values)
-        return lookup(values) if 'o0' in values else preview(values)
+        if 'o0' in values:
+            if os.path.exists(os.path.join(os.environ.get('GH_FIXTURE_DIR', os.devnull), 'fail-lookup')):
+                return 1
+            return lookup(values)
+        return preview(values)
     elif args[:2] == ['api', 'user']:
         print('octocat')
     elif args[:2] == ['api', 'user/orgs']:
@@ -202,4 +231,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    if os.environ.get('GH_FIXTURE_DIR'):
+        with open(os.path.join(os.environ['GH_FIXTURE_DIR'], 'invocations.log'), 'a') as log:
+            log.write(' '.join(sys.argv[1:3]) + (' lookup' if 'o0=' in ' '.join(sys.argv) else '') + '\n')
     sys.exit(main(sys.argv[1:]) or 0)

@@ -145,6 +145,8 @@ test('looks up one number across repositories with variables, not inline names',
     assert.match(query, /^query=query\(\$number: Int!, \$o0: String!, \$n0: String!, \$o1: String!/);
     assert.match(query, /r1: repository\(owner: \$o1, name: \$n1\)/);
     assert.doesNotMatch(query, /octo-org|greenlight/);
+    assert.match(query, /\.\.\. on Issue \{ title updatedAt \}/);
+    assert.match(query, /\.\.\. on PullRequest \{ title updatedAt \}/);
     assert.deepEqual(args.slice(6), [
         '-F', 'number=1291',
         '-f', 'o0=octo-org', '-f', 'n0=web-platform',
@@ -156,15 +158,19 @@ test('maps lookup results back to repositories, missing repositories included', 
     const repositories = ['a/found', 'a/no-number', 'a/no-repo'];
     assert.deepEqual(parseLookupResponse(JSON.stringify({
         data: {
-            r0: {issueOrPullRequest: {__typename: 'PullRequest', title: 'Fix'}},
+            r0: {issueOrPullRequest: {
+                __typename: 'PullRequest', title: 'Fix', updatedAt: '2026-11-19T10:00:00Z'}},
             r1: {issueOrPullRequest: null},
             r2: null,
         },
         errors: [{type: 'NOT_FOUND'}, {type: 'NOT_FOUND'}],
     }), repositories), [
-        {repository: 'a/found', found: true, title: 'Fix'},
-        {repository: 'a/no-number', found: false, title: null},
-        {repository: 'a/no-repo', found: false, title: null},
+        {repository: 'a/found', found: true, title: 'Fix', updatedAt: '2026-11-19T10:00:00Z'},
+        {repository: 'a/no-number', found: false, title: null, updatedAt: null},
+        {repository: 'a/no-repo', found: false, title: null, updatedAt: null},
     ]);
+    assert.equal(parseLookupResponse(JSON.stringify({
+        data: {r0: {issueOrPullRequest: {__typename: 'Issue', title: 'Old'}}},
+    }), ['a/b'])[0].updatedAt, null);
     assert.throws(() => parseLookupResponse('{"errors":[{"type":"RATE_LIMITED"}]}', repositories));
 });

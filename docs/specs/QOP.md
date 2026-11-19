@@ -2,7 +2,7 @@
 code: QOP
 status: done
 version: v0.5
-amended: [v1.2, v1.3]
+amended: [v1.2, v1.3, v1.4]
 created: 2026-10-11
 builds-on: PRM
 ---
@@ -24,7 +24,9 @@ of v1.2 on quick open and previews, as the product stands.
   digits stay intact.
 - Suggestions rank repository name matches first, then owner matches, then subsequence matches,
   which only appear when nothing matches by substring. Ties go to the most recently opened
-  repository, then alphabetical order. At most five suggestions show.
+  repository, then alphabetical order. At most five suggestions show. Suggestions looked up by
+  number (see below) keep this ranking only to pick the 20 candidates checked and to break ties;
+  they are listed in ORD's order.
 - **Enter** opens the first suggestion, **Down** moves into the suggestions, and **Escape**
   closes the menu. Closing the menu clears the field.
 - Without a number, suggestions show dimmed with `add a number` and cannot be opened.
@@ -32,8 +34,9 @@ of v1.2 on quick open and previews, as the product stands.
   are listed, with its title. One `gh api graphql` request, with `--hostname github.com`, checks
   up to 20 ranked candidates,
   one alias per repository, 350 ms after the last change; results are cached for 60 seconds per
-  repository and number. Meanwhile the menu reads `Looking up #<n> in <count> repositories…` and
-  Enter does nothing. When no candidate holds the number, it reads
+  repository and number. The candidates that hold the number are listed in ORD's order, newest
+  activity first, each with its age. Meanwhile the menu reads
+  `Looking up #<n> in <count> repositories…` and Enter does nothing. When no candidate holds the number, it reads
   `#<n> not found in <count> repositories`. If the request fails, the unfiltered candidates are
   listed. A single candidate skips this check; its preview reports a missing number.
 - When no repository matches the query, the menu says so.

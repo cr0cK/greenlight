@@ -128,3 +128,71 @@ export function quickOpenSuggestions(
                 : GITHUB_ORIGIN + '/' + repository + '/issues/' + number,
         }));
 }
+
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function activityTime(updatedAt) {
+    const time = typeof updatedAt === 'string' ? Date.parse(updatedAt) : NaN;
+    return Number.isNaN(time) ? null : time;
+}
+
+/**
+ * Orders looked up suggestions by last activity, newest first. An exact repository match
+ * (full name or name equal to the typed text, case-insensitively) comes before the others
+ * whatever its age; a missing or unparsable date sorts after the dated ones of its group; ties
+ * keep the incoming ranking order.
+ */
+export function sortByActivity(suggestions, repositoryQuery) {
+    const query = repositoryQuery.trim().toLowerCase();
+    const isExact = ({repository}) => {
+        const fullName = repository.toLowerCase();
+        return query !== '' && (fullName === query || fullName.slice(fullName.indexOf('/') + 1) === query);
+    };
+    return suggestions
+        .map((suggestion, index) => ({
+            suggestion,
+            index,
+            exact: isExact(suggestion),
+            time: activityTime(suggestion.updatedAt),
+        }))
+        .sort((first, second) =>
+            Number(second.exact) - Number(first.exact) ||
+            Number(first.time === null) - Number(second.time === null) ||
+            (second.time ?? 0) - (first.time ?? 0) ||
+            first.index - second.index)
+        .map(({suggestion}) => suggestion);
+}
+
+/**
+ * Formats the age of a last activity at time now (ms): now, <n> min, <n> h, <n> d, then the date
+ * in the local time zone. Returns null when the date is missing or unparsable.
+ */
+export function formatActivityAge(updatedAt, now) {
+    const time = activityTime(updatedAt);
+    if (time === null)
+        return null;
+
+    const elapsed = now - time;
+    if (elapsed < MINUTE_MS)
+        return 'now';
+    if (elapsed < HOUR_MS)
+        return Math.floor(elapsed / MINUTE_MS) + ' min';
+    if (elapsed < DAY_MS)
+        return Math.floor(elapsed / HOUR_MS) + ' h';
+    if (elapsed < 30 * DAY_MS)
+        return Math.floor(elapsed / DAY_MS) + ' d';
+
+    const date = new Date(time);
+    const day = MONTHS[date.getMonth()] + ' ' + date.getDate();
+    return date.getFullYear() === new Date(now).getFullYear() ? day : day + ', ' + date.getFullYear();
+}
+
+/** Words an age for the accessible name: `updated now`, `updated 12 min ago`, `updated Sep 2`. */
+export function ageAccessibleText(age) {
+    if (age === 'now')
+        return 'updated now';
+    return /^\d+ (min|h|d)$/.test(age) ? 'updated ' + age + ' ago' : 'updated ' + age;
+}
