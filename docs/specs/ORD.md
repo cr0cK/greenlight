@@ -1,0 +1,171 @@
+---
+code: ORD
+status: draft
+version: v1.4
+created: 2026-11-19
+builds-on: QOP
+---
+
+# Greenlight — ORD specification
+
+ORD covers the order of what the menu lists: the quick open suggestions for a number, newest
+activity first, so a pull request merged a minute ago is the first suggestion; and the order of
+the owner sections in the pull request list, which the user can fix in the preferences. It builds
+on QOP and PRM, whose rules all still apply except two it replaces: QOP's order of the suggestions
+once the number lookup answered (**Quick open** section, the ranking rule as it applies to looked
+up suggestions), and PRM's order of the owner sections (**Menu** section, `ordered by each owner's
+newest pull request`), which becomes the default of a setting. The mockup is
+[`mockups/ORD.html`](mockups/ORD.html).
+
+## Quick open order
+
+- When QOP's number lookup answers for several candidates, the repositories that hold the number
+  are listed by the last activity of that issue or pull request, newest first: its `updatedAt`,
+  which a merge, a close, a comment, a review, or a push moves. (QO-NEWEST)
+- The order is taken over every candidate the lookup checked (up to 20), then cut to the five
+  suggestions QOP shows, so the newest one is always listed even when its repository ranks low.
+- Recency wins over QOP's repository ranking: with `184`, `open 184`, or `plat 184`, the newest
+  matching issue or pull request comes first. Two equal `updatedAt` keep QOP's ranking order.
+- The lookup reads `updatedAt` in its existing single `gh api graphql` request, on both `Issue`
+  and `PullRequest`; it makes no extra request. The 60-second cache keeps it with the title.
+- **Enter** opens the first suggestion and the preview targets it by default, as in QOP: both now
+  land on the newest one.
+- Unchanged from QOP: a single candidate skips the lookup and keeps no age; a failed lookup lists
+  the unfiltered candidates in QOP's ranking order, without ages (QO-FAILED); a pasted URL or
+  `owner/repo#42` typed in full has one suggestion; `Looking up #<n> in <count> repositories…`
+  shows while the lookup runs, with Enter doing nothing (QO-LOADING).
+
+## Age
+
+- A looked up suggestion shows the age of its last activity, dimmed, between its title and its
+  `#number` badge. (QO-NEWEST)
+- The age reads, from the time the suggestions render: `now` under one minute; `<n> min` under
+  one hour; `<n> h` under one day; `<n> d` under 30 days; then the date in the local time zone,
+  `Sep 2` within the current year and `Mar 4, 2025` before it. Values round down. English month
+  abbreviations, whatever the locale, like the rest of the UI.
+- A date in the future, from clock skew, reads `now`. A missing or unparsable `updatedAt` shows no
+  age and sorts after every dated suggestion, in QOP's ranking order.
+- The age does not tick while the menu stays open: it is recomputed whenever the suggestions
+  render again (typing, a lookup answer, a refresh).
+- The suggestion's accessible name adds the age: `Open acme/web #184, updated 12 min ago`, or
+  `…, updated Sep 2` for a date.
+
+## Owner order in the menu
+
+- **Order owners by** has two values:
+  - **Newest pull request** (the default): the owner sections are ordered by each owner's newest
+    pull request, as PRM had it. (MENU-ACTIVITY)
+  - **Custom order**: the owner sections follow the order set in the preferences. (MENU-CUSTOM)
+- In **Custom order**, an owner section whose login (case-insensitive) is not in the saved order
+  comes after the ordered ones, those among themselves by newest pull request; the
+  `Unknown owner` section, for a pull request without an owner, comes last.
+- An owner with no open pull request has no section, in either mode, as in PRM.
+- Pull requests inside a section keep PRM's order, by last update; the count in each heading is
+  unchanged.
+- Saving a new order or mode re-sorts the list at once, from the pull requests already loaded,
+  without a `gh` call and without moving the open preview off its pull request.
+
+## Owner order preferences
+
+- A **Menu order** group sits between **Monitoring** and **Quick open**, described
+  `The order of the owner sections in the pull request list.` (PREFS-CUSTOM)
+- Its first row is **Order owners by**, a combo with **Newest pull request** and **Custom order**.
+  Its subtitle reads `Newest pull request first moves an owner up with each update` in the first
+  mode and `Owners without open pull requests take no room in the menu` in the second.
+- Below it, one row per configured owner, enabled or paused, titled with its login and subtitled
+  with its kind as the owner block names it (`Personal account`, `Organization`, `GitHub owner`),
+  plus ` · Paused` for a paused owner. Each row ends with a move-up and a move-down button, with
+  the accessible names `Move <login> up` and `Move <login> down`. The first row's up and the last
+  row's down are insensitive.
+- In **Newest pull request**, the owner rows stay visible but insensitive, so the saved custom
+  order shows and survives a switch back. (PREFS-ACTIVITY)
+- With no owner configured, a single dimmed row reads `Owners you add below appear here.`
+  (PREFS-EMPTY)
+- The list starts from the saved order. Owners configured but missing from it (an owner from
+  before ORD, or one added since) follow, in the order of their blocks.
+- The list follows the owner blocks live in the window: an owner added with **Add** or
+  **Discover accounts** joins the end of the list; an owner removed with its trash icon leaves
+  it; pausing or resuming updates its subtitle. Adding or removing an owner never reorders the
+  others.
+- As with every setting, nothing applies before **Save preferences**, which stores the mode and
+  the list of every configured owner's login in its displayed order. Closing the window without
+  saving drops the changes.
+- Keyboard: the buttons are focusable in the row order; moving a row keeps the focus on the
+  button just used, on the row's new position, unless that button became insensitive, in which
+  case the focus goes to the row's other button.
+
+## Storage
+
+- `owner-order-mode` (`s`, `'newest'` or `'custom'`, default `'newest'`). Any other value reads
+  as `'newest'`.
+- `owner-order` (`as`, default `[]`): owner logins, in order. Reading it ignores non-string
+  entries and duplicates (case-insensitive), keeping the first.
+- Existing installations keep their current menu order until the user picks **Custom order**.
+
+## Out of scope
+
+- Reordering repositories inside an owner section, or pull requests inside a section.
+- Drag and drop in the preferences; the buttons are the only way to reorder.
+- Sorting quick open suggestions without a number, which make no lookup and have no date.
+- Changing the order of the owner blocks in the preferences themselves (PRM's rules stay).
+
+## Plans
+
+### ORD-P1: Newest activity first in quick open
+
+- **Scope**: **Quick open order** and **Age**.
+- **Temporary restrictions**: none.
+- **Acceptance**:
+  - `npm run lint` and `make check` pass.
+  - `tests/` cover, through pure functions: `lookupArguments` asking `updatedAt` on `Issue` and
+    `PullRequest`; `parseLookupResponse` returning it (and `null` when absent); the order of found
+    candidates (newest first, ties and missing dates in ranking order, the cut to five after the
+    sort, a low-ranked newest candidate kept); and the age text at each boundary (59 s, 60 s,
+    59 min, 1 h, 23 h, 1 d, 29 d, 30 d, the year change, a future date, an invalid date).
+  - In a headless GNOME Shell with the fixture `gh` of `scripts/screenshots/` answering
+    `updatedAt`: typing `184` lists the found repositories newest first with their ages, Enter
+    opens the newest one, and the preview shows it; a lookup made to fail lists the candidates in
+    ranking order without ages; no `JS ERROR` or `JS WARNING` in the shell log.
+  - `scripts/screenshots.sh` regenerates `quick-open.png` with ages; README.md and QOP's text
+    mention the order.
+- **Technical notes**:
+  - `src/preview.js`: add `updatedAt` to both fragments of `lookupArguments`, and return it from
+    `parseLookupResponse`.
+  - `src/quickopen.js` (pure): add the sort of looked-up suggestions and the age formatter, with
+    the current time passed in, so tests fix it.
+  - `src/extension.js` `_lookupSuggestions`: store `updatedAt` in `_lookupCache`, sort the found
+    candidates before `_renderQuickOpen` cuts to `MAX_SUGGESTIONS`; `_renderQuickOpen` adds a
+    dimmed age label before the badge and extends `accessible_name`.
+  - `scripts/screenshots/gh`: return a fictional `updatedAt` in the lookup answer.
+  - Once merged, QOP's ranking rule gets a pointer to ORD in the spec PR that closes ORD.
+
+### ORD-P2: Owner order in the menu and the preferences
+
+- **Scope**: **Owner order in the menu**, **Owner order preferences**, and **Storage**.
+- **Temporary restrictions**: none.
+- **Acceptance**:
+  - `npm run lint` and `make check` pass; the schema compiles with both new keys.
+  - `tests/` cover, through pure functions: reading `owner-order` (non-strings, duplicates,
+    case); the initial list of the preferences from the saved order and the configured owners
+    (missing ones appended in block order, unknown ones dropped); and the order of the owner
+    sections in both modes (listed owners, unlisted ones by newest pull request, `Unknown owner`
+    last, ties).
+  - In a headless GNOME Shell with the fixture `gh`: with two owners, the default mode lists them
+    by newest pull request; saving **Custom order** with the other one first re-sorts the list at
+    once, without a new `gh search` in the log; switching back restores the activity order and
+    keeps the custom list in the preferences.
+  - In the preferences: up and down move rows and keep the focus as the rule says; the first up
+    and last down are insensitive; adding, removing, and pausing an owner updates the list live;
+    closing without saving keeps the stored order; no `JS ERROR` or `JS WARNING` in the shell log.
+  - `scripts/screenshots.sh` regenerates `preferences.png` with the **Menu order** group;
+    README.md and PRM's menu rule mention the setting.
+- **Technical notes**:
+  - `src/schemas/`: add `owner-order-mode` and `owner-order`.
+  - Move the section ordering of `groupPullRequestsByOwner` (`src/extension.js`) into a pure
+    module (`src/filters.js` or a new one) that takes the mode and the order, so `node --test`
+    covers it. Re-render the content section on `changed::owner-order` and
+    `changed::owner-order-mode`, not `menu.removeAll()` (AGENTS.md).
+  - `src/prefs.js`: the new group goes between `monitoringGroup` and `quickOpenGroup`. The owner
+    rows read from the same `owners` map as the blocks; hook their rebuild where the blocks are
+    added, removed, or paused. Write both keys in the existing save handler, never through
+    `settings.delay()`.
