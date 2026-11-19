@@ -76,7 +76,7 @@
   .dim { color: var(--dim); }
   .combo { white-space: nowrap; }
   .ib { min-width: 32px; height: 32px; padding: 0 8px; border-radius: 16px; display: inline-grid; place-items: center; background: var(--field); cursor: pointer; }
-  .ib.off { opacity: .35; cursor: default; }
+  .ib.off, .row.locked .ib { opacity: .35; cursor: default; }
   .grip { color: var(--dim); cursor: grab; }
   .bh { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; } .bh .t { flex: 1; } .bh .t span { display: block; font-size: 13px; color: var(--dim); }
 </style>
@@ -124,11 +124,11 @@
 <div class="item">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field typed">🔍 184</div></div>
 <div class="sugg sel"><span class="repo">acme/web</span><span class="dt">fix: keep the session cookie on redirects</span><span class="age">12 min</span><span class="badge">#184</span> ↵</div>
+<div class="preview">Preview of acme/web #184 (unchanged, QOP)</div>
 <div class="sugg"><span class="repo">octocat/dotfiles</span><span class="dt">docs: describe the GNOME setup</span><span class="age">5 h</span><span class="badge">#184</span></div>
 <div class="sugg"><span class="repo">acme/platform</span><span class="dt">feat(editors): redesign the editors page</span><span class="age">3 d</span><span class="badge">#184</span></div>
 <div class="sugg"><span class="repo">acme/api</span><span class="dt">chore: drop the v1 endpoints</span><span class="age">Sep 2</span><span class="badge">#184</span></div>
 <div class="sugg"><span class="repo">octocat/notes</span><span class="dt">Index the archive by year</span><span class="age">Mar 4, 2025</span><span class="badge">#184</span></div>
-<div class="preview">Preview of acme/web #184 (unchanged, QOP)</div>
 <div class="sep"></div><div class="head">acme · 2 pull requests</div>
 </div>
 </template>
@@ -187,7 +187,8 @@
 <div class="group"><h3>Menu order</h3><p>The order of the owner sections in the pull request list.</p>
 <div class="box"><div class="row"><div class="t">Order owners by<span>Newest pull request first moves an owner up with each update</span></div><span class="combo link" data-goto="PREFS-CUSTOM">Newest pull request ⌄</span></div>
 <div class="row locked"><div class="t">acme<span>Organization</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
-<div class="row locked"><div class="t">octocat<span>Your account</span></div><span class="ib">↑</span><span class="ib">↓</span></div></div></div>
+<div class="row locked"><div class="t">octocat<span>Personal account</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
+<div class="row locked"><div class="t">globex<span>Organization · Paused</span></div><span class="ib">↑</span><span class="ib">↓</span></div></div></div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
 <div class="row" style="padding:16px 0 0"><div class="t"></div><span class="btn" data-goto="MENU-ACTIVITY">Save preferences</span></div></div>
@@ -199,7 +200,7 @@
 <div class="group"><h3>Menu order</h3><p>The order of the owner sections in the pull request list.</p>
 <div class="box"><div class="row"><div class="t">Order owners by<span>Owners without open pull requests take no room in the menu</span></div><span class="combo link" data-goto="PREFS-ACTIVITY">Custom order ⌄</span></div>
 <div class="row"><div class="t">acme<span>Organization</span></div><span class="ib off">↑</span><span class="ib">↓</span></div>
-<div class="row"><div class="t">octocat<span>Your account</span></div><span class="ib">↑</span><span class="ib off">↓</span></div>
+<div class="row"><div class="t">octocat<span>Personal account</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
 <div class="row"><div class="t faded">globex<span>Organization · Paused</span></div><span class="ib">↑</span><span class="ib off">↓</span></div></div></div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
 <div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
