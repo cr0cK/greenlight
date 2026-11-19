@@ -155,20 +155,7 @@
 </div>
 </template>
 
-<template data-state id="MENU-ACTIVITY" data-screen="Menu" data-summary="Newest pull request first" data-label="Menu — owners by their newest pull request (today's behavior)" data-route="Top bar › Greenlight" data-rules="Owner order in the menu" data-kind="happy">
-<div class="menu">
-<div class="item">Refresh now</div><div class="sep"></div>
-<div class="item"><div class="field">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
-<div class="head">octocat · 2 pull requests</div>
-<div class="pr"><span class="badge">#12</span> <b>docs: describe the GNOME setup</b><div class="small">dotfiles @octocat</div></div>
-<div class="pr"><span class="badge">#9</span> <b>Index the archive by year</b><div class="small">notes @octocat</div></div>
-<div class="head">acme · 2 pull requests</div>
-<div class="pr"><span class="badge">#185</span> <b>test: hold the mirror workflows in the suite</b><div class="small">web @octocat</div></div>
-<div class="pr"><span class="badge">#209</span> <b>docs: refresh the routines</b><div class="small">platform @octocat</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-ACTIVITY">Preferences…</div></div>
-</template>
-
-<template data-state id="MENU-CUSTOM" data-screen="Menu" data-summary="Custom order" data-label="Menu — owners in the order of the preferences" data-route="Top bar › Greenlight" data-rules="Owner order in the menu" data-kind="happy">
+<template data-state id="MENU-ORDER" data-screen="Menu" data-summary="Sections in block order" data-label="Menu — owner sections in the order of the owner blocks" data-route="Top bar › Greenlight" data-rules="Owner order in the menu" data-kind="happy">
 <div class="menu">
 <div class="item">Refresh now</div><div class="sep"></div>
 <div class="item"><div class="field">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div>
@@ -178,41 +165,26 @@
 <div class="head">octocat · 2 pull requests</div>
 <div class="pr"><span class="badge">#12</span> <b>docs: describe the GNOME setup</b><div class="small">dotfiles @octocat</div></div>
 <div class="pr"><span class="badge">#9</span> <b>Index the archive by year</b><div class="small">notes @octocat</div></div>
-<div class="sep"></div><div class="item link" data-goto="PREFS-CUSTOM">Preferences…</div></div>
+<div class="sep"></div><div class="item link" data-goto="PREFS-ORDER">Preferences…</div></div>
+<p class="dim" style="font-size:13px">Annotation: globex is paused, so it has no section.</p>
 </template>
 
-<template data-state id="PREFS-ACTIVITY" data-screen="Preferences" data-summary="Newest pull request first" data-label="Preferences — Menu order, by newest pull request: the list is locked" data-route="Preferences › Menu order" data-rules="Owner order preferences" data-kind="happy">
+<template data-state id="PREFS-ORDER" data-screen="Preferences" data-summary="Move buttons on the blocks" data-label="Preferences — each owner block moves up or down" data-route="Preferences › Accounts and organizations" data-rules="Owner order in the preferences" data-kind="happy">
 <div class="win-prefs"><div class="title">Greenlight</div>
 <div class="group faded"><h3>Monitoring</h3><p>Greenlight uses the installed gh CLI and its current authentication.</p></div>
-<div class="group"><h3>Menu order</h3><p>The order of the owner sections in the pull request list.</p>
-<div class="box"><div class="row"><div class="t">Order owners by<span>Newest pull request first moves an owner up with each update</span></div><span class="combo link" data-goto="PREFS-CUSTOM">Newest pull request ⌄</span></div>
-<div class="row locked"><div class="t">acme<span>Organization</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
-<div class="row locked"><div class="t">octocat<span>Personal account</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
-<div class="row locked"><div class="t">globex<span>Organization · Paused</span></div><span class="ib">↑</span><span class="ib">↓</span></div></div></div>
 <div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
-<div class="row" style="padding:16px 0 0"><div class="t"></div><span class="btn" data-goto="MENU-ACTIVITY">Save preferences</span></div></div>
+<div class="group"><h3>Accounts and organizations</h3><p>Each owner gets its own block below: discover its repositories, choose what to monitor, then pick repositories. The menu lists the owners in the order of their blocks.</p><div class="box"><div class="row"><div class="t">Discover accounts<span>Find your gh account and its organizations.</span></div><span class="ib">Discover</span></div><div class="row"><div class="t">Add an owner<span>Account or organization login</span></div><span class="ib">Add</span></div><div class="row"><div class="t">3 owners · 2 enabled<span>Pull requests of enabled owners appear in the menu.</span></div></div></div></div>
+<div class="group"><div class="row" style="padding:14px 0 8px;border:0"><div class="t"><b>acme</b><span>Organization · Monitoring · 10 selected repositories</span></div><span class="ib off" title="Move acme up">↑</span><span class="ib" title="Move acme down">↓</span><span class="ib">🗑</span><span class="sw on"></span></div><div class="box"><div class="row"><div class="t">Repositories<span>12 repositories discovered</span></div><span class="ib">Discover</span></div><div class="row"><div class="t">Monitor<span>Only the repositories turned on. New repositories are skipped.</span></div><span class="combo">Only… ⌄</span></div><div class="row"><div class="t">10 of 12 monitored</div><span class="combo">⌄</span></div></div></div>
+<div class="group"><div class="row" style="padding:14px 0 8px;border:0"><div class="t"><b>octocat</b><span>Personal account · Monitoring · All repositories</span></div><span class="ib" title="Move octocat up">↑</span><span class="ib" title="Move octocat down">↓</span><span class="ib">🗑</span><span class="sw on"></span></div><div class="box"><div class="row"><div class="t">Repositories<span>12 repositories discovered</span></div><span class="ib">Discover</span></div><div class="row"><div class="t">Monitor<span>Every repository, including new ones.</span></div><span class="combo">All ⌄</span></div></div></div>
+<div class="group"><div class="row" style="padding:14px 0 8px;border:0"><div class="t"><b>globex</b><span>Organization · Paused · All repositories</span></div><span class="ib" title="Move globex up">↑</span><span class="ib off" title="Move globex down">↓</span><span class="ib">🗑</span><span class="sw"></span></div><div class="box"><div class="row locked"><div class="t">Repositories<span>12 repositories discovered</span></div><span class="ib">Discover</span></div><div class="row locked"><div class="t">Monitor<span>Every repository, including new ones.</span></div><span class="combo">All ⌄</span></div></div></div>
+<div class="row" style="padding:16px 0 0;border:0"><div class="t"></div><span class="btn" data-goto="MENU-ORDER">Save preferences</span></div></div>
 </template>
 
-<template data-state id="PREFS-CUSTOM" data-screen="Preferences" data-summary="Custom order" data-label="Preferences — Menu order, custom order" data-route="Preferences › Menu order" data-rules="Owner order preferences" data-kind="happy">
+<template data-state id="PREFS-ONE" data-screen="Preferences" data-summary="One owner" data-label="Preferences — a single owner: both move buttons insensitive" data-route="Preferences › Accounts and organizations" data-rules="Owner order in the preferences" data-kind="edge">
 <div class="win-prefs"><div class="title">Greenlight</div>
-<div class="group faded"><h3>Monitoring</h3><p>Greenlight uses the installed gh CLI and its current authentication.</p></div>
-<div class="group"><h3>Menu order</h3><p>The order of the owner sections in the pull request list.</p>
-<div class="box"><div class="row"><div class="t">Order owners by<span>Owners without open pull requests take no room in the menu</span></div><span class="combo link" data-goto="PREFS-ACTIVITY">Custom order ⌄</span></div>
-<div class="row"><div class="t">acme<span>Organization</span></div><span class="ib off">↑</span><span class="ib">↓</span></div>
-<div class="row"><div class="t">octocat<span>Personal account</span></div><span class="ib">↑</span><span class="ib">↓</span></div>
-<div class="row"><div class="t">globex<span>Organization · Paused</span></div><span class="ib">↑</span><span class="ib off">↓</span></div></div></div>
-<div class="group faded"><h3>Quick open</h3><p>Open an issue or pull request by repository and number from the menu.</p></div>
-<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div>
-<div class="row" style="padding:16px 0 0"><div class="t"></div><span class="btn" data-goto="MENU-CUSTOM">Save preferences</span></div></div>
-</template>
-
-<template data-state id="PREFS-EMPTY" data-screen="Preferences" data-summary="No owner yet" data-label="Preferences — Menu order with no owner yet" data-route="Preferences › Menu order" data-rules="Owner order preferences" data-kind="edge">
-<div class="win-prefs"><div class="title">Greenlight</div>
-<div class="group"><h3>Menu order</h3><p>The order of the owner sections in the pull request list.</p>
-<div class="box"><div class="row"><div class="t">Order owners by</div><span class="combo">Newest pull request ⌄</span></div>
-<div class="row"><div class="t dim">Owners you add below appear here.</div></div></div></div>
-<div class="group faded"><h3>Accounts and organizations</h3><p>Each owner gets its own block below…</p></div></div>
+<div class="group"><h3>Accounts and organizations</h3><p>Each owner gets its own block below: discover its repositories, choose what to monitor, then pick repositories. The menu lists the owners in the order of their blocks.</p></div>
+<div class="group"><div class="row" style="padding:14px 0 8px;border:0"><div class="t"><b>octocat</b><span>Personal account · Monitoring · All repositories</span></div><span class="ib off" title="Move octocat up">↑</span><span class="ib off" title="Move octocat down">↓</span><span class="ib">🗑</span><span class="sw on"></span></div><div class="box"><div class="row"><div class="t">Repositories<span>12 repositories discovered</span></div><span class="ib">Discover</span></div><div class="row"><div class="t">Monitor<span>Every repository, including new ones.</span></div><span class="combo">All ⌄</span></div></div></div>
+<div class="row" style="padding:16px 0 0;border:0"><div class="t"></div><span class="btn">Save preferences</span></div></div>
 </template>
 
 
