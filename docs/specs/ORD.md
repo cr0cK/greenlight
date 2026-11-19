@@ -112,17 +112,22 @@ from the saved order. The mockup is
   used, on the block's new position, unless that button became insensitive, in which case the
   focus goes to the block's other move button. The page scrolls so the focused button stays in
   view.
-- Any other change that lays the blocks out again (**Add**, **Discover accounts**, a trash icon)
-  keeps the focus where it was when that widget is still in the window. After a trash icon, the
-  focus goes to the block that took the removed one's place, or to the one above when it was the
-  last, or to the **Add an owner** entry when no block is left.
+- When **Add** or **Discover accounts** answers and lays the blocks out again, the focus stays on
+  the widget that held it at that moment when it is still in the window; otherwise it goes to the
+  button that started the task.
+- After a trash icon, the focus goes to the first sensitive button of the header of the block
+  that took the removed one's place (up, down, then trash), or of the block above when the
+  removed one was last, or to the **Add an owner** entry when no block is left.
+- Only the latest of these focus moves applies: a new move, trash, Tab, or click cancels one still
+  pending, and closing the window cancels it too.
 - When the window opens, the blocks follow the saved order. Configured owners missing from it (an
-  owner from before ORD-P3, or one whose order was never saved) follow, in PRM's order: personal
+  owner from before ORD-P3, or one whose order was never saved) follow, in the **kind-then-login order**: personal
   accounts, then organizations, then other owners, each by login. A saved login with no configured
   owner is ignored.
 - PRM's placement of new blocks is unchanged: an owner added with **Add** gets the first block, and
   owners found by **Discover accounts** get the last ones, relative to the order when the `gh`
-  call answers. The move buttons make no `gh` call, so they stay usable while one runs; only the
+  call answers. An owner removed with its trash icon while **Discover accounts** runs is not added
+  back by its answer. The move buttons make no `gh` call, so they stay usable while one runs; only the
   buttons PRM names, and **Save preferences**, wait for it. Removing an owner with its trash icon
   never reorders the others.
 - As with every setting, nothing applies before **Save preferences**, which stores the login of
@@ -134,14 +139,15 @@ from the saved order. The mockup is
 ## Storage
 
 - `owner-order` (`as`, default `[]`): owner logins, in block order. It alone holds the order:
-  `owner-filters` is saved in a fixed order (kind, then login, as PRM's fallback), so a save that
-  only moves blocks never changes `owner-filters` and never triggers a refresh. An installation
-  whose `owner-filters` was saved in another order gets it rewritten once, at its first save that
-  touches the owners, a refresh that save already causes. Reading it ignores non-string
+  `owner-filters` is saved in the kind-then-login order, and only when its content changed: the
+  save compares the window's owners with the stored ones, both put in that order, and writes
+  nothing when they match. So a save that only moves blocks, or that touches the owners and puts
+  them back as they were, never changes `owner-filters` and never triggers a refresh. A stored
+  `owner-filters` in another order is rewritten only by a save that changes its content. Reading it ignores non-string
   entries and duplicates (case-insensitive), keeping the first.
 - `owner-order-mode` is removed from the schema. No release shipped it, so no migration reads it.
 - ORD's version stays v1.4: nothing of ORD-P2 was released, and ORD-P3 ships in the same release.
-- An installation with an empty `owner-order` shows its blocks in PRM's order (kind, then login)
+- An installation with an empty `owner-order` shows its blocks in the kind-then-login order
   and lists the menu sections in that same order until the first save.
 
 ## Out of scope
@@ -266,18 +272,19 @@ ORD-P3 replaces that UI and removes the mode.
   - `npm run lint` and `make check` pass; the schema compiles without `owner-order-mode`, and
     nothing in `src/` reads it.
   - `tests/` cover, through pure functions: the block order when the window opens (saved logins
-    first, missing owners in PRM's kind-then-login order, unknown logins dropped, case); a move
+    first, missing owners in the kind-then-login order, unknown logins dropped, case); a move
     (up, down, edges, one owner); which buttons are sensitive; the button that takes the focus
     after a move; and the order of the menu sections from the saved order and the owner filters
-    (ordered owners, an empty `owner-order` following PRM's order, owners without a block by
+    (ordered owners, an empty `owner-order` following the kind-then-login order, owners without a block by
     newest pull request with ties by name, no block at all, `Unknown owner` last).
   - In a headless GNOME Shell with the fixture `gh`, the refresh interval at 10 minutes:
     - with two owners and an empty `owner-order`, the sections follow PRM's block order;
     - saving, in the preferences window, only the second block moved up re-sorts the list without
       any `gh` invocation: the fixture's invocation log, measured once the first refresh finished,
       has the same length 2 seconds after the save;
-    - saving a move together with an author change runs one refresh (the log grows by one
-      refresh's searches only) and lists its result in the new order;
+    - saving a move together with an author change runs one refresh and lists its result in the
+      new order: the fixture logs each invocation with its arguments, and the log grows by one
+      refresh, its searches carrying the new author;
     - with the menu open and a preview shown, writing `owner-order` in the scratch GSettings (the
       menu's modal grab closes it on a click in the window, so the save cannot be used here)
       re-sorts the list, the preview stays under its pull request, and the log, measured once the
@@ -288,13 +295,17 @@ ORD-P3 replaces that UI and removes the mode.
     insensitive; the focus ring sits on the expected button after a middle move, after a move that
     makes the used button insensitive, and after a move past an open block that takes the button
     out of the visible area, which the page scrolls back into view; pressing the same button twice
-    moves the block two places; a move while a **Discover** runs is kept and the discovered owners
-    land last; the focus stays in a block's filter entry when another block's **Discover**
-    answers, and after a trash icon it lands where **Owner order in the preferences** says; a
-    save that only moves blocks leaves `owner-filters` unchanged; a moved block keeps a repository switch changed before the move,
+    moves the block two places; a click on a move button leaves the focus as a key press does;
+    with **Discover accounts** answering late (a fixture switch holds its reply) and returning an
+    owner not yet configured, a move made meanwhile is kept, the new owner lands last, the focus
+    stays in a block's filter entry typed into meanwhile, and an owner trashed meanwhile is not
+    added back; after a trash icon the focus lands where **Owner order in the preferences** says;
+    reading the scratch GSettings after a save that only moves blocks shows `owner-filters`
+    byte for byte unchanged and `owner-order` in the new order, and after closing without
+    saving shows `owner-order` unchanged; a moved block keeps a repository switch changed before the move,
     its open list, and its filter text with the rows it filters; a paused block moves; removing
     the first block makes the new first block's up insensitive; adding an owner puts it first
-    without undoing a move; closing without saving keeps the stored order; at the screenshot
+    without undoing a move; at the screenshot
     window's width the owner headers show the login, the description, and the four controls
     without overlap; no `JS ERROR` or `JS WARNING` in the shell log.
   - `scripts/screenshots.sh` no longer seeds `owner-order-mode`, and regenerates
@@ -309,7 +320,7 @@ ORD-P3 replaces that UI and removes the mode.
   - `src/order.js`: drop the mode from `orderOwnerSections` and `canMoveOwnerRow`, and remove
     `readOwnerOrderMode` and `OWNER_ORDER_MODES`. Add the initial block order, shared by
     `src/prefs.js` and `src/extension.js`: the extension orders the sections from `owner-order`
-    completed by the owner filters in PRM's order, so an empty `owner-order` gives the same order in
+    completed by the owner filters in the kind-then-login order, so an empty `owner-order` gives the same order in
     the menu and in the window. `reconcileOwnerRows`, `moveOwnerRow`, and `buttonFocusedAfterMove`
     keep serving.
   - `src/extension.js`: drop the `changed::owner-order-mode` handler; `changed::owner-order`
@@ -324,12 +335,15 @@ ORD-P3 replaces that UI and removes the mode.
     the header box built around line 476, before the trash button, with
     `update_property([Gtk.AccessibleProperty.LABEL], [...])` and the same tooltip; their
     sensitivity updates on every `renderOwners()`. Refocus the target button from
-    `GLib.idle_add`, as ORD-P2 does. The re-added button is mapped at once (its page is mapped)
-    but may not be allocated yet: when its allocated height is 0, or its bounds against the page's
-    scrolled window fall outside the visible range, retry from `add_tick_callback` or a later idle,
-    at most 3 times. Keep the source id and remove it on `close-request`, as P2's
-    `orderFocusSourceId` does. `renderOwners()` records `window.get_focus()` before laying the
-    blocks out and restores it the same way when the widget is still in the window.
+    `GLib.idle_add`, as ORD-P2 does. The re-added groups are mapped at once but laid out later,
+    and the viewport scrolls on a focus change from the bounds it knows then, so grabbing the
+    focus is not enough: once the new layout is done, scroll explicitly so the button is visible,
+    through the page's `Gtk.ScrolledWindow` (`get_ancestor`) and its vertical adjustment, from the
+    button's bounds computed relative to the scrolled window's child (`compute_bounds`, checking
+    its return value). Keep one pending focus action, cancelled by the next one, by a key press or
+    click in the window, and on `close-request`; whatever source it uses (idle or tick callback)
+    is removed through its own API. The trash handler picks its focus target before removing the
+    group, since GTK drops the focus with the removed subtree.
   - Save: serialize `owner-filters` in kind-then-login order, not map order, so the block order
     lives in `owner-order` only.
     **Save preferences** writes `owner-order` from each owner's `login` in map order, not the
