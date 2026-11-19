@@ -13,7 +13,7 @@ dashboard, and it stores no token.
 
 <p align="center">
   <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges, above the Claude, Codex, and Antigravity quota gauges" width="49%">
-  <img src="docs/screenshots/quick-open.png" alt="Quick open showing a pull request preview with its CI bar and description" width="49%">
+  <img src="docs/screenshots/quick-open.png" alt="Quick open listing one number in three repositories, newest first, with a pull request preview with its CI bar and description" width="49%">
 </p>
 
 - **Every open PR, at a glance.** Your PRs across accounts and organizations, grouped by owner,
@@ -102,6 +102,11 @@ Until you configure owners, Greenlight watches every repository `gh` can see.
 focused (you can change the shortcut in Preferences). Type `plat 42`, `plat#42`, `#42`,
 `owner/repo#42`, or paste a GitHub URL. The preview shows the state, the author, a CI bar with
 the names of the failed checks, and the description rendered as Markdown.
+
+When a number exists in several repositories, they are listed newest activity first, each with
+its age (`12 min`, `5 h`, `3 d`, then the date), so the one updated last comes first.
+A repository you typed in full (`acme/web#42`, `web 42`) stays first. If the lookup fails, the
+repositories are listed by name match, without ages.
 
 ### Agent quotas
 

@@ -132,7 +132,7 @@ wait_for "!!${STATE}._quotaState.claude?.windows && !!${STATE}._quotaState.codex
 shell_eval "${STATE}._indicator.menu.open()" >/dev/null
 capture_menu menu.png
 
-shell_eval "${STATE}._quickOpenEntry.set_text('web 142')" >/dev/null
+shell_eval "${STATE}._quickOpenEntry.set_text('142')" >/dev/null
 wait_for "${STATE}._previewState?.status === 'ready' && !!${STATE}._previewItem"
 capture_menu quick-open.png
 shell_eval "${STATE}._indicator.menu.close()" >/dev/null
