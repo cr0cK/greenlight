@@ -278,7 +278,7 @@ ORD-P3 replaces that UI and removes the mode.
     (ordered owners, an empty `owner-order` following the kind-then-login order, owners without a block by
     newest pull request with ties by name, no block at all, `Unknown owner` last).
   - In a headless GNOME Shell with the fixture `gh`, the refresh interval at 10 minutes:
-    - with two owners and an empty `owner-order`, the sections follow PRM's block order;
+    - with two owners and an empty `owner-order`, the sections follow the kind-then-login order (personal account first);
     - saving, in the preferences window, only the second block moved up re-sorts the list without
       any `gh` invocation: the fixture's invocation log, measured once the first refresh finished,
       has the same length 2 seconds after the save;
@@ -345,9 +345,9 @@ ORD-P3 replaces that UI and removes the mode.
     is removed through its own API. The trash handler picks its focus target before removing the
     group, since GTK drops the focus with the removed subtree.
   - Save: serialize `owner-filters` in kind-then-login order, not map order, so the block order
-    lives in `owner-order` only.
+    lives in `owner-order` only. **Save preferences** writes `owner-order` from each owner's
+    `login` in map order, not the lowercased keys, only when it changed (the save handler already
+    compares values).
   - `scripts/screenshots/gh`: log each invocation with its arguments; add a file switch that holds
     the **Discover accounts** answer (`api user/orgs`) until the file is removed, and make that
     answer include one organization the screenshot seed does not configure.
-    **Save preferences** writes `owner-order` from each owner's `login` in map order, not the
-    lowercased keys, only when it changed (the save handler already compares values).
