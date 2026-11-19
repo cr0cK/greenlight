@@ -13,7 +13,7 @@ ORD covers the order of what the menu lists: the quick open suggestions for a nu
 activity first, so a pull request merged a minute ago is the first suggestion; and the order of
 the owner sections in the pull request list, which follows the order the user gives the owner
 blocks in the preferences. It builds on QOP and PRM, whose rules all still apply except three it
-replaces: QOP's order of the suggestions once the number lookup answered (**Quick open** section,
+replaces (ORD-P3 rewrites PRM's lines on them, including the **Menu order** line ORD-P2 added): QOP's order of the suggestions once the number lookup answered (**Quick open** section,
 the ranking rule as it applies to looked up suggestions), PRM's order of the owner sections
 (**Menu** section, `ordered by each owner's newest pull request`), and PRM's order of the owner
 blocks when the window opens (saved owners sorted by kind, then login). The mockup is
@@ -68,11 +68,16 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
   the first block's owner comes first. There is no automatic order and no setting to pick one.
   (MENU-ORDER)
 - A section is matched to its block by login, case-insensitively. A section whose owner has no
-  block (a pull request the author search finds outside the configured owners) comes after the
-  ordered ones, those among themselves by newest pull request; the `Unknown owner` section, for a
-  pull request without an owner, comes last.
-- An owner with no open pull request, or paused, has no section, as in PRM; the next owner in the
-  order takes its place.
+  block comes after the ordered ones, those among themselves by newest pull request, which means
+  the latest `updatedAt` among the section's pull requests, equal values ordered by owner name;
+  the `Unknown owner` section, for a pull request without an owner, comes last. This happens
+  before any owner is configured, when PRM's search is not scoped to owners: the window then has
+  no block, and every section is ordered this way.
+- An owner with no open pull request, or paused, has no section once a refresh reflects it, as in
+  PRM; the next owner in the order takes its place. A re-sort only reorders the pull requests
+  already loaded: a save that pauses and moves an owner re-sorts at once, and its section leaves
+  with the refresh that follows. When that refresh fails, PRM keeps the last list, and the
+  re-sort still applies to it.
 - Pull requests inside a section keep PRM's order, by last update; the count in each heading is
   unchanged.
 - A save that changes only the order re-sorts the list from the pull requests already loaded,
@@ -90,10 +95,15 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
   tooltips `Move <login> up` and `Move <login> down`. (PREFS-ORDER)
 - The first block's up and the last block's down are insensitive; with one owner, both are.
   (PREFS-ONE)
-- A paused owner's block moves like the others: its move buttons stay sensitive, like its trash
-  icon and its switch; only its rows are greyed out, as in PRM.
-- A move swaps the block with its neighbor in the page. The block keeps its unsaved state: its
-  discovered repositories, its mode, its switches, its filter text, and whether its list is open.
+- A paused owner's block moves like the others: pausing changes none of its move buttons, which
+  follow the same edge rules (a paused single owner has both insensitive); only its rows are
+  greyed out, as in PRM.
+- A move swaps the block with its neighbor in the page, from the block's position at the time of
+  the press, so pressing the same button twice moves it two places. The block keeps its unsaved
+  state: its discovered repositories, its mode, its switches, its filter text and the rows it
+  filters, and whether its list is open.
+- Removing an owner with its trash icon updates the edge buttons of the blocks left: the new first
+  block's up and the new last block's down become insensitive.
 - Keyboard: moving a block keeps the focus on the button just used, on the block's new position,
   unless that button became insensitive, in which case the focus goes to the block's other move
   button. The page scrolls so the focused button stays in view.
@@ -105,7 +115,7 @@ blocks when the window opens (saved owners sorted by kind, then login). The mock
   owners found by **Discover accounts** get the last ones. Removing an owner with its trash icon
   never reorders the others.
 - As with every setting, nothing applies before **Save preferences**, which stores the login of
-  every configured owner, enabled or paused, in block order. Closing the window without saving
+  every configured owner, enabled or paused, in block order, spelled as the owner block shows it. Closing the window without saving
   drops the moves.
 - There is no separate **Menu order** group and no **Order owners by** setting: ORD-P3 removes
   both, which ORD-P2 had added.
@@ -244,25 +254,38 @@ ORD-P3 replaces that UI and removes the mode.
     (up, down, edges, one owner); which buttons are sensitive; the button that takes the focus
     after a move; and the order of the menu sections from the saved order and the owner filters
     (ordered owners, an empty `owner-order` following PRM's order, owners without a block by
-    newest pull request, `Unknown owner` last).
-  - In a headless GNOME Shell with the fixture `gh`: with two owners and an empty `owner-order`,
-    the sections follow PRM's block order; saving the second block moved up re-sorts the list
-    without any `gh` invocation, which the fixture's invocation log proves, with the refresh
-    interval at 10 minutes, the log's length taken once the first refresh finished, and read again
-    2 seconds after the save; an open preview stays under its pull request through the re-sort.
+    newest pull request with ties by name, no block at all, `Unknown owner` last).
+  - In a headless GNOME Shell with the fixture `gh`, the refresh interval at 10 minutes:
+    - with two owners and an empty `owner-order`, the sections follow PRM's block order;
+    - saving, in the preferences window, only the second block moved up re-sorts the list without
+      any `gh` invocation: the fixture's invocation log, measured once the first refresh finished,
+      has the same length 2 seconds after the save;
+    - saving a move together with an author change runs one refresh (the log grows by one
+      refresh's searches only) and lists its result in the new order;
+    - with the menu open and a preview shown, writing `owner-order` in the scratch GSettings (the
+      menu's modal grab closes it on a click in the window, so the save cannot be used here)
+      re-sorts the list, the preview stays under its pull request, and the log, measured once the
+      preview loaded, does not grow.
   - The preferences window is a separate process the shell's Eval cannot reach, so it is driven
     with the virtual keyboard (Tab to a move button, Enter) and checked on screenshots: the
     **Menu order** group is gone; up and down swap blocks; the first up and the last down are
-    insensitive; the focus ring sits on the expected button after a middle move and after a move
-    that makes the used button insensitive; a moved block keeps a repository switch changed before
-    the move; a paused block moves; adding an owner puts it first without undoing a move; closing
-    without saving keeps the stored order; no `JS ERROR` or `JS WARNING` in the shell log.
+    insensitive; the focus ring sits on the expected button after a middle move, after a move that
+    makes the used button insensitive, and after a move past an open block that takes the button
+    out of the visible area, which the page scrolls back into view; pressing the same button twice
+    moves the block two places; a moved block keeps a repository switch changed before the move,
+    its open list, and its filter text with the rows it filters; a paused block moves; removing
+    the first block makes the new first block's up insensitive; adding an owner puts it first
+    without undoing a move; closing without saving keeps the stored order; at the screenshot
+    window's width the owner headers show the login, the description, and the four controls
+    without overlap; no `JS ERROR` or `JS WARNING` in the shell log.
   - `scripts/screenshots.sh` no longer seeds `owner-order-mode`, and regenerates
     `preferences.png`, which shows the move buttons on the owner blocks; README.md describes
-    the order and its alt text names the buttons; PRM's **Preferences** section drops the
-    **Menu order** line and its owner block rule names the move buttons, in the same PR.
+    the order and its alt text names the buttons; in PRM, the **Menu** rule says the sections
+    follow the owner blocks' order as ORD says, the **Preferences** section drops the
+    **Menu order** line, and its owner block rule names the move buttons, in the same PR.
 - **Technical notes**:
-  - `src/schemas/`: remove `owner-order-mode`; keep `owner-order`.
+  - `src/schemas/`: remove `owner-order-mode`; keep `owner-order`, its summary and description
+    rewritten for the block order.
   - `src/order.js`: drop the mode from `orderOwnerSections` and `canMoveOwnerRow`, and remove
     `readOwnerOrderMode` and `OWNER_ORDER_MODES`. Add the initial block order, shared by
     `src/prefs.js` and `src/extension.js`: the extension orders the sections from `owner-order`
@@ -274,9 +297,14 @@ ORD-P3 replaces that UI and removes the mode.
   - `src/prefs.js`: remove `menuOrderGroup`, its combo, and `orderedLogins`. The `owners` map's
     order becomes the block order, initialized from the saved order instead of the kind-then-login
     sort; a move reorders the map and calls `renderOwners()`, which already removes and re-adds
-    the existing `owner.group` widgets, so their unsaved state survives. The move buttons go into
+    the existing `owner.group` widgets, so their unsaved state survives. A move button's handler
+    looks the owner's current index up in the map at each press, never an index captured when the
+    button was built. The trash handler goes through `renderOwners()` too, or the same
+    sensitivity update, instead of P2's `syncOrderRows()`. The move buttons go into
     the header box built around line 476, before the trash button, with
     `update_property([Gtk.AccessibleProperty.LABEL], [...])` and the same tooltip; their
     sensitivity updates on every `renderOwners()`. Refocus the target button from
-    `GLib.idle_add`, as ORD-P2 does. **Save preferences** writes `owner-order` from the map's
-    keys in order, only when it changed (the save handler already compares values).
+    `GLib.idle_add`, as ORD-P2 does; if the button is not yet allocated then, retry once the page
+    has laid it out (its `map` or a later idle), so the viewport scrolls to its final position.
+    **Save preferences** writes `owner-order` from each owner's `login` in map order, not the
+    lowercased keys, only when it changed (the save handler already compares values).
