@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""Stand-in for the user's systemd on a private D-Bus session, so the routines show fictional timers.
+
+Usage: systemd-mock <fixture.json>
+
+It owns org.freedesktop.systemd1 and serves the Manager, Unit, Timer, and Service interfaces that
+Greenlight reads, from a JSON fixture. It emits PropertiesChanged, UnitNew, UnitRemoved, and
+Reloading only to the clients that called Subscribe(), and JobRemoved to the caller of a job
+whether or not it subscribed, as systemd does.
+
+A second name, io.github.cr0ck.greenlight.SystemdMock at /control, takes one method,
+Command(s json) -> s, whose JSON holds a "cmd":
+  set               {"unit": "sync-mail.service", "interface": "Service|Timer|Unit",
+                     "props": {"Result": ["s", "success"]}}: changes properties of the unit and
+                     emits PropertiesChanged on its path
+  refuse-subscribe  {"value": true}: Subscribe() answers with an error
+  hold              {"method": "ListUnitsByPatterns"}: keeps the replies of that method
+  release           answers the held replies
+  drop-name / take-name  releases and takes back org.freedesktop.systemd1
+  add               {"timer": {...}}: adds a timer as the fixture does and emits UnitNew
+  remove            {"unit": "sync-mail.timer"}: removes it and emits UnitRemoved
+  reload            emits Reloading(true), then Reloading(false)
+  log               returns the calls and events so far, one per line
+The same lines go to the file named by $SYSTEMD_MOCK_LOG.
+
+The fixture is {"timers": [...]}; a timer holds name, description, and optionally state
+(succeeded, failed, running, skipped, no-run, unknown, remain, or not-loaded), agoSec (how long ago
+the last run ended), exitStatus, nextInSec, timerActive, and timerResult. Times are relative to the
+start of the mock, so the screenshots read the same on every run.
+"""
+import fnmatch
+import json
+import os
+import sys
+import warnings
+
+import gi
+
+gi.require_version('Gio', '2.0')
+from gi.repository import Gio, GLib  # noqa: E402
+
+# PyGObject marks register_object deprecated, but it is the call that takes plain callbacks.
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
+BUS = 'org.freedesktop.systemd1'
+MANAGER_PATH = '/org/freedesktop/systemd1'
+SD = BUS + '.'
+CONTROL_NAME = 'io.github.cr0ck.greenlight.SystemdMock'
+USEC = 1000000
+
+# Properties by interface, with their D-Bus types, as Greenlight reads them.
+TYPES = {
+    'Timer': {'Unit': 's', 'NextElapseUSecRealtime': 't', 'NextElapseUSecMonotonic': 't',
+              'LastTriggerUSec': 't', 'Result': 's'},
+    'Service': {'Result': 's', 'ExecMainCode': 'i', 'ExecMainStatus': 'i',
+                'ExecMainStartTimestamp': 't', 'ExecMainExitTimestamp': 't'},
+    'Unit': {'ActiveState': 's', 'SubState': 's', 'InactiveExitTimestamp': 't',
+             'StateChangeTimestamp': 't', 'StateChangeTimestampMonotonic': 't',
+             'ConditionResult': 'b', 'ConditionTimestamp': 't', 'Description': 's'},
+}
+INTERFACE_XML = ''.join(
+    '<interface name="%s%s">%s</interface>' % (
+        SD, name, ''.join('<property name="%s" type="%s" access="read"/>' % item for item in props.items()))
+    for name, props in TYPES.items())
+UNIT_NODE = Gio.DBusNodeInfo.new_for_xml('<node>' + INTERFACE_XML + '</node>')
+MANAGER_NODE = Gio.DBusNodeInfo.new_for_xml('''<node><interface name="%sManager">
+  <method name="Subscribe"/><method name="Unsubscribe"/>
+  <method name="ListUnitsByPatterns"><arg type="as" direction="in"/><arg type="as" direction="in"/>
+    <arg type="a(ssssssouso)" direction="out"/></method>
+  <method name="GetUnit"><arg type="s" direction="in"/><arg type="o" direction="out"/></method>
+  <method name="StartUnit"><arg type="s" direction="in"/><arg type="s" direction="in"/>
+    <arg type="o" direction="out"/></method>
+  <signal name="UnitNew"><arg type="s"/><arg type="o"/></signal>
+  <signal name="UnitRemoved"><arg type="s"/><arg type="o"/></signal>
+  <signal name="JobRemoved"><arg type="u"/><arg type="o"/><arg type="s"/><arg type="s"/></signal>
+  <signal name="Reloading"><arg type="b"/></signal>
+</interface></node>''' % SD)
+CONTROL_NODE = Gio.DBusNodeInfo.new_for_xml('''<node><interface name="%s">
+  <method name="Command"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
+</interface></node>''' % CONTROL_NAME)
+
+
+def escape(unit):
+    """systemd's object path of a unit: every byte but a letter or digit becomes _xx."""
+    return '/org/freedesktop/systemd1/unit/' + ''.join(
+        c if c.isascii() and c.isalnum() else '_%02x' % ord(c) for c in unit)
+
+
+class Mock:
+    def __init__(self, fixture):
+        self.now = GLib.get_real_time()
+        self.mono = GLib.get_monotonic_time()
+        self.units = {}      # unit name -> {'Timer'|'Service'|'Unit': props}, for the timers and services
+        self.timers = []     # unit names of the loaded timers
+        self.registered = {}
+        self.subscribers = set()
+        self.refuse_subscribe = False
+        self.held_methods = set()
+        self.held = []
+        self.job = 0
+        self.lines = []
+        self.owner_id = 0
+        self.log_path = os.environ.get('SYSTEMD_MOCK_LOG')
+        self.connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.connection.register_object(MANAGER_PATH, MANAGER_NODE.interfaces[0], self.on_manager_call, None, None)
+        self.connection.register_object('/control', CONTROL_NODE.interfaces[0], self.on_control_call, None, None)
+        self.connection.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged',
+                                         '/org/freedesktop/DBus', None, Gio.DBusSignalFlags.NONE, self.on_name_owner)
+        for timer in fixture['timers']:
+            self.add_timer(timer)
+        self.take_name()
+        self.owner_control = Gio.bus_own_name_on_connection(
+            self.connection, CONTROL_NAME, Gio.BusNameOwnerFlags.NONE, None, None)
+
+    def log(self, line):
+        self.lines.append(line)
+        if self.log_path:
+            with open(self.log_path, 'a') as handle:
+                handle.write(line + '\n')
+
+    # Units ---------------------------------------------------------------------------------------
+
+    def add_timer(self, spec):
+        name = spec['name']
+        timer_unit, service_unit = name + '.timer', spec.get('service', name + '.service')
+        now, mono = self.now, self.mono
+        state = spec.get('state', 'succeeded')
+        ago = spec.get('agoSec', 240) * USEC
+        end, start = now - ago, now - ago - 3 * USEC
+        service = {'Result': 'success', 'ExecMainCode': 1, 'ExecMainStatus': 0,
+                   'ExecMainStartTimestamp': start, 'ExecMainExitTimestamp': end}
+        unit = {'ActiveState': 'inactive', 'SubState': 'dead', 'InactiveExitTimestamp': start,
+                'StateChangeTimestamp': end, 'StateChangeTimestampMonotonic': mono - ago,
+                'ConditionResult': True, 'ConditionTimestamp': start,
+                'Description': spec.get('serviceDescription', name + ' routine')}
+        if state == 'failed':
+            service.update(Result=spec.get('result', 'exit-code'), ExecMainStatus=spec.get('exitStatus', 1))
+            unit.update(ActiveState='failed', SubState='failed')
+        elif state == 'running':
+            unit.update(ActiveState='active', SubState='running', InactiveExitTimestamp=end)
+        elif state == 'skipped':
+            service.update(ExecMainStartTimestamp=end - 3600 * USEC, ExecMainExitTimestamp=end - 3600 * USEC)
+            unit.update(ConditionResult=False, ConditionTimestamp=end)
+        elif state == 'no-run':
+            service.update(ExecMainCode=0, ExecMainStartTimestamp=0, ExecMainExitTimestamp=0)
+            unit.update(InactiveExitTimestamp=0, StateChangeTimestamp=0, StateChangeTimestampMonotonic=0,
+                        ConditionResult=False, ConditionTimestamp=0)
+        elif state == 'unknown':
+            service.update(ExecMainStatus=spec.get('exitStatus', 1))
+        elif state == 'remain':
+            unit.update(ActiveState='active', SubState='exited')
+        next_in = spec.get('nextInSec', 600) * USEC
+        timer = {'Unit': service_unit, 'NextElapseUSecRealtime': now + next_in, 'NextElapseUSecMonotonic': 0,
+                 'LastTriggerUSec': end, 'Result': spec.get('timerResult', 'success')}
+        if spec.get('nextKind') == 'monotonic':
+            timer.update(NextElapseUSecRealtime=0, NextElapseUSecMonotonic=mono + next_in)
+        if spec.get('nextKind') == 'unset':
+            timer.update(NextElapseUSecRealtime=0)
+        timer_unit_props = {'ActiveState': spec.get('timerActive', 'active'), 'SubState': 'waiting',
+                            'InactiveExitTimestamp': now - 86400 * USEC, 'StateChangeTimestamp': now - 86400 * USEC,
+                            'StateChangeTimestampMonotonic': mono - 86400 * USEC, 'ConditionResult': True,
+                            'ConditionTimestamp': 0, 'Description': spec.get('description', '')}
+        self.units[timer_unit] = {'Timer': timer, 'Unit': timer_unit_props}
+        if state != 'not-loaded':
+            self.units[service_unit] = {'Service': service, 'Unit': unit}
+        if spec.get('loaded', True):
+            self.timers.append(timer_unit)
+        for unit_name in (timer_unit, service_unit):
+            if unit_name in self.units and unit_name not in self.registered:
+                self.register_unit(unit_name)
+        return timer_unit
+
+    def register_unit(self, unit_name):
+        path = escape(unit_name)
+        ids = []
+        for info in UNIT_NODE.interfaces:
+            if info.name.removeprefix(SD) in self.units[unit_name]:
+                ids.append(self.connection.register_object(
+                    path, info, lambda *args: None, self.get_property, None))
+        self.registered[unit_name] = ids
+
+    def unregister_unit(self, unit_name):
+        for registration in self.registered.pop(unit_name, []):
+            self.connection.unregister_object(registration)
+
+    def get_property(self, _connection, _sender, path, interface, name):
+        unit_name = next(unit for unit in self.units if escape(unit) == path)
+        return GLib.Variant(TYPES[interface.removeprefix(SD)][name],
+                            self.units[unit_name][interface.removeprefix(SD)][name])
+
+    # Signals -------------------------------------------------------------------------------------
+
+    def emit(self, destination, path, interface, signal, parameters):
+        self.connection.emit_signal(destination, path, interface, signal, parameters)
+
+    def emit_subscribed(self, path, interface, signal, parameters):
+        for subscriber in sorted(self.subscribers):
+            self.emit(subscriber, path, interface, signal, parameters)
+
+    def on_name_owner(self, _connection, _sender, _path, _interface, _signal, parameters):
+        name, _old, new = parameters.unpack()
+        if new == '' and name in self.subscribers:
+            self.subscribers.discard(name)
+            self.log('subscriber gone: %d left' % len(self.subscribers))
+
+    # Manager -------------------------------------------------------------------------------------
+
+    def on_manager_call(self, _connection, sender, _path, _interface, method, parameters, invocation):
+        self.log('call %s' % method)
+        if method in self.held_methods:
+            self.held.append((sender, method, parameters, invocation))
+            return
+        self.answer(sender, method, parameters, invocation)
+
+    def answer(self, sender, method, parameters, invocation):
+        if method == 'Subscribe':
+            if self.refuse_subscribe:
+                invocation.return_dbus_error(SD + 'Failed', 'Subscribe refused by the mock')
+                return
+            self.subscribers.add(sender)
+            self.log('subscribers: %d' % len(self.subscribers))
+            invocation.return_value(None)
+        elif method == 'Unsubscribe':
+            self.subscribers.discard(sender)
+            self.log('subscribers: %d' % len(self.subscribers))
+            invocation.return_value(None)
+        elif method == 'ListUnitsByPatterns':
+            patterns = parameters.unpack()[1]
+            rows = [(name, self.units[name]['Unit']['Description'], 'loaded',
+                     self.units[name]['Unit']['ActiveState'], self.units[name]['Unit']['SubState'], '',
+                     escape(name), 0, '', '/')
+                    for name in sorted(self.timers)
+                    if any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns)]
+            invocation.return_value(GLib.Variant('(a(ssssssouso))', (rows,)))
+        elif method == 'GetUnit':
+            name = parameters.unpack()[0]
+            if name in self.units and (name in self.timers or 'Service' in self.units[name]):
+                invocation.return_value(GLib.Variant('(o)', (escape(name),)))
+            else:
+                invocation.return_dbus_error(SD + 'NoSuchUnit', 'Unit %s not loaded.' % name)
+        elif method == 'StartUnit':
+            name, mode = parameters.unpack()
+            self.log('StartUnit %s %s' % (name, mode))
+            self.job += 1
+            job_path = '/org/freedesktop/systemd1/job/%d' % self.job
+            invocation.return_value(GLib.Variant('(o)', (job_path,)))
+            self.emit(sender, MANAGER_PATH, SD + 'Manager', 'JobRemoved',
+                      GLib.Variant('(uoss)', (self.job, job_path, name, 'done')))
+
+    # Control -------------------------------------------------------------------------------------
+
+    def take_name(self):
+        if not self.owner_id:
+            self.owner_id = Gio.bus_own_name_on_connection(
+                self.connection, BUS, Gio.BusNameOwnerFlags.NONE, None, None)
+            self.log('name taken')
+
+    def drop_name(self):
+        if self.owner_id:
+            Gio.bus_unown_name(self.owner_id)
+            self.owner_id = 0
+            # A systemd that restarts has no subscriber left: clients subscribe again.
+            self.subscribers.clear()
+            self.held.clear()
+            self.log('name dropped')
+
+    def on_control_call(self, _connection, _sender, _path, _interface, _method, parameters, invocation):
+        try:
+            command = json.loads(parameters.unpack()[0])
+            reply = self.run(command) or 'ok'
+        except Exception as error:  # a bad command is reported, never fatal
+            invocation.return_dbus_error('io.github.cr0ck.greenlight.SystemdMock.Error', str(error))
+            return
+        invocation.return_value(GLib.Variant('(s)', (reply,)))
+
+    def run(self, command):
+        name = command['cmd']
+        if name == 'set':
+            unit = command['unit']
+            interface = command['interface']
+            changed = {}
+            for prop, (kind, value) in command['props'].items():
+                self.units[unit][interface][prop] = value
+                changed[prop] = GLib.Variant(kind, value)
+            self.log('set %s %s %s' % (unit, command['interface'], sorted(changed)))
+            self.emit_subscribed(escape(unit), 'org.freedesktop.DBus.Properties', 'PropertiesChanged',
+                                 GLib.Variant('(sa{sv}as)', (SD + interface, changed, [])))
+        elif name == 'refuse-subscribe':
+            self.refuse_subscribe = bool(command['value'])
+        elif name == 'hold':
+            self.held_methods.add(command['method'])
+        elif name == 'release':
+            self.held_methods.clear()
+            held, self.held = self.held, []
+            for sender, method, parameters, invocation in held:
+                self.answer(sender, method, parameters, invocation)
+        elif name == 'drop-name':
+            self.drop_name()
+        elif name == 'take-name':
+            self.take_name()
+        elif name == 'add':
+            unit = self.add_timer(command['timer'])
+            self.log('add ' + unit)
+            self.emit_subscribed(MANAGER_PATH, SD + 'Manager', 'UnitNew',
+                                 GLib.Variant('(so)', (unit, escape(unit))))
+        elif name == 'remove':
+            unit = command['unit']
+            self.timers.remove(unit)
+            self.log('remove ' + unit)
+            self.emit_subscribed(MANAGER_PATH, SD + 'Manager', 'UnitRemoved',
+                                 GLib.Variant('(so)', (unit, escape(unit))))
+        elif name == 'reload':
+            self.log('reload')
+            for flag in (True, False):
+                self.emit_subscribed(MANAGER_PATH, SD + 'Manager', 'Reloading', GLib.Variant('(b)', (flag,)))
+        elif name == 'log':
+            return '\n'.join(self.lines)
+        else:
+            raise ValueError('unknown command ' + name)
+        return None
+
+
+def main():
+    with open(sys.argv[1]) as handle:
+        fixture = json.load(handle)
+    Mock(fixture)
+    print('ready', flush=True)
+    GLib.MainLoop().run()
+
+
+if __name__ == '__main__':
+    main()

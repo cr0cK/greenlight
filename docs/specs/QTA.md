@@ -2,7 +2,7 @@
 code: QTA
 status: done
 version: v1.3
-amended: [v1.5]
+amended: [v1.5, v1.6]
 created: 2026-11-12
 builds-on: PRM
 tracking: "#36"
@@ -15,8 +15,9 @@ next to the pull requests the agents open, so their use can be spread over the w
 hitting a limit on Thursday. It covers the **Agent quotas** preferences, when a provider is
 available, the menu section with its gauges and pace mark, threshold notifications, and how
 Greenlight asks each agent's own CLI. It builds on PRM, whose rules all still apply. It amends
-PRM's menu order, since the section sits between the pull request list and **Preferences…**, and
-QOP's menu height: the section stays in view, and hides while quick open has text. The mockup is
+PRM's menu order, since the section sits between the pull request list and **Preferences…** (RTN
+adds a **Routines** section after it), and QOP's menu height: the section stays in view, and hides
+while quick open has text. The mockup is
 [`mockups/QTA.html`](mockups/QTA.html).
 
 ## Scope
@@ -68,10 +69,12 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 
 ## Menu
 
-- An **Agent quotas** section sits below the pull request list, right above **Preferences…**,
-  when at least one enabled provider has a reading to show (see Availability), with a separator
-  on each side. Quick open stays right above the list. While the section is hidden, one
-  separator stays between the list and **Preferences…**.
+- An **Agent quotas** section sits below the pull request list, above the **Routines** section
+  (RTN) when that is shown and above **Preferences…** otherwise, when at least one enabled
+  provider has a reading to show (see Availability). One separator sits between two shown
+  neighbors among the pull request list, this section, the **Routines** section, and
+  **Preferences…**, never two in a row; with both sections hidden, one separator stays between
+  the list and **Preferences…**. Quick open stays right above the list.
   It hides while quick open has text, so the suggestions, the preview, and the list keep their
   room. It does not scroll: on a short screen the pull request list gives way, as QOP's menu
   height says. A result that lands while the menu is open redraws the section in place.

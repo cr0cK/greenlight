@@ -64,6 +64,11 @@
       <description>A quota window notifies once per period when its usage reaches this percentage.</description>
       <range min="50" max="100"/>
     </key>
+    <key name="watched-routines" type="as">
+      <default>[]</default>
+      <summary>Watched routines</summary>
+      <description>The systemd user timers shown in the menu, by unit name, such as nightly-report.timer.</description>
+    </key>
     <key name="agent-quota-cache" type="s">
       <default>'{}'</default>
       <summary>Last agent quota readings</summary>

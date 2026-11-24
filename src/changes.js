@@ -3,9 +3,11 @@
 // from gi://, so node --test covers it. The shortcut arrives already classified (GTK parses it).
 
 import {ownerFiltersToSave, sameOwnerFilters} from './filters.js';
+import {normalizeWatched, sameWatched} from './routines.js';
 
 export const PULL_REQUESTS_TAB = 'Pull requests';
 export const AGENTS_TAB = 'Agents';
+export const ROUTINES_TAB = 'Routines';
 
 const MIN_THRESHOLD = 50;
 const MAX_THRESHOLD = 100;
@@ -61,9 +63,10 @@ const sameLogins = (first, second) =>
 
 /**
  * Compares the values the window shows with their baselines. Both have the same shape:
- * `{author, refreshInterval, shortcut, owners, ownerOrder, switches, quotaInterval, threshold}`,
- * where `owners` lists the owners as `owner-filters` stores them, `ownerOrder` the logins in
- * block order, and `switches` maps each provider's setting key to its switch. `pending` holds the
+ * `{author, refreshInterval, shortcut, owners, ownerOrder, switches, quotaInterval, threshold,
+ * routines}`, where `owners` lists the owners as `owner-filters` stores them, `ownerOrder` the
+ * logins in block order, `switches` maps each provider's setting key to its switch, and
+ * `routines` lists the timer units switched on, in any order. `pending` holds the
  * keys of the pending normalizations, written whether or not they changed. `storedOwners` is what
  * `owner-filters` holds now: owners that match it are not written again.
  *
@@ -92,10 +95,12 @@ export function planChanges(shown, baseline, pending, storedOwners) {
         add(AGENTS_TAB, key, active !== baseline.switches[key], active);
     add(AGENTS_TAB, 'agent-quota-interval', shown.quotaInterval !== baseline.quotaInterval, shown.quotaInterval);
     add(AGENTS_TAB, 'agent-quota-threshold', shown.threshold !== baseline.threshold, shown.threshold);
+    add(ROUTINES_TAB, 'watched-routines', !sameWatched(shown.routines, baseline.routines),
+        normalizeWatched(shown.routines));
 
     // An invalid text stops the save, even a stored one the window opened clean with.
     const invalidShortcut = shown.shortcut.kind === 'invalid';
-    const tabs = [PULL_REQUESTS_TAB, AGENTS_TAB].filter(tab =>
+    const tabs = [PULL_REQUESTS_TAB, AGENTS_TAB, ROUTINES_TAB].filter(tab =>
         entries.some(entry => entry.tab === tab && entry.changed && entry.key !== 'owner-filters-configured'));
     const writes = entries
         .filter(entry => (entry.changed || pending.has(entry.key)) && entry.value !== null)
