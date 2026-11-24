@@ -36,3 +36,5 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
   menu; tracking issue #36.
 - [`ORD`](ORD.md) (2026-11-19): the order of quick open suggestions, newest activity first, and
   the owner sections in the menu in the order of the owner blocks; tracking issue #47.
+- [`CAG`](CAG.md) (2026-11-24): custom agent commands (a wrapper on another subscription) whose
+  quota Greenlight reads as Claude, Codex, or Antigravity; tracking issue #61.
