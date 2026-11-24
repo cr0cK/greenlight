@@ -42,3 +42,5 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
 - [`RTN`](RTN.md) (2026-11-24): the user's systemd timers as routines: a **Routines** tab to pick
   them, a menu section with their last and next runs, **Run now**, **View logs**, failure
   notifications, and a red dot on the panel icon; tracking issue #59.
+- [`CAG`](CAG.md) (2026-11-24): custom agent commands (a wrapper on another subscription) whose
+  quota Greenlight reads as Claude, Codex, or Antigravity; tracking issue #61.
