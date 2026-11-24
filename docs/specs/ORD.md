@@ -134,7 +134,8 @@ from the saved order. The mockup is
   buttons PRM names, and the banner's **Save**, wait for it. Removing an owner with its trash icon
   never reorders the others.
 - As with every setting, nothing applies before **Save**, which stores the login of
-  every configured owner, enabled or paused, in block order, spelled as the owner block shows it.
+  every configured owner, enabled or paused, in block order, spelled as the owner block shows it,
+  when the order changed or the stored one is not the completed order the window opened with.
   The window stays open after a save, and the blocks keep their state. Closing the window without
   saving drops the moves.
 - There is no separate **Menu order** group and no **Order owners by** setting: ORD-P3 removes
@@ -144,9 +145,13 @@ from the saved order. The mockup is
 
 - `owner-order` (`as`, default `[]`): owner logins, in block order. It alone holds the order:
   `owner-filters` is saved in the kind-then-login order, and only when its content changed: the
-  save compares the window's owners with the stored ones, both put in that order, and writes
-  nothing when they match. So a save that only moves blocks, or that touches the owners and puts
-  them back as they were, never changes `owner-filters` and never triggers a refresh. A stored
+  save compares the window's owners with the owners the window opened with, or last saved (its
+  baseline, TAB), logins and repository names case-insensitively, the mode kept, and writes
+  nothing when they match, so an external change of `owner-filters` survives a save that did not
+  touch the owners, and a **Discover** that leaves the scope as saved keeps the stored spelling.
+  So a save that only moves blocks, or that touches the owners and puts them back as they were,
+  never changes `owner-filters` and never triggers a refresh. It also writes nothing when the
+  store already holds the owners the window shows. A stored
   `owner-filters` in another order is rewritten only by a save that changes its content. Reading it ignores non-string
   entries and duplicates (case-insensitive), keeping the first.
 - `owner-order-mode` is removed from the schema. No release shipped it, so no migration reads it.

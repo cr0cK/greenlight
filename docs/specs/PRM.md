@@ -155,11 +155,17 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   owner's block comes first; owners found by **Discover accounts** come last, paused unless they
   are the first ones configured. Only one `gh` task runs at a time; its buttons and the banner's
   **Save** are insensitive meanwhile, and closing the window cancels it.
-- A banner at the top of every tab, titled `Save your changes to apply them`, has a **Save**
-  button; `Ctrl+S` does the same. **Save** applies every setting of the window, whichever tab, in
-  one batch, and the window stays open with a `Preferences saved` toast. A save writes the settings
-  whose value differs from the stored one. When a key to write is locked, it writes nothing and
-  shows `Could not save: <key> is not writable`. Nothing applies before **Save**.
+- While a tab has unsaved changes, a banner at the top of every tab, titled `Unsaved changes in
+  Pull requests` (naming the tabs with changes), has a **Save** button; without unsaved changes
+  no banner shows. `Ctrl+S` does the same as **Save**, and nothing in a window without unsaved
+  changes. **Save** applies the changes of the window, whichever tab, in one batch, and the
+  window stays open with a `Preferences saved` toast. A save writes only the settings whose value,
+  as the window shows it, differs from its baseline (the value when the window opened, or the one
+  last saved), plus the adjustments the window made to stored values (TAB's pending
+  normalizations): a setting changed elsewhere while the window is open survives a save that does
+  not touch it. A **Refresh interval** stored outside the list is shown as 2 minutes, and the
+  next save stores 120. When a key to write is locked, the save writes nothing and shows `Could
+  not save: <key> is not writable`. Nothing applies before **Save**.
 - Closing the window, by any means it offers, closes it at once and drops what was not saved.
 
 ## Errors
