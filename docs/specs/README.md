@@ -37,4 +37,5 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
 - [`ORD`](ORD.md) (2026-11-19): the order of quick open suggestions, newest activity first, and
   the owner sections in the menu in the order of the owner blocks; tracking issue #47.
 - [`TAB`](TAB.md) (2026-11-24): the preferences window in tabs (Pull requests, Agents, About),
-  one **Save** in the header bar, unsaved-change dots, and a confirmation before dropping them.
+  one **Save** in the header bar, unsaved-change dots, and a confirmation before dropping them;
+  tracking issue #57.
