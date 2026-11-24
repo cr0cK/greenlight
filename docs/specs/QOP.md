@@ -2,7 +2,7 @@
 code: QOP
 status: done
 version: v0.5
-amended: [v1.2, v1.3, v1.4]
+amended: [v1.2, v1.3, v1.4, v1.5]
 created: 2026-10-11
 builds-on: PRM
 ---
@@ -114,5 +114,7 @@ of v1.2 on quick open and previews, as the product stands.
 
 - `quick-open-shortcut` toggles the menu with the field focused; the default is
   `<Super><Shift>g`.
-- The **Quick open** group of the preferences edits it as accelerator text, validated on **Save
-  preferences**: an invalid one is marked, takes the focus, and stops the save. An empty value disables the shortcut.
+- The **Quick open** group of the preferences edits it as accelerator text, validated on **Save**:
+  an invalid one stops the save before anything is written, from any tab: the window switches to
+  **Pull requests**, scrolls the field into view, marks it, and gives it the focus. Editing the
+  field clears the mark. An empty value disables the shortcut.

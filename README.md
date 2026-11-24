@@ -67,20 +67,26 @@ gnome-extensions enable greenlight@cr0ck.github.io
 
 ### Set up
 
-Open **Preferences** from the menu:
+Open **Preferences** from the menu. It has three tabs, **Pull requests**, **Agents**, and **About**:
 
-1. **Discover accounts** loads your account and organizations from `gh`. To add another owner,
-   enter its login.
+1. On **Pull requests**, **Discover accounts** loads your account and organizations from `gh`. To
+   add another owner, enter its login.
 2. In each owner's block, choose **All**, **All except…**, or **Only…** repositories.
-3. Under **Agent quotas**, turn on the agents you use. Each switch checks its CLI first. If the
-   CLI is missing, signed out, or not on a subscription, the switch stays off and says what to do.
-4. Move each owner's block with its up and down buttons: the menu lists the owners in that order.
-5. Click **Save preferences**.
+3. Move each owner's block with its up and down buttons: the menu lists the owners in that order.
+4. On **Agents**, turn on the agents you use. Each switch checks its CLI first. If the CLI is
+   missing, signed out, or not on a subscription, the switch stays off and says what to do.
+5. Click **Save** in the banner at the top of any tab, or press <kbd>Ctrl</kbd>+<kbd>S</kbd>. One
+   save applies every tab, and the window stays open.
 
 Until you configure owners, Greenlight watches every repository `gh` can see.
 
 <p align="center">
-  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences: author, refresh interval, the up and down buttons on the owner blocks, quick open shortcut, and agent quotas" width="70%">
+  <img src="docs/screenshots/preferences.png" alt="Greenlight preferences, Pull requests tab: author, refresh interval, quick open shortcut, and the owner blocks with their up and down buttons" width="70%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/preferences-agents.png" alt="Greenlight preferences, Agents tab: the Claude, Codex, and Antigravity switches, refresh interval, and notification threshold" width="48%">
+  <img src="docs/screenshots/preferences-about.png" alt="Greenlight preferences, About tab: the installed version and the source code link" width="48%">
 </p>
 
 ### Pull requests

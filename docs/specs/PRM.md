@@ -2,7 +2,7 @@
 code: PRM
 status: done
 version: v0.1
-amended: [v0.2, v0.3, v0.4, v1.2, v1.3, v1.4]
+amended: [v0.2, v0.3, v0.4, v1.2, v1.3, v1.4, v1.5]
 created: 2026-10-11
 ---
 
@@ -125,6 +125,8 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 ## Preferences
 
+- The preferences window has three tabs, **Pull requests**, **Agents**, and **About**, as TAB
+  says. The groups below are the ones of the **Pull requests** tab.
 - **Monitoring** holds **Author** (an entry, `@me or username`) and **Refresh interval** (30
   seconds to 10 minutes).
 - **Accounts and organizations** holds **Discover accounts** (`gh api user` and `gh api
@@ -151,10 +153,14 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   switch on.
 - A block refreshes in place after **Discover**, so the page keeps its scroll position. An added
   owner's block comes first; owners found by **Discover accounts** come last, paused unless they
-  are the first ones configured. Only one `gh` task runs at a time; its buttons and **Save
-  preferences** are insensitive meanwhile, and closing the window cancels it.
-- **Save preferences** applies every setting of the window together and closes it. Nothing
-  applies before.
+  are the first ones configured. Only one `gh` task runs at a time; its buttons and the banner's
+  **Save** are insensitive meanwhile, and closing the window cancels it.
+- A banner at the top of every tab, titled `Save your changes to apply them`, has a **Save**
+  button; `Ctrl+S` does the same. **Save** applies every setting of the window, whichever tab, in
+  one batch, and the window stays open with a `Preferences saved` toast. A save writes the settings
+  whose value differs from the stored one. When a key to write is locked, it writes nothing and
+  shows `Could not save: <key> is not writable`. Nothing applies before **Save**.
+- Closing the window, by any means it offers, closes it at once and drops what was not saved.
 
 ## Errors
 

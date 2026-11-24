@@ -2,6 +2,7 @@
 code: ABT
 status: done
 version: v1.1
+amended: [v1.5]
 created: 2026-10-12
 builds-on: PRM
 ---
@@ -14,9 +15,9 @@ process, so it has no plans. It is the former v1.1 specification.
 
 ## Preferences
 
-- An **About** group at the bottom of the preferences window shows a **Version** row with the
+- An **About** group, the content of the **About** tab of the preferences window, shows a **Version** row with the
   `version-name` from `metadata.json`, such as `1.1.0`. The value is selectable, so it can be
   copied into an issue.
 - A **Source code** row below it shows the `url` from `metadata.json` and opens it in the
   default browser.
-- Both rows are read-only and are not part of **Save preferences**.
+- Both rows are read-only and are not part of **Save**.

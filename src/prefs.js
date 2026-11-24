@@ -16,6 +16,7 @@ import {
 } from './order.js';
 import {readQuota} from './agents.js';
 import {PROVIDERS} from './quotas.js';
+import {planSave} from './save.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
 // Repository scope modes, in ComboRow order.
@@ -139,7 +140,36 @@ export default class GreenlightPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
 
-        const page = new Adw.PreferencesPage();
+        // The Pull requests tab icon is the panel glyph, drawn as fills for GTK's symbolic loader.
+        Gtk.IconTheme.get_for_display(window.get_display()).add_search_path(this.path);
+        // The banner button and Ctrl+S share this action; disabling it greys the button out.
+        const saveAction = new Gio.SimpleAction({name: 'save'});
+        const actions = new Gio.SimpleActionGroup();
+        actions.add_action(saveAction);
+        window.insert_action_group('prefs', actions);
+        const shortcuts = new Gtk.ShortcutController({scope: Gtk.ShortcutScope.MANAGED});
+        shortcuts.add_shortcut(new Gtk.Shortcut({
+            trigger: Gtk.ShortcutTrigger.parse_string('<Control>s'),
+            action: Gtk.NamedAction.new('prefs.save'),
+        }));
+        window.add_controller(shortcuts);
+
+        /** One tab, with the save banner at its top, outside its scrolled content. */
+        const createPage = (title, iconName) => {
+            const page = new Adw.PreferencesPage({title, icon_name: iconName});
+            page.set_banner(new Adw.Banner({
+                title: 'Save your changes to apply them',
+                button_label: 'Save',
+                button_style: Adw.BannerButtonStyle.SUGGESTED,
+                action_name: 'prefs.save',
+                revealed: true,
+            }));
+            return page;
+        };
+        const page = createPage('Pull requests', 'greenlight-pr-gtk-symbolic');
+        const agentsPage = createPage('Agents', 'power-profile-balanced-symbolic');
+        const aboutPage = createPage('About', 'help-about-symbolic');
+
         const monitoringGroup = new Adw.PreferencesGroup({
             title: 'Monitoring',
             description: 'Greenlight uses the installed gh CLI and its current authentication.',
@@ -210,6 +240,13 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 step_increment: 5,
                 value: settings.get_int('agent-quota-threshold'),
             }),
+            // The default policy clamps invalid text to 50; this one keeps the last value.
+            update_policy: Gtk.SpinButtonUpdatePolicy.IF_VALID,
+        });
+        // IF_VALID alone accepts 83.5: only a whole number is a value.
+        thresholdRow.connect('input', () => {
+            const text = thresholdRow.get_text().trim();
+            return /^\d+$/.test(text) ? [true, Number(text)] : Gtk.INPUT_ERROR;
         });
         quotaGroup.add(thresholdRow);
 
@@ -308,7 +345,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         let cancellable = new Gio.Cancellable();
         let taskGeneration = 0;
         let ghBusy = false;
-        let saveButton = null;
 
         const updateOwnerStatus = (message = '') => {
             const activeCount = [...owners.values()].filter(owner => owner.enabled).length;
@@ -380,7 +416,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
          * Focuses what `resolve` returns once the widgets are back in the window, then scrolls it
          * into view once the new layout is done. A widget removed and added again in the same
          * tick can refuse the focus, hence the idle source; the tick callbacks wait for the
-         * layout, which comes after them in the frame that maps the blocks.
+         * layout, which comes after them in the frame that maps the blocks. Only the Pull
+         * requests tab takes a focus move: a move still pending when another tab is shown is
+         * dropped, and so is one whose answer lands while another tab is shown.
          */
         const focusLater = (resolve, saved = null) => {
             cancelPendingFocus();
@@ -389,7 +427,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             pending.idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
                 pending.idleId = 0;
                 const target = resolve();
-                if (!target || target.get_root() !== window) {
+                if (!target || target.get_root() !== window || window.get_visible_page() !== page) {
                     pendingFocus = null;
                     return GLib.SOURCE_REMOVE;
                 }
@@ -427,6 +465,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         });
         clickGesture.connect('pressed', () => cancelPendingFocus());
         window.add_controller(clickGesture);
+        window.connect('notify::visible-page', () => cancelPendingFocus());
 
         /** Keeps each block's move buttons in step with its place: no up first, no down last. */
         const updateMoveButtons = () => {
@@ -470,8 +509,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const ownerButtons = [...owners.values()].map(owner => owner.discoverButton);
             for (const button of [discoverButton, addButton, ...ownerButtons])
                 button?.set_sensitive(!ghBusy);
-            if (saveButton)
-                saveButton.set_sensitive(!ghBusy);
+            saveAction.set_enabled(!ghBusy);
         };
 
         /** Creates an owner's block with its header; fillOwnerGroup() builds its rows. */
@@ -526,7 +564,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 group.set_description(ownerDescription(owner));
                 updateOwnerStatus();
             });
-            // Removal, like every change here, only applies on Save preferences.
+            // Removal, like every change here, only applies on Save.
             removeButton.connect('clicked', () => {
                 // GTK drops the focus with the removed subtree: pick the target first, the block
                 // that takes this one's place, or the one above when this was the last.
@@ -669,7 +707,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         }
 
         /**
-         * Lays the owner blocks out in order, between the owners group and the Save group. The
+         * Lays the owner blocks out in order, after the owners group. The
          * blocks leave the window and come back, which drops the focus: it returns to the widget
          * that held it, or to `starter`, the button of the task that asked for the layout.
          */
@@ -679,8 +717,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const text = captureText(focused);
             for (const group of ownerGroups.splice(0))
                 page.remove(group);
-            page.remove(saveGroup);
-            page.remove(aboutGroup);
 
             for (const owner of owners.values()) {
                 const group = owner.group ?? createOwnerGroup(owner);
@@ -688,8 +724,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 page.add(group);
             }
 
-            page.add(saveGroup);
-            page.add(aboutGroup);
             updateMoveButtons();
             updateOwnerStatus();
             updateGhButtons();
@@ -849,72 +883,68 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         addButton.connect('clicked', addOwner);
         ownerEntry.connect('activate', addOwner);
 
-        saveButton = new Gtk.Button({label: 'Save preferences', valign: Gtk.Align.CENTER});
-        saveButton.add_css_class('suggested-action');
-        const saveRow = new Adw.ActionRow({
-            title: 'Save preferences',
-            subtitle: 'Apply owner, repository, author, refresh, shortcut, and quota settings together.',
-        });
-        saveRow.add_suffix(saveButton);
-        saveRow.set_activatable_widget(saveButton);
-        const saveGroup = new Adw.PreferencesGroup();
-        saveGroup.add(saveRow);
-        saveButton.connect('clicked', () => {
+        saveAction.connect('activate', () => {
             const shortcutText = shortcutRow.get_text().trim();
             const [validShortcut, shortcutKey, shortcutModifiers] = Gtk.accelerator_parse(shortcutText);
             if (shortcutText && (!validShortcut || shortcutKey === 0)) {
+                // Nothing is written, whichever tab the save came from: show the field.
                 shortcutRow.add_css_class('error');
-                shortcutRow.grab_focus();
+                window.set_visible_page(page);
+                focusLater(() => shortcutRow);
                 return;
             }
 
-            // One batch, and only the keys that differ: the shell refreshes from gh on the
-            // owner and author keys without comparing values, and an order-only save must not.
-            const setString = (key, value) => {
-                if (settings.get_string(key) !== value)
-                    settings.set_string(key, value);
-            };
-            const setBoolean = (key, value) => {
-                if (settings.get_boolean(key) !== value)
-                    settings.set_boolean(key, value);
-            };
-            const setInt = (key, value) => {
-                if (settings.get_int(key) !== value)
-                    settings.set_int(key, value);
-            };
-            const setStrv = (key, value) => {
-                if (JSON.stringify(settings.get_strv(key)) !== JSON.stringify(value))
-                    settings.set_strv(key, value);
-            };
-
-            settings.delay();
+            // A fresh settings object per save: its delay() is permanent, so it is never used
+            // after its apply(). Only the keys that differ are written: the shell refreshes
+            // from gh on the owner and author keys without comparing values, and an order-only
+            // save must not.
+            const saved = this.getSettings();
+            const values = [];
             if (ownerSettingsTouched) {
                 // Both sides in kind-then-login order: a save that only moved blocks, or put
                 // the owners back as they were, leaves owner-filters alone and refreshes nothing.
-                const saved = ownerFiltersToSave(
-                    readOwnerFilters(settings), [...owners.values()].map(savedOwner)
+                const ownerFilters = ownerFiltersToSave(
+                    readOwnerFilters(saved), [...owners.values()].map(savedOwner)
                 );
-                if (saved !== null) {
-                    settings.set_string('owner-filters', saved);
-                    setBoolean('owner-filters-configured', true);
+                if (ownerFilters !== null) {
+                    values.push({key: 'owner-filters', value: ownerFilters},
+                        {key: 'owner-filters-configured', value: true});
                 }
             }
-            setStrv('owner-order', [...owners.values()].map(owner => owner.login));
-            setString('author-filter', authorEntry.get_text().trim());
+            values.push({key: 'owner-order', value: [...owners.values()].map(owner => owner.login)});
+            values.push({key: 'author-filter', value: authorEntry.get_text().trim()});
             const selectedInterval = intervalRow.get_selected();
             if (selectedInterval < INTERVALS.length)
-                setInt('refresh-interval', INTERVALS[selectedInterval]);
-            setStrv('quick-open-shortcut', shortcutText
+                values.push({key: 'refresh-interval', value: INTERVALS[selectedInterval]});
+            values.push({key: 'quick-open-shortcut', value: shortcutText
                 ? [Gtk.accelerator_name(shortcutKey, shortcutModifiers)]
-                : []);
+                : []});
             for (const [provider, row] of Object.entries(quotaRows))
-                setBoolean(PROVIDERS[provider].setting, row.get_active());
+                values.push({key: PROVIDERS[provider].setting, value: row.get_active()});
             const selectedQuotaInterval = quotaIntervalRow.get_selected();
             if (selectedQuotaInterval < QUOTA_INTERVALS.length)
-                setInt('agent-quota-interval', QUOTA_INTERVALS[selectedQuotaInterval]);
-            setInt('agent-quota-threshold', Math.round(thresholdRow.get_value()));
-            settings.apply();
-            window.close();
+                values.push({key: 'agent-quota-interval', value: QUOTA_INTERVALS[selectedQuotaInterval]});
+            // Reads the text of a field still being typed in; invalid text keeps the last value.
+            thresholdRow.update();
+            values.push({key: 'agent-quota-threshold', value: Math.round(thresholdRow.get_value())});
+
+            const plan = planSave(values, key => saved.get_value(key).deepUnpack(),
+                key => saved.is_writable(key));
+            if (plan.blockedKey === null) {
+                saved.delay();
+                for (const {key, value} of plan.writes) {
+                    if (Array.isArray(value))
+                        saved.set_strv(key, value);
+                    else if (typeof value === 'boolean')
+                        saved.set_boolean(key, value);
+                    else if (typeof value === 'number')
+                        saved.set_int(key, value);
+                    else
+                        saved.set_string(key, value);
+                }
+                saved.apply();
+            }
+            window.add_toast(new Adw.Toast({title: plan.message}));
         });
 
         const versionRow = new Adw.ActionRow({
@@ -941,16 +971,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         const aboutGroup = new Adw.PreferencesGroup({title: 'About'});
         aboutGroup.add(versionRow);
         aboutGroup.add(sourceRow);
+        aboutPage.add(aboutGroup);
 
         monitoringGroup.add(authorRow);
         monitoringGroup.add(intervalRow);
         page.add(monitoringGroup);
         page.add(quickOpenGroup);
-        page.add(quotaGroup);
         page.add(ownersGroup);
-        page.add(saveGroup);
-        page.add(aboutGroup);
+        agentsPage.add(quotaGroup);
+        // The pages go through add(): the shell needs a visible page once this method returns.
         window.add(page);
+        window.add(agentsPage);
+        window.add(aboutPage);
         renderOwners();
 
         window.connect('close-request', () => {

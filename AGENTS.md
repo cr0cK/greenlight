@@ -12,7 +12,7 @@ new `src/*.js` modules on its own.
 | Path | Role |
 |---|---|
 | `src/extension.js` | Panel indicator, refresh loop, notifications, menu, quick open, previews |
-| `src/prefs.js` | Adwaita preferences window; every setting is applied by **Save preferences** |
+| `src/prefs.js` | Adwaita preferences window in three tabs; every setting is applied by the banner's **Save** (or `Ctrl+S`) |
 | `src/filters.js` | Owner and repository filter storage |
 | `src/order.js` | Owner section order, and the unsaved row order of the preferences (pure) |
 | `src/quickopen.js` | Quick open parsing, fuzzy repository ranking, recent repositories (pure) |
@@ -20,6 +20,7 @@ new `src/*.js` modules on its own.
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |
 | `src/quotas.js` | Agent quota parsing, labels, pace, and notification periods (pure) |
 | `src/agents.js` | Finds and runs the claude, codex, and agy CLIs for quotas; shared by extension and prefs |
+| `src/save.js` | The save batch of the preferences window: values that differ, locked keys refuse it (pure) |
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |
 | `tests/` | `node --test` suites for the pure modules |
