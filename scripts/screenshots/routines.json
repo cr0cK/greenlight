@@ -1,0 +1,12 @@
+{"timers": [
+  {"name": "backup-photos", "description": "Back up the photo library every 15 minutes",
+   "state": "succeeded", "agoSec": 240, "nextInSec": 660, "nextKind": "monotonic"},
+  {"name": "clean-downloads", "description": "Empty old downloads on Monday and Thursday",
+   "state": "no-run", "nextInSec": 172800},
+  {"name": "nightly-report", "description": "Build the nightly report",
+   "state": "succeeded", "agoSec": 14400, "nextInSec": 72000},
+  {"name": "sync-mail", "description": "Fetch mail every 30 minutes",
+   "state": "failed", "agoSec": 720, "exitStatus": 1, "nextInSec": 1080, "nextKind": "monotonic"},
+  {"name": "systemd-tmpfiles-clean", "description": "Daily Cleanup of User's Temporary Directories",
+   "state": "succeeded", "agoSec": 3600, "nextInSec": 21900}
+]}

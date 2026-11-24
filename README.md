@@ -12,7 +12,7 @@ Greenlight answers both from one click in the top bar. You don't need a browser 
 dashboard, and it stores no token.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges, above the Claude, Codex, and Antigravity quota gauges" width="49%">
+  <img src="docs/screenshots/menu.png" alt="Greenlight menu listing pull requests grouped by owner, with CI badges, above the Claude, Codex, and Antigravity quota gauges and the watched routines" width="49%">
   <img src="docs/screenshots/quick-open.png" alt="Quick open listing one number in three repositories, newest first, with a pull request preview with its CI bar and description" width="49%">
 </p>
 
@@ -23,6 +23,8 @@ dashboard, and it stores no token.
 - **Agent quota gauges.** Your Claude, Codex, and Antigravity (Gemini) 5-hour and weekly
   windows, each with a pace mark that shows whether you spend faster than the window allows,
   and an alert at your threshold.
+- **Routines.** The systemd user timers you pick, in the menu: how each one's last run ended
+  and when it runs next.
 - **Quick open.** <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>, type `api 42`, check the
   preview, and press Enter.
 - **No credentials.** Greenlight reuses `gh` and each agent's own CLI. It never reads, stores,
@@ -32,6 +34,7 @@ dashboard, and it stores no token.
 
 - GNOME Shell 49 or 50
 - GitHub CLI (gh), authenticated for the account and host you want to monitor
+- Optional, for routines: systemd user timers (`systemctl --user list-timers`)
 - Optional, for agent quotas: Claude Code on a Claude subscription, the Codex CLI signed in with ChatGPT, and/or the Antigravity CLI (`agy`) signed in with Google
 
 Check the GitHub CLI session with:
@@ -67,7 +70,7 @@ gnome-extensions enable greenlight@cr0ck.github.io
 
 ### Set up
 
-Open **Preferences** from the menu. It has three tabs, **Pull requests**, **Agents**, and **About**:
+Open **Preferences** from the menu. It has four tabs, **Pull requests**, **Agents**, **Routines**, and **About**:
 
 1. On **Pull requests**, **Discover accounts** loads your account and organizations from `gh`. To
    add another owner, enter its login.
@@ -75,7 +78,9 @@ Open **Preferences** from the menu. It has three tabs, **Pull requests**, **Agen
 3. Move each owner's block with its up and down buttons: the menu lists the owners in that order.
 4. On **Agents**, turn on the agents you use. Each switch checks its CLI first. If the CLI is
    missing, signed out, or not on a subscription, the switch stays off and says what to do.
-5. Once something changed, a banner at the top of every tab names the tabs with unsaved changes.
+5. On **Routines**, turn on the systemd user timers you want in the menu. Nothing is watched by
+   default.
+6. Once something changed, a banner at the top of every tab names the tabs with unsaved changes.
    Click **Save** in it, or press <kbd>Ctrl</kbd>+<kbd>S</kbd>. One save applies every tab, and the
    window stays open. Closing the window drops what was not saved.
 
@@ -86,8 +91,9 @@ Until you configure owners, Greenlight watches every repository `gh` can see.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/preferences-agents.png" alt="Greenlight preferences, Agents tab: the Claude, Codex, and Antigravity switches, refresh interval, and notification threshold" width="48%">
-  <img src="docs/screenshots/preferences-about.png" alt="Greenlight preferences, About tab: the installed version and the source code link" width="48%">
+  <img src="docs/screenshots/preferences-agents.png" alt="Greenlight preferences, Agents tab: the Claude, Codex, and Antigravity switches, refresh interval, and notification threshold" width="32%">
+  <img src="docs/screenshots/preferences-routines.png" alt="Greenlight preferences, Routines tab: one switch per systemd user timer, with its description and next run" width="32%">
+  <img src="docs/screenshots/preferences-about.png" alt="Greenlight preferences, About tab: the installed version and the source code link" width="32%">
 </p>
 
 ### Pull requests
@@ -140,6 +146,24 @@ Greenlight asks the agents' own CLIs, which it looks for in `PATH` and then in `
 - `claude -p /usage` uses no tokens and saves no session.
 - `codex app-server` reads the Codex rate limits.
 - `agy -p /usage` reads the Gemini models only. A signed-out `agy` never opens a browser.
+
+### Routines
+
+The **Routines** section lists the timers you turned on, by name, below the agent quotas. Each
+row shows:
+
+- **The last run**: a green check and `ran 4 min ago`, a red cross and `failed 12 min ago · exit
+  code 1`, a yellow dot and `running since 12:02`, or a grey dash for a run skipped by a
+  condition (`skipped`), a timer that never ran (`no run recorded`), a result Greenlight cannot
+  read (`result unknown`), or a service systemd does not load (`service not loaded`).
+- **The next run**: `next in 11 min`, `next Thu 13:00`, or `not scheduled`.
+
+With more than six routines the rows scroll. The section hides while quick open has text.
+
+Greenlight reads systemd's own D-Bus API and never changes a unit. It listens to systemd only
+while a routine is watched, and updates a row within a second of a change. A row dims when systemd
+cannot be read, and the section says why. systemd keeps its history in memory: after your systemd
+restarts (a new login without lingering), a routine reads `no run recorded` until it runs.
 
 ### When something goes wrong
 

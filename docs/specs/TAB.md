@@ -2,6 +2,7 @@
 code: TAB
 status: active
 version: v1.5
+amended: [v1.6]
 created: 2026-11-24
 builds-on: PRM
 tracking: "#57"
@@ -10,7 +11,7 @@ tracking: "#57"
 # Greenlight — TAB specification
 
 TAB splits the preferences window into tabs, one per part of Greenlight (pull requests, agents,
-and the version), with one save that applies every tab, offered by a banner at the top of every
+routines, and the version), with one save that applies every tab, offered by a banner at the top of every
 tab while changes are unsaved. Greenlight is growing from a pull request monitor into a view of
 what the agents do, and one long page no longer scales. TAB builds on PRM, QOP, QTA, ORD, and
 ABT, whose rules all still apply except the ones it replaces, which TAB-P1 and TAB-P2 rewrite in
@@ -25,15 +26,17 @@ is [`mockups/TAB.html`](mockups/TAB.html).
 
 ## Window
 
-- The preferences window has three tabs, in this order: **Pull requests**, **Agents**, and
-  **About**. A later spec that adds a tab inserts it before **About**. (PREFS-PR)
+- The preferences window has four tabs, in this order: **Pull requests**, **Agents**,
+  **Routines**, and **About**. A later spec that adds a tab inserts it before **About**.
+  (PREFS-PR)
 - The tabs are the pages of GNOME Shell's own preferences window (`Adw.PreferencesWindow`, one
   `Adw.PreferencesPage` per tab added with `window.add()`), so the tab switcher, its place in the
   header bar, and the bottom bar it moves to in a narrow window are Adwaita's own, at Adwaita's
   own width threshold. (PREFS-NARROW)
 - Each tab has a title and a symbolic icon: **Pull requests** uses the pull request glyph of the
   panel indicator, drawn for GTK as `greenlight-pr-gtk-symbolic` (see TAB-P1's notes); **Agents** uses
-  `power-profile-balanced-symbolic`; **About** uses `help-about-symbolic`.
+  `power-profile-balanced-symbolic`; **Routines** uses `alarm-symbolic`; **About** uses
+  `help-about-symbolic`.
 - The window always opens on **Pull requests**. It does not remember the last tab.
 - Each tab scrolls on its own. Switching tabs keeps each tab's scroll position and every unsaved
   value in it, except as **Save** says for an invalid shortcut.
@@ -48,6 +51,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
 - **Agents** holds QTA's **Agent quotas** group: the **Claude**, **Codex**, and **Antigravity**
   switches, **Refresh every**, and **Notify at**, with their availability checks, which still
   start when the window opens, whatever tab is shown. (PREFS-AGENTS)
+- **Routines** holds RTN's **Routines** group: one switch per systemd user timer, read when the
+  window opens. (PREFS-ROUTINES)
 - **About** holds ABT's **Version** and **Source code** rows. It has no setting. (PREFS-ABOUT)
 - The **Save preferences** row at the bottom of the page is gone: the banner below replaces it.
 - ORD's focus moves after **Add**, **Discover accounts**, a move, or a trash icon apply only
@@ -58,9 +63,9 @@ is [`mockups/TAB.html`](mockups/TAB.html).
 
 - While at least one tab has unsaved changes (see **Unsaved changes**), every tab shows a banner
   at its top, outside its scrolled content (`Adw.PreferencesPage`'s `banner`), titled
-  `Unsaved changes in Pull requests` or `Unsaved changes in Pull requests and Agents`, the tabs
-  named in tab order (with three, `Pull requests, Agents, and Routines`), with a
-  **Save** button in the suggested style. Without unsaved changes, no banner shows. (PREFS-DIRTY)
+  `Unsaved changes in Pull requests`, `Unsaved changes in Pull requests and Agents`, or
+  `Unsaved changes in Pull requests, Agents, and Routines`, the tabs with changes named in tab
+  order, with a **Save** button in the suggested style. Without unsaved changes, no banner shows. (PREFS-DIRTY)
 - The banner's **Save** is insensitive while a `gh` task of the **Pull requests** tab runs (PRM:
   only one runs at a time, and its buttons and the save wait for it); the banner stays.
   (PREFS-BUSY)
@@ -131,6 +136,10 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     mode or a repository switch that changes the stored scope, and a move are changes. A filter
     text, an open or closed list, and a scroll position are not settings.
 - The settings of **Agents** are the three switches, **Refresh every**, and **Notify at**.
+- The setting of **Routines** is the set of watched timers (RTN): its baseline is the stored
+  `watched-routines`, and it has unsaved changes when the set of switches on differs from it,
+  whatever the order. A read of systemd that is still running or that failed changes nothing: the
+  stored timers stand, and saving another tab keeps `watched-routines` as stored.
 - **About** never has unsaved changes.
 
 ## Closing

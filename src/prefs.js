@@ -23,7 +23,9 @@ import {
 } from './order.js';
 import {readQuota} from './agents.js';
 import {PROVIDERS} from './quotas.js';
+import {normalizeWatched, readRoutine, routineName, sortRoutines, timerSubtitle} from './routines.js';
 import {planSave} from './save.js';
+import {errorMessage, readAllTimers} from './systemd.js';
 
 const INTERVALS = [30, 60, 120, 300, 600];
 // Repository scope modes, in ComboRow order.
@@ -178,6 +180,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         };
         const page = createPage('Pull requests', 'greenlight-pr-gtk-symbolic');
         const agentsPage = createPage('Agents', 'power-profile-balanced-symbolic');
+        const routinesPage = createPage('Routines', 'alarm-symbolic');
         const aboutPage = createPage('About', 'help-about-symbolic');
 
         const monitoringGroup = new Adw.PreferencesGroup({
@@ -294,6 +297,83 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     // Cancelled when the window closes.
                 });
         }
+
+
+        const routinesGroup = new Adw.PreferencesGroup({
+            title: 'Routines',
+            description: 'Show your systemd user timers in the menu. Greenlight reads them from ' +
+                'systemd and never changes a unit.',
+        });
+        routinesPage.add(routinesGroup);
+        // The timers as stored. While systemd is being read, and until it answers, they stay watched.
+        const storedRoutines = normalizeWatched(settings.get_strv('watched-routines'));
+        // One switch per timer, by unit name, once the read answered or failed.
+        const routineSwitches = new Map();
+        let routinesRead = false;
+        let routineRows = [];
+        const setRoutineRows = rows => {
+            for (const row of routineRows)
+                routinesGroup.remove(row);
+            routineRows = rows;
+            for (const row of rows)
+                routinesGroup.add(row);
+        };
+        const createRoutineSwitch = (unit, subtitle) => {
+            const row = new Adw.SwitchRow({
+                title: routineName(unit),
+                subtitle,
+                active: storedRoutines.includes(unit),
+            });
+            routineSwitches.set(unit, row);
+            row.connect('notify::active', refreshUnsaved);
+            return row;
+        };
+        setRoutineRows([new Adw.ActionRow({title: 'Reading systemd timers…'})]);
+
+        /** The timers systemd returned, with the stored ones it did not, sorted by name. */
+        const showTimers = entries => {
+            const now = Date.now();
+            const nowReal = GLib.get_real_time();
+            const nowMonotonic = GLib.get_monotonic_time();
+            const rows = new Map(entries.map(entry => {
+                if (entry.error !== undefined)
+                    return [entry.unit, {name: routineName(entry.unit), subtitle: entry.error}];
+                const routine = readRoutine(entry.raw, nowReal, nowMonotonic);
+                return [entry.unit, {name: routine.name, subtitle: timerSubtitle(routine, now)}];
+            }));
+            for (const unit of storedRoutines) {
+                if (!rows.has(unit))
+                    rows.set(unit, {name: routineName(unit), subtitle: 'Not loaded by systemd'});
+            }
+            const shown = sortRoutines([...rows].map(([unit, row]) => ({...row, unit})))
+                .map(({unit, subtitle}) => createRoutineSwitch(unit, subtitle));
+            if (entries.length === 0) {
+                shown.push(new Adw.ActionRow({
+                    title: 'No systemd user timers',
+                    subtitle: 'Create one with systemctl --user, then reopen Preferences.',
+                }));
+            }
+            setRoutineRows(shown);
+        };
+
+        const routinesCancellable = new Gio.Cancellable();
+        readAllTimers(routinesCancellable).then(entries => {
+            // The window closed while systemd was read.
+            if (routinesCancellable.is_cancelled())
+                return;
+            showTimers(entries);
+            routinesRead = true;
+            refreshUnsaved();
+        }, error => {
+            if (routinesCancellable.is_cancelled())
+                return;
+            setRoutineRows([
+                new Adw.ActionRow({title: 'Could not read systemd timers', subtitle: errorMessage(error)}),
+                ...storedRoutines.map(unit => createRoutineSwitch(unit, 'Stored; not read from systemd')),
+            ]);
+            routinesRead = true;
+            refreshUnsaved();
+        });
 
         const ownersGroup = new Adw.PreferencesGroup({
             title: 'Accounts and organizations',
@@ -991,6 +1071,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         // The pages go through add(): the shell needs a visible page once this method returns.
         window.add(page);
         window.add(agentsPage);
+        window.add(routinesPage);
         window.add(aboutPage);
 
         /** Classifies the shortcut text: blank, valid (with its canonical name), or invalid. */
@@ -1011,6 +1092,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 .map(([provider, row]) => [PROVIDERS[provider].setting, row.get_active()])),
             quotaInterval: QUOTA_INTERVALS[quotaIntervalRow.get_selected()],
             threshold: thresholdValue(thresholdRow.get_text(), Math.round(thresholdRow.get_value())),
+            // A read that is running, or that failed, changes nothing: the stored timers stand.
+            routines: routinesRead
+                ? [...routineSwitches].filter(([, row]) => row.get_active()).map(([unit]) => unit)
+                : storedRoutines,
         }));
 
         // What the window shows when it opens is its baseline; its own adjustments of stored
@@ -1053,6 +1138,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             taskGeneration++;
             cancellable.cancel();
             quotaCancellable.cancel();
+            routinesCancellable.cancel();
             cancelPendingFocus();
             return false;
         });

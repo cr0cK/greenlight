@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regenerates the README screenshots in docs/screenshots/. Runs the checkout in a headless
 # GNOME Shell on a private D-Bus session, with scripts/screenshots/gh, claude, codex, and agy standing
-# in for the real CLIs, so the images show fictional data and never a real account.
+# in for the real CLIs, and systemd-mock for the user's systemd, so the images show fictional data
+# and never a real account or machine.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,8 +36,10 @@ if [[ ${1:-} != --inside ]]; then
 fi
 
 SHELL_PID=
+MOCK_PID=
 cleanup() {
     [[ -n $SHELL_PID ]] && kill "$SHELL_PID" 2>/dev/null && wait "$SHELL_PID" 2>/dev/null
+    [[ -n $MOCK_PID ]] && kill "$MOCK_PID" 2>/dev/null
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -58,6 +61,14 @@ export default class {
 }
 JS
 
+# The private bus has no systemd: the mock serves the fictional timers of routines.json on it.
+systemd-mock "$ROOT/scripts/screenshots/routines.json" >"$WORK/systemd-mock.log" 2>&1 &
+MOCK_PID=$!
+for _ in $(seq 50); do
+    grep -q ready "$WORK/systemd-mock.log" && break
+    sleep 0.1
+done
+
 gs() { gsettings set "$@"; }
 gs org.gnome.shell enabled-extensions "['$UUID', 'unsafe@screenshots']"
 gs org.gnome.shell disable-user-extensions false
@@ -72,6 +83,8 @@ gs $EXT owner-order "['acme', 'octo-org', 'octocat']"
 gs $EXT claude-quota-enabled true
 gs $EXT codex-quota-enabled true
 gs $EXT agy-quota-enabled true
+# old-mirror is not loaded by systemd: the menu leaves it out, and the preferences keep its row.
+gs $EXT watched-routines "['backup-photos.timer', 'clean-downloads.timer', 'nightly-report.timer', 'old-mirror.timer', 'sync-mail.timer']"
 gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null,"excludedRepositories":["octocat/hello-world"]}]'
 
 # The menu captures need an 800 px screen, as the menu height follows it; the preferences window
@@ -140,6 +153,7 @@ wait_for "Main.extensionManager.lookup('$UUID')?.state === 1"
 STATE="Main.extensionManager.lookup('$UUID').stateObj"
 wait_for "${STATE}._loading === false && ${STATE}._prs.length === 5"
 wait_for "!!${STATE}._quotaState.claude?.windows && !!${STATE}._quotaState.codex?.windows && !!${STATE}._quotaState.agy?.windows"
+wait_for "${STATE}._routineWatcher.firstRead === true && ${STATE}._routineRows.box.get_children().length === 4"
 
 shell_eval "${STATE}._indicator.menu.open()" >/dev/null
 capture_menu menu.png
@@ -202,6 +216,12 @@ shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 520)" >/dev/null
 wait_for "$PREFS.get_frame_rect().height === 520"
 sleep 1.5
 capture_window preferences-agents.png
+press_keys $RIGHT
+press_keys $RETURN
+# The Routines tab reads the mock when the window opens: it lists its timers by now.
+shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 520)" >/dev/null
+sleep 1.5
+capture_window preferences-routines.png
 press_keys $RIGHT
 press_keys $RETURN
 shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 340)" >/dev/null

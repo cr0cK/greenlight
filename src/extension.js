@@ -27,6 +27,16 @@ import {
 import {parseMarkdown} from './markdown.js';
 import {readQuota} from './agents.js';
 import {
+    STATES as ROUTINE_STATES,
+    accessibleName as routineAccessibleName,
+    nextText,
+    normalizeWatched,
+    readRoutine,
+    sortRoutines,
+    statusText,
+} from './routines.js';
+import {RoutineWatcher} from './systemd.js';
+import {
     PROVIDERS,
     formatAge,
     forgetPeriods,
@@ -62,6 +72,10 @@ const QUOTA_BAR_WIDTH = 160;
 const QUOTA_ITEM_STYLE = 'padding-top: 3px; padding-bottom: 3px;';
 // Opening the menu refreshes quotas last tried longer ago than this.
 const QUOTA_STALE_SECONDS = 300;
+// The routine rows scroll when there are more than this many single-line rows, and keep at
+// least this many in view when the screen is short.
+const ROUTINE_ROWS_VISIBLE = 6;
+const ROUTINE_ROWS_KEPT = 3;
 const QUOTE_COLORS = {
     note: '#4493f8',
     tip: '#3fb950',
@@ -329,6 +343,7 @@ export default class GreenlightExtension extends Extension {
         this._quotaNotified = [];
         this._quotaSourceId = 0;
         this._quotaShown = false;
+        this._routinesShown = false;
         this._loadQuotaCache();
 
         this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
@@ -370,9 +385,12 @@ export default class GreenlightExtension extends Extension {
                 this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
             this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
             this._settings.connect('changed::agent-quota-threshold', () => this._renderQuotas()),
+            this._settings.connect('changed::watched-routines', () => this._syncRoutines()),
         ];
+        this._routineWatcher = new RoutineWatcher(() => this._renderRoutines());
         this._renderMenu();
         this._renderQuotas();
+        this._syncRoutines();
         this._refresh();
         this._scheduleRefresh();
         this._refreshQuotas();
@@ -396,6 +414,9 @@ export default class GreenlightExtension extends Extension {
         for (const state of Object.values(this._quotaState ?? {}))
             state.cancellable?.cancel();
         this._quotaState = null;
+        // Closes the connection to the session bus, and with it the Subscribe() of the routines.
+        this._routineWatcher?.destroy();
+        this._routineWatcher = null;
         for (const entry of this._processes.values()) {
             if (entry.timeoutId)
                 GLib.Source.remove(entry.timeoutId);
@@ -437,6 +458,11 @@ export default class GreenlightExtension extends Extension {
         this._contentScrollView = null;
         this._quotaSection = null;
         this._quotaSeparator = null;
+        this._routineSeparator = null;
+        this._routineSection = null;
+        this._routineNotices = null;
+        this._routineRows = null;
+        this._routineScrollView = null;
         this._pullRequestItems = [];
         this._cancellable = null;
     }
@@ -887,7 +913,7 @@ export default class GreenlightExtension extends Extension {
             .map(provider => [provider, this._quotaState[provider]])
             .filter(([, state]) => state?.windows && state.status !== 'unavailable');
         this._quotaShown = shown.length > 0;
-        this._updateQuotaVisibility();
+        this._updateSectionVisibility();
         if (shown.length === 0)
             return;
 
@@ -923,11 +949,17 @@ export default class GreenlightExtension extends Extension {
         this._quotaSection.addMenuItem(footer);
     }
 
-    /** Quick open needs the room for its suggestions and preview while it has text. */
-    _updateQuotaVisibility() {
+    /**
+     * Quick open needs the room for its suggestions and preview while it has text. Otherwise one
+     * separator sits between two shown neighbors among the list, the quota section, the routines
+     * section, and Preferences…: the one before Preferences… always stays.
+     */
+    _updateSectionVisibility() {
         const typing = this._quickOpenEntry.get_text().trim() !== '';
         this._quotaSection.actor.visible = !typing;
-        this._quotaSeparator.visible = this._quotaShown && !typing;
+        this._routineSection.actor.visible = this._routinesShown && !typing;
+        this._quotaSeparator.visible = (this._quotaShown || this._routinesShown) && !typing;
+        this._routineSeparator.visible = this._quotaShown && this._routinesShown && !typing;
     }
 
     /** A static row of the quota section: no activation, hover, or focus. */
@@ -1012,6 +1044,124 @@ export default class GreenlightExtension extends Extension {
         item.accessible_name = [name, window.label, percent ? percent + ' used' : '',
             pace !== null ? Math.round(pace * 100) + ' % of the window elapsed' : '', reset]
             .filter(Boolean).join(', ');
+        return item;
+    }
+
+    /**
+     * The persistent parts of the routines section: the heading, the lines about reading systemd,
+     * and the rows in a scroll area that caps at ROUTINE_ROWS_VISIBLE single-line rows.
+     */
+    _buildRoutineSection() {
+        this._routineSection = new PopupMenu.PopupMenuSection();
+        const heading = new PopupMenu.PopupMenuItem('Routines', {reactive: false, can_focus: false});
+        heading.set_style(QUOTA_ITEM_STYLE);
+        heading.label.set_style('font-weight: 600; padding-top: 2px;');
+        this._routineSection.addMenuItem(heading);
+        this._routineNotices = new PopupMenu.PopupMenuSection();
+        this._routineSection.addMenuItem(this._routineNotices);
+
+        this._routineRows = new PopupMenu.PopupMenuSection();
+        this._routineScrollView = new St.ScrollView({
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+        });
+        // Clear of the overlay scrollbar, as the pull request list is.
+        this._routineRows.box.style = 'padding-right: 12px;';
+        this._routineScrollView.set_child(this._routineRows.box);
+        this._routineScrollView._delegate = this._routineRows;
+        this._routineRows.actor = this._routineScrollView;
+        this._routineSection.addMenuItem(this._routineRows);
+    }
+
+    /** Hands the watched timers to the watcher: it connects to systemd only while any is watched. */
+    _syncRoutines() {
+        this._routineWatcher.setWatched(normalizeWatched(this._settings.get_strv('watched-routines')));
+        this._renderRoutines();
+    }
+
+    /**
+     * Lists the watched routines by name. Only the rows scroll; the heading and the lines about
+     * reading systemd stay outside. Ages and countdowns are computed here, on each read and each
+     * time the menu opens.
+     */
+    _renderRoutines() {
+        if (!this._routineSection)
+            return;
+        const watcher = this._routineWatcher;
+        this._routinesShown = watcher.watched.length > 0;
+        this._updateSectionVisibility();
+        this._routineNotices.removeAll();
+        this._routineRows.removeAll();
+        if (!this._routinesShown)
+            return;
+
+        const now = Date.now();
+        const nowReal = GLib.get_real_time();
+        const nowMonotonic = GLib.get_monotonic_time();
+        const routines = sortRoutines([...watcher.routines.values()].map(({raw, stale}) =>
+            ({...readRoutine(raw, nowReal, nowMonotonic), stale})));
+        // The cause of a failed read or of a vanished systemd, or what the first read waits for.
+        const notice = watcher.noOwner
+            ? 'systemd is not running'
+            : watcher.error
+                ? 'Could not read systemd: ' + watcher.error
+                : !watcher.firstRead
+                    ? 'Reading systemd…'
+                    : routines.length === 0 ? 'No watched routine is loaded by systemd.' : null;
+        if (notice) {
+            const item = this._createQuotaRow();
+            const label = createDimLabel(notice, {style: 'max-width: 34em; font-size: smaller;'});
+            wrapLabel(label);
+            item.add_child(label);
+            this._routineNotices.addMenuItem(item);
+        }
+        for (const routine of routines)
+            this._routineRows.addMenuItem(this._createRoutineItem(routine, now));
+        this._sizeRoutineRows();
+    }
+
+    /**
+     * The scroll area is as tall as its rows, up to ROUTINE_ROWS_VISIBLE single-line rows. On a
+     * short screen the pull request list shrinks first, and the rows only down to
+     * ROUTINE_ROWS_KEPT of them, so Preferences… stays in view without hiding the section.
+     */
+    _sizeRoutineRows() {
+        const rows = this._routineRows.box.get_children();
+        const rowHeight = rows.length > 0 ? rows[0].get_preferred_height(-1)[1] : 0;
+        this._routineScrollView.style = rows.length > ROUTINE_ROWS_KEPT
+            ? 'min-height: ' + Math.round(ROUTINE_ROWS_KEPT * rowHeight) + 'px; max-height: ' +
+                Math.round(ROUTINE_ROWS_VISIBLE * rowHeight) + 'px;'
+            : '';
+    }
+
+    /** One routine: its status icon, name, status text, and next run. A stale one is dimmed. */
+    _createRoutineItem(routine, now) {
+        const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
+        item.set_style(QUOTA_ITEM_STYLE);
+        const {icon, color} = ROUTINE_STATES[routine.state];
+        item.add_child(new St.Icon({
+            icon_name: icon,
+            style_class: 'popup-menu-icon',
+            style: 'color: ' + color + ';',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        item.add_child(new St.Label({
+            text: routine.name,
+            style: 'font-weight: bold; min-width: 9em; max-width: 14em;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        const status = routine.state === 'failed'
+            ? new St.Label({text: statusText(routine, now), style: 'color: ' + color + ';', y_align: Clutter.ActorAlign.CENTER})
+            : createDimLabel(statusText(routine, now));
+        status.x_expand = true;
+        item.add_child(status);
+        item.add_child(createDimLabel(nextText(routine, now) ?? '', {
+            style: 'min-width: 8em; font-size: smaller; text-align: right;',
+        }));
+        if (routine.stale)
+            item.opacity = 140;
+        item.accessible_name = routineAccessibleName(routine, now);
         return item;
     }
 
@@ -1114,13 +1264,19 @@ export default class GreenlightExtension extends Extension {
         this._contentSection.actor = this._contentScrollView;
         menu.addMenuItem(this._contentSection);
 
-        // The quota section sits below the list, between two separators; while it is hidden,
-        // the one before Preferences stays.
+        // The quota and routines sections sit below the list; the separators between two shown
+        // neighbors are updated by _updateSectionVisibility(), and the one before Preferences
+        // always stays.
         this._quotaSeparator = new PopupMenu.PopupSeparatorMenuItem();
         this._quotaSeparator.visible = false;
         menu.addMenuItem(this._quotaSeparator);
         this._quotaSection = new PopupMenu.PopupMenuSection();
         menu.addMenuItem(this._quotaSection);
+        this._routineSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this._routineSeparator.visible = false;
+        menu.addMenuItem(this._routineSeparator);
+        this._buildRoutineSection();
+        menu.addMenuItem(this._routineSection);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         const preferencesItem = new PopupMenu.PopupMenuItem('Preferences…');
         preferencesItem.connect('activate', () => this.openPreferences());
@@ -1147,7 +1303,7 @@ export default class GreenlightExtension extends Extension {
         const text = this._quickOpenEntry.clutter_text;
         text.connect('text-changed', () => {
             this._renderQuickOpen();
-            this._updateQuotaVisibility();
+            this._updateSectionVisibility();
         });
         text.connect('activate', () => {
             const suggestion = this._quickOpenSuggestions.find(candidate => candidate.url);
@@ -1170,6 +1326,8 @@ export default class GreenlightExtension extends Extension {
                 this._refreshStaleQuotas();
                 // Ages and countdowns move while the menu is closed.
                 this._renderQuotas();
+                this._routineWatcher.refresh();
+                this._renderRoutines();
             } else {
                 this._quickOpenEntry.set_text('');
                 this._setPreviewTarget(null);

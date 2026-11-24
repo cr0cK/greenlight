@@ -32,6 +32,7 @@ const opened = () => ({
     switches: {'claude-quota-enabled': true, 'codex-quota-enabled': false},
     quotaInterval: 60,
     threshold: 80,
+    routines: ['nightly-report.timer'],
 });
 const stored = opened().owners;
 const plan = (shown, baseline = opened(), pending = new Set(), storedOwners = stored) =>
@@ -221,4 +222,33 @@ test('the banner names the tabs in tab order', () => {
     assert.equal(bannerTitle(['Pull requests', 'Agents']), 'Unsaved changes in Pull requests and Agents');
     assert.equal(bannerTitle(['Pull requests', 'Agents', 'Routines']),
         'Unsaved changes in Pull requests, Agents, and Routines');
+});
+
+test('a switched timer is a change of Routines, saved sorted', () => {
+    const shown = change({routines: ['sync-mail.timer', 'nightly-report.timer']});
+    assert.deepEqual(plan(shown).tabs, ['Routines']);
+    assert.deepEqual(plan(shown).writes, [
+        {key: 'watched-routines', value: ['nightly-report.timer', 'sync-mail.timer']},
+    ]);
+    assert.deepEqual(plan(change({routines: []})).writes, [{key: 'watched-routines', value: []}]);
+});
+
+test('the order of the switched timers is not a change, and switching one back clears it', () => {
+    const baseline = change({routines: ['b.timer', 'a.timer']});
+    assert.deepEqual(plan(change({routines: ['a.timer', 'b.timer']}), baseline), {tabs: [], writes: [], invalidShortcut: false});
+    const switched = change({routines: ['b.timer', 'a.timer', 'c.timer']});
+    assert.deepEqual(plan(switched, baseline).tabs, ['Routines']);
+    assert.deepEqual(plan(change({routines: ['b.timer', 'a.timer']}), baseline).tabs, []);
+});
+
+test('a save from another tab keeps the watched timers as stored', () => {
+    const changes = plan(change({threshold: 90}));
+    assert.deepEqual(changes.tabs, ['Agents']);
+    assert.deepEqual(changes.writes, [{key: 'agent-quota-threshold', value: 90}]);
+});
+
+test('Routines joins the other tabs in tab order', () => {
+    const changes = plan(change({author: 'monalisa', threshold: 90, routines: []}));
+    assert.deepEqual(changes.tabs, ['Pull requests', 'Agents', 'Routines']);
+    assert.equal(bannerTitle(changes.tabs), 'Unsaved changes in Pull requests, Agents, and Routines');
 });
