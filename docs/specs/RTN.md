@@ -136,7 +136,8 @@ A routine's state is the first of these that applies, from its timer and its ser
   one **Routines** group, described `Show your systemd user timers in the menu. Greenlight reads
   them from systemd and never changes a unit.` (PREFS-ROUTINES)
 - The tab starts from the stored `watched-routines`, a list of timer unit names
-  (`nightly-report.timer`). Opening the window reads the timers once; while the read runs, the
+  (`nightly-report.timer`). Opening the window reads the timers once, over the preferences
+  process's own session bus connection, without `Subscribe()`; while the read runs, the
   group shows one row `Reading systemd timers…` and the stored routines stay watched.
 - Once read, the group lists the timers, sorted by name, one switch row each: the title is the
   routine's name, the subtitle its description, then ` · next <time>` with the next run as the
@@ -221,11 +222,12 @@ A routine's state is the first of these that applies, from its timer and its ser
 ## View logs
 
 - **View logs** (`utilities-terminal-symbolic`, accessible name `View <name> logs`) opens a
-  terminal that runs `env SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl --user -u <service> -e`, which opens the
+  terminal that runs `env SYSTEMD_PAGERSECURE=0 SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl --user -u <service> -e`, which opens the
   pager at the end of the routine's logs and keeps it open until `q`, even when the logs fit one
   screen (systemd's default `SYSTEMD_LESS` holds `F`, which quits at once then, and an inherited
-  `SYSTEMD_PAGER` or `PAGER` such as `cat` would not page at all; journalctl falls back to its
-  own pager list when `less` is missing). The variable is
+  `SYSTEMD_PAGER` or `PAGER` such as `cat` would not page at all; systemd honors
+  `SYSTEMD_PAGER` only with `SYSTEMD_PAGERSECURE` set). Without `less` installed, journalctl
+  prints the logs and the terminal may close; that is out of scope. The variables are
   part of the command because ptyxis and gnome-terminal run it in an already-running server that
   ignores the caller's environment. The menu closes. (MENU-FAILED)
 - The terminal is the first of these found, each looked up in `PATH`, then in `~/.local/bin`:
@@ -242,8 +244,8 @@ A routine's state is the first of these that applies, from its timer and its ser
 
 - A watched routine notifies once per **observed** failed run: the title `<name> failed`, the
   body `<cause> · <HH:MM>`, the time being the state's time. (NOTIF)
-- A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`
-  (or the timer's own `StateChangeTimestampMonotonic` for a timer failure), so a re-read does not notify it twice,
+- A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`,
+  and a timer failure by the timer's unit name and its own `StateChangeTimestampMonotonic`, so a re-read does not notify it twice,
   and a later failed run notifies again. Two watched timers that activate the same service share
   its failed runs: such a run notifies once, under the first name by sort order. A timer failure
   belongs to its timer alone and notifies under its name.
@@ -296,8 +298,9 @@ A routine's state is the first of these that applies, from its timer and its ser
      `ExecMainCode` and `ExecMainStatus`, `b` for `ConditionResult`, and `s` for the rest;
   2. a `PropertiesChanged` arrives within 2 seconds for each of: a manual start, a failed run
      (the probe service runs `false`), `systemctl --user reset-failed`, the timer elapsing, and
-     the timer's next run moving to a new future deadline after a run (a recurring timer,
-     `OnActiveSec=10s` with `OnUnitActiveSec=20s`, whose next run is read before and after);
+     the timer's next run moving to a new future deadline after a run: a recurring timer
+     (`OnActiveSec=10s` with `OnUnitActiveSec=20s`) whose own `PropertiesChanged`, on the
+     `Timer` interface, carries a `NextElapseUSecMonotonic` later than the one read before;
   3. `NextElapseUSecMonotonic` converted with `GLib.get_monotonic_time()` matches
      `systemctl --user list-timers` within a second.
   A check of 2 that fails makes Greenlight also re-read the watched routines every 30 seconds
@@ -329,15 +332,17 @@ A routine's state is the first of these that applies, from its timer and its ser
     screenshots run a mock: a small script under `scripts/screenshots/` that owns
     `org.freedesktop.systemd1` on that bus and serves the manager, unit, timer, and service
     interfaces above from a JSON fixture, written with `Gio` (in GJS, or in `python3` with
-    `gi.repository.Gio`, so no new dependency). It emits signals only after `Subscribe()`, can
+    `gi.repository.Gio`, so no new dependency). It emits `PropertiesChanged`, `UnitNew`,
+    `UnitRemoved`, and `Reloading` only after `Subscribe()`, and `JobRemoved` to a job's caller
+    whether or not it subscribed, as systemd does; it can refuse `Subscribe()` on request, can
     change a property and emit `PropertiesChanged` on request, can hold a reply, and can release
     and take back its bus name.
   - Call `GetAll` with `Gio.DBusConnection.call` and a cancellable per read rather than
     `Gio.DBusProxy`, whose cache holds one interface and is invalidated without values. Watch
     the name with `Gio.bus_watch_name_on_connection` on Greenlight's own connection
     (`Gio.DBusConnection.new_for_address` with `Gio.dbus_address_get_for_bus_sync(SESSION)` and
-    the `AUTHENTICATION_CLIENT | MESSAGE_BUS_CONNECTION` flags). The mock emits `JobRemoved` to
-    a job's caller whether or not it subscribed, as systemd does.
+    the `AUTHENTICATION_CLIENT | MESSAGE_BUS_CONNECTION` flags). Listen to `JobRemoved` whether or
+    not `Subscribe()` succeeded.
   - `GLib.get_monotonic_time()` is `CLOCK_MONOTONIC` in microseconds, the clock of
     `NextElapseUSecMonotonic` (systemd's `dbus-timer.c` converts its boottime deadline with
     `timer_next_elapse_monotonic()`) and of `StateChangeTimestampMonotonic`; prototype check 3
@@ -363,9 +368,9 @@ A routine's state is the first of these that applies, from its timer and its ser
     running turns the row **Running** with no error line, even past 30 seconds; a quick oneshot
     that ends before the re-read reads **Succeeded**; a `failed` job result shows **Failed** and no
     `Could not start` line; a `dependency` job result, a refused call, and a held reply each
-    show their `Could not start` line; a timer with `OnUnitActiveSec=` shows the next run the mock reports
+    show their `Could not start` line, also with the mock refusing `Subscribe()`; a timer with `OnUnitActiveSec=` shows the next run the mock reports
     after the start; **View logs** starts the first terminal of a scratch `PATH` holding stub
-    terminals that log their arguments, which include `env SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl`, a stub that fails to start shows the
+    terminals that log their arguments, which include `env SYSTEMD_PAGERSECURE=0 SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl`, a stub that fails to start shows the
     `Could not open a terminal` line, and with none, the `No terminal found` line. Screenshots,
     and no `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` regenerates `menu.png` with the buttons.
