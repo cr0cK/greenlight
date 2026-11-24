@@ -5,8 +5,15 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {ownerFiltersToSave, readOwnerFilters} from './filters.js';
+import {readOwnerFilters} from './filters.js';
 import {describeGhFailure} from './github.js';
+import {
+    bannerTitle,
+    classifyShortcut,
+    normalizationsAtOpen,
+    planChanges,
+    thresholdValue,
+} from './changes.js';
 import {
     buttonFocusedAfterMove,
     canMoveOwnerRow,
@@ -155,15 +162,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         window.add_controller(shortcuts);
 
         /** One tab, with the save banner at its top, outside its scrolled content. */
+        const banners = [];
         const createPage = (title, iconName) => {
             const page = new Adw.PreferencesPage({title, icon_name: iconName});
-            page.set_banner(new Adw.Banner({
-                title: 'Save your changes to apply them',
+            // Shown by refreshUnsaved() only while a tab has unsaved changes.
+            const banner = new Adw.Banner({
                 button_label: 'Save',
                 button_style: Adw.BannerButtonStyle.SUGGESTED,
                 action_name: 'prefs.save',
-                revealed: true,
-            }));
+                revealed: false,
+            });
+            banners.push(banner);
+            page.set_banner(banner);
             return page;
         };
         const page = createPage('Pull requests', 'greenlight-pr-gtk-symbolic');
@@ -204,7 +214,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             title: 'Keyboard shortcut (empty disables it)',
             text: settings.get_strv('quick-open-shortcut')[0] ?? '',
         });
-        shortcutRow.connect('changed', () => shortcutRow.remove_css_class('error'));
+        shortcutRow.connect('changed', () => {
+            shortcutRow.remove_css_class('error');
+            refreshUnsaved();
+        });
         quickOpenGroup.add(shortcutRow);
 
         const quotaGroup = new Adw.PreferencesGroup({
@@ -254,17 +267,28 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         for (const [provider, row] of Object.entries(quotaRows)) {
             readQuota(provider, {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
                 .then(result => {
+                    // The window closed while the check ran.
+                    if (quotaCancellable.is_cancelled())
+                        return;
                     if (result.status === 'ok') {
                         row.set_sensitive(true);
                         row.set_subtitle('Uses the ' + PROVIDERS[provider].command + ' CLI');
                     } else if (result.status === 'unavailable') {
-                        row.set_active(false);
+                        // The window's own adjustment: the baseline follows, and the next save
+                        // stores the switch off.
+                        const key = PROVIDERS[provider].setting;
+                        if (row.get_active()) {
+                            baseline.switches[key] = false;
+                            pending.add(key);
+                            row.set_active(false);
+                        }
                         row.set_subtitle(result.message);
                     } else {
                         // Not proven either way: keep the saved choice, locked.
                         row.set_subtitle('Could not check: ' + result.message +
                             '. Reopen Preferences to try again.');
                     }
+                    refreshUnsaved();
                 })
                 .catch(() => {
                     // Cancelled when the window closes.
@@ -341,7 +365,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         // Owners trashed since the running task started: its answer must not add them back.
         const removedKeys = new Set();
 
-        let ownerSettingsTouched = false;
         let cancellable = new Gio.Cancellable();
         let taskGeneration = 0;
         let ghBusy = false;
@@ -504,13 +527,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             }
             owner.listRow?.set_title(monitored.length + ' of ' + entries.length + ' monitored');
             owner.group?.set_description(ownerDescription(owner));
+            refreshUnsaved();
         };
+
+        // The banner's Save, and Ctrl+S, apply with unsaved changes and no gh task running.
+        let hasChanges = false;
+        const updateSaveAction = () => saveAction.set_enabled(hasChanges && !ghBusy);
 
         const updateGhButtons = () => {
             const ownerButtons = [...owners.values()].map(owner => owner.discoverButton);
             for (const button of [discoverButton, addButton, ...ownerButtons])
                 button?.set_sensitive(!ghBusy);
-            saveAction.set_enabled(!ghBusy);
+            updateSaveAction();
         };
 
         /** Creates an owner's block with its header; fillOwnerGroup() builds its rows. */
@@ -560,10 +588,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             enabledSwitch.connect('notify::active', () => {
                 owner.enabled = enabledSwitch.get_active();
-                ownerSettingsTouched = true;
                 owner.syncEnabled();
                 group.set_description(ownerDescription(owner));
                 updateOwnerStatus();
+                refreshUnsaved();
             });
             // Removal, like every change here, only applies on Save.
             removeButton.connect('clicked', () => {
@@ -582,9 +610,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     ? [successor.upButton, successor.downButton, successor.removeButton]
                         .find(button => button.get_sensitive())
                     : ownerEntry);
-                ownerSettingsTouched = true;
                 removalMessage = owner.login + ' will be removed when you save.';
                 updateOwnerStatus(removalMessage);
+                refreshUnsaved();
             });
 
             fillOwnerGroup(owner);
@@ -664,7 +692,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     listRow.add_row(repositoryRow);
                     owner.repositoryRows.set(name, repositoryRow);
                     repositoryRow.connect('notify::active', () => {
-                        ownerSettingsTouched = true;
                         syncSelection(owner);
                     });
                 }
@@ -688,11 +715,12 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 if (mode === 'all' || previousMode === 'all') {
                     owner.repositories = [];
                     owner.excludedRepositories = [];
+                    refreshSuspended = true;
                     for (const row of owner.repositoryRows.values())
                         row.set_active(true);
+                    refreshSuspended = false;
                 }
                 syncSelection(owner);
-                ownerSettingsTouched = true;
                 modeRow.set_subtitle(REPOSITORY_MODE_HINTS[mode]);
                 listRow.set_visible(mode !== 'all');
                 if (mode !== 'all')
@@ -706,6 +734,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             };
             owner.syncEnabled();
             discoverRepositoriesButton.connect('clicked', () => loadRepositories(owner));
+            refreshUnsaved();
         }
 
         /**
@@ -729,6 +758,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             updateMoveButtons();
             updateOwnerStatus();
             updateGhButtons();
+            refreshUnsaved();
             if (starter || focused)
                 focusLater(() => focused?.get_root() === window ? focused : starter, text);
         };
@@ -831,7 +861,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                     }
                 }
 
-                ownerSettingsTouched = true;
                 renderOwners(discoverButton);
                 updateOwnerStatus(
                     discovered.length + ' owners found, including ' + account + '.'
@@ -870,7 +899,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 // A login typed meanwhile is the next draft: keep it.
                 if (ownerEntry.get_text().trim() === login)
                     ownerEntry.set_text('');
-                ownerSettingsTouched = true;
                 renderOwners(addButton);
                 updateOwnerStatus(login + ' added.');
             }, error => {
@@ -886,9 +914,15 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         ownerEntry.connect('activate', addOwner);
 
         saveAction.connect('activate', () => {
-            const shortcutText = shortcutRow.get_text().trim();
-            const [validShortcut, shortcutKey, shortcutModifiers] = Gtk.accelerator_parse(shortcutText);
-            if (shortcutText && (!validShortcut || shortcutKey === 0)) {
+            // Reads the text of a field still being typed in; invalid text keeps the last value.
+            thresholdRow.update();
+            // A fresh settings object per save: its delay() is permanent, so it is never used
+            // after its apply(). Only the settings changed in the window, and the pending
+            // normalizations, are written: a setting changed elsewhere meanwhile survives.
+            const saved = this.getSettings();
+            const shown = shownValues();
+            const changes = planChanges(shown, baseline, pending, readOwnerFilters(saved));
+            if (changes.invalidShortcut) {
                 // Nothing is written, whichever tab the save came from: show the field.
                 shortcutRow.add_css_class('error');
                 window.set_visible_page(page);
@@ -896,41 +930,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 return;
             }
 
-            // A fresh settings object per save: its delay() is permanent, so it is never used
-            // after its apply(). Only the keys that differ are written: the shell refreshes
-            // from gh on the owner and author keys without comparing values, and an order-only
-            // save must not.
-            const saved = this.getSettings();
-            const values = [];
-            if (ownerSettingsTouched) {
-                // Both sides in kind-then-login order: a save that only moved blocks, or put
-                // the owners back as they were, leaves owner-filters alone and refreshes nothing.
-                const ownerFilters = ownerFiltersToSave(
-                    readOwnerFilters(saved), [...owners.values()].map(savedOwner)
-                );
-                if (ownerFilters !== null) {
-                    values.push({key: 'owner-filters', value: ownerFilters},
-                        {key: 'owner-filters-configured', value: true});
-                }
-            }
-            values.push({key: 'owner-order', value: [...owners.values()].map(owner => owner.login)});
-            values.push({key: 'author-filter', value: authorEntry.get_text().trim()});
-            const selectedInterval = intervalRow.get_selected();
-            if (selectedInterval < INTERVALS.length)
-                values.push({key: 'refresh-interval', value: INTERVALS[selectedInterval]});
-            values.push({key: 'quick-open-shortcut', value: shortcutText
-                ? [Gtk.accelerator_name(shortcutKey, shortcutModifiers)]
-                : []});
-            for (const [provider, row] of Object.entries(quotaRows))
-                values.push({key: PROVIDERS[provider].setting, value: row.get_active()});
-            const selectedQuotaInterval = quotaIntervalRow.get_selected();
-            if (selectedQuotaInterval < QUOTA_INTERVALS.length)
-                values.push({key: 'agent-quota-interval', value: QUOTA_INTERVALS[selectedQuotaInterval]});
-            // Reads the text of a field still being typed in; invalid text keeps the last value.
-            thresholdRow.update();
-            values.push({key: 'agent-quota-threshold', value: Math.round(thresholdRow.get_value())});
-
-            const plan = planSave(values, key => saved.get_value(key).deepUnpack(),
+            const plan = planSave(changes.writes, key => saved.get_value(key).deepUnpack(),
                 key => saved.is_writable(key));
             if (plan.blockedKey === null) {
                 saved.delay();
@@ -945,10 +945,14 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         saved.set_string(key, value);
                 }
                 saved.apply();
+                // What was saved is the new baseline, and no normalization is left to write.
+                baseline = shown;
+                pending.clear();
+                refreshUnsaved();
+                // A pending-removal message is stale once the removal is saved; others stay.
+                if (ownerStatus.get_subtitle() === removalMessage)
+                    updateOwnerStatus();
             }
-            // A pending-removal message is stale once the removal is saved; others stay.
-            if (plan.blockedKey === null && ownerStatus.get_subtitle() === removalMessage)
-                updateOwnerStatus();
             window.add_toast(new Adw.Toast({title: plan.message}));
         });
 
@@ -988,6 +992,61 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         window.add(page);
         window.add(agentsPage);
         window.add(aboutPage);
+
+        /** Classifies the shortcut text: blank, valid (with its canonical name), or invalid. */
+        const shortcutOf = text => {
+            const [valid, key, modifiers] = Gtk.accelerator_parse(text.trim());
+            const names = valid && key !== 0;
+            return classifyShortcut(text, {valid: names, name: names ? Gtk.accelerator_name(key, modifiers) : ''});
+        };
+
+        /** The values of the window as it shows them, in the shape planChanges compares. */
+        const shownValues = () => JSON.parse(JSON.stringify({
+            author: authorEntry.get_text().trim(),
+            refreshInterval: INTERVALS[intervalRow.get_selected()],
+            shortcut: shortcutOf(shortcutRow.get_text()),
+            owners: [...owners.values()].map(savedOwner),
+            ownerOrder: [...owners.values()].map(owner => owner.login),
+            switches: Object.fromEntries(Object.entries(quotaRows)
+                .map(([provider, row]) => [PROVIDERS[provider].setting, row.get_active()])),
+            quotaInterval: QUOTA_INTERVALS[quotaIntervalRow.get_selected()],
+            threshold: thresholdValue(thresholdRow.get_text(), Math.round(thresholdRow.get_value())),
+        }));
+
+        // What the window shows when it opens is its baseline; its own adjustments of stored
+        // values (see normalizationsAtOpen) are written by the next save, not offered as changes.
+        let baseline = shownValues();
+        // A bulk reset of switches recomputes once at its end, not once per switch.
+        let refreshSuspended = false;
+        const pending = normalizationsAtOpen({
+            refreshInterval: settings.get_int('refresh-interval'),
+            quotaInterval: settings.get_int('agent-quota-interval'),
+            ownerOrder: settings.get_strv('owner-order'),
+        }, {intervals: INTERVALS, quotaIntervals: QUOTA_INTERVALS, blockOrder: baseline.ownerOrder});
+
+        /** Shows or hides the banner of every tab, and tells the save whether it has work. */
+        function refreshUnsaved() {
+            if (refreshSuspended)
+                return;
+            const {tabs} = planChanges(shownValues(), baseline, pending, []);
+            hasChanges = tabs.length > 0;
+            if (hasChanges) {
+                for (const banner of banners)
+                    banner.set_title(bannerTitle(tabs));
+            }
+            for (const banner of banners)
+                banner.set_revealed(hasChanges);
+            updateSaveAction();
+        }
+
+        for (const row of [intervalRow, quotaIntervalRow])
+            row.connect('notify::selected', refreshUnsaved);
+        for (const row of Object.values(quotaRows))
+            row.connect('notify::active', refreshUnsaved);
+        authorEntry.connect('changed', refreshUnsaved);
+        // The text changes before the value commits, and notify::value fires on the commit.
+        thresholdRow.connect('changed', refreshUnsaved);
+        thresholdRow.connect('notify::value', refreshUnsaved);
         renderOwners();
 
         window.connect('close-request', () => {

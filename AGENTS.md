@@ -20,6 +20,7 @@ new `src/*.js` modules on its own.
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |
 | `src/quotas.js` | Agent quota parsing, labels, pace, and notification periods (pure) |
 | `src/agents.js` | Finds and runs the claude, codex, and agy CLIs for quotas; shared by extension and prefs |
+| `src/changes.js` | Unsaved changes of the preferences: tabs with changes and keys a save writes (pure) |
 | `src/save.js` | The save batch of the preferences window: values that differ, locked keys refuse it (pure) |
 | `src/markdown.js` | GitHub-flavored Markdown to Pango markup blocks (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.greenlight` |

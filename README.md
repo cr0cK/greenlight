@@ -75,8 +75,9 @@ Open **Preferences** from the menu. It has three tabs, **Pull requests**, **Agen
 3. Move each owner's block with its up and down buttons: the menu lists the owners in that order.
 4. On **Agents**, turn on the agents you use. Each switch checks its CLI first. If the CLI is
    missing, signed out, or not on a subscription, the switch stays off and says what to do.
-5. Click **Save** in the banner at the top of any tab, or press <kbd>Ctrl</kbd>+<kbd>S</kbd>. One
-   save applies every tab, and the window stays open.
+5. Once something changed, a banner at the top of every tab names the tabs with unsaved changes.
+   Click **Save** in it, or press <kbd>Ctrl</kbd>+<kbd>S</kbd>. One save applies every tab, and the
+   window stays open. Closing the window drops what was not saved.
 
 Until you configure owners, Greenlight watches every repository `gh` can see.
 
