@@ -1,6 +1,6 @@
 ---
 code: CAG
-status: draft
+status: active
 version: v1.5
 created: 2026-11-24
 builds-on: QTA, TAB
@@ -30,8 +30,8 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   the built-in CLIs (in `PATH`, then in `~/.local/bin`), or a path that starts with `/` or `~/`
   (`~/` is the home directory) to a regular file, or a link to one, that is executable. A path
   holding `:` is refused, since it could not go in `PATH`.
-- The user can add up to 5 custom agents, so the **Agent quotas** section still fits the menu
-  without scrolling, as QTA says. They keep the order they were added in.
+- The user can add up to 5 custom agents, so the **Agent quotas** section still fits the menu of
+  a 1280x800 screen without scrolling, as QTA says. They keep the order they were added in.
 - Two custom agents cannot share a command, compared as typed after trimming, nor a name,
   compared case-insensitively, so the menu and notifications tell them apart; nor can a name be
   `Claude`, `Codex`, or `Antigravity`, in any case. A custom agent cannot be the built-in agent of its
@@ -66,22 +66,26 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   default), and a trash button (`Cancel`) that drops the row. Only one new row exists at a time:
   **+** is insensitive while it does. (PREFS-NEW, PREFS-TYPED)
 - The group description also says what the type means for the command:
-  `Greenlight runs it with that agent's /usage arguments, so pick the type of the agent it runs.`
+  `Greenlight runs it as it runs that agent, so pick the type of the agent it runs.`
   A command given the wrong type receives arguments it does not know, and may start a session.
 - Keyboard: the entry, then the drop-down, then the trash button. Enter in the entry or on the
-  drop-down accepts; Escape in the entry or the drop-down drops the new row and goes no further,
-  so it never closes the window. After a row is dropped or removed, the focus goes to **+**.
+  closed drop-down accepts; Escape in the entry or on the closed drop-down drops the new row and
+  goes no further, so it never closes the window. While the drop-down's list is open, Enter only
+  picks the type and Escape only closes the list. After a row is dropped or removed, the focus
+  goes to **+**, or to the new row's entry while one exists (**+** is then insensitive).
 - Enter checks the command without running it. An accepted command turns the new
   row into a custom agent row, enabled, whose availability check starts at once (it runs the
   command, as QTA's check runs the built-in CLI). A refused one keeps the row, marks the entry,
-  and shows the reason under it until the entry or the type changes:
-  - `Enter a command name or a path.` for a command of another form;
-  - `<command> not found in PATH or ~/.local/bin` for a name, `<path> is not an executable file`
-    for a path; (PREFS-NOT-FOUND)
-  - `<command> is already listed.`, `<name> is already listed.` for a name clash, or
-    `<command> is the built-in <type> agent.`, or `<name> is a built-in agent's name.`;
-    (PREFS-DUPLICATE)
-  - `A path cannot hold ":".`
+  and shows the reason under it until the entry or the type changes. The first rule that fails,
+  in this order, gives the reason:
+  1. `Enter a command name or a path.` for a command of another form;
+  2. `A path cannot hold ":".`;
+  3. `<name> is a built-in agent's name.` for `Claude`, `Codex`, or `Antigravity` in any case
+     (so `claude` with any type);
+  4. `<command> is already listed.`, then `<name> is already listed.`; (PREFS-DUPLICATE)
+  5. `<command> not found in PATH or ~/.local/bin` for a name, `<path> is not an executable
+     file` for a path; (PREFS-NOT-FOUND)
+  6. `<command> is the built-in <type> agent.` for a command whose file is the built-in's.
 - A new row not yet accepted is not a setting: it makes no tab unsaved and closing the window
   drops it. A save leaves it as it is and writes the rest; when its entry holds text, its
   subtitle then reads `Not added yet: press Enter to add it`.
@@ -154,7 +158,8 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
 - A new setting, `custom-agents` (`s`, a JSON array, `[]` by default), holds the list in order,
   each entry `{"command": <string>, "type": "claude" | "codex" | "agy", "enabled": <boolean>}`.
   Text that is not a JSON array reads as no custom agent. An entry that is not such an object,
-  whose command has none of the forms of **Custom agents**, or whose command or name clashes with
+  whose command has none of the forms of **Custom agents**, whose name is a built-in agent's,
+  or whose command or name clashes with
   an earlier entry, is skipped; after five kept entries, the rest are skipped. Reading never looks
   at the files: a command missing on disk stays listed, so it can be removed.
 - The list the window shows is the baseline: skipped entries are not a pending normalization,
@@ -173,6 +178,9 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   wrapper script.
 - Renaming a custom agent, or reordering the list: remove it and add it again.
 - Ending the processes a wrapper starts without `exec`.
+- A screen too short for the whole section with every agent shown (about 600 px tall with the
+  five custom agents): GNOME Shell's menu height limit cuts the menu, as for any menu taller
+  than the screen.
 - Limiting how many CLIs read at once: with the three built-in agents and five custom ones, up
   to eight run together, each under its own timeout.
 - Checking that a command matches its quota type.
@@ -190,7 +198,8 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   `Gtk.Entry` and whose suffixes are a `Gtk.DropDown` and a trash `Gtk.Button`, and an agent row
   with a trash button and a `Gtk.Switch` in a suffix box. Pass: the Tab order is entry,
   drop-down, trash; Enter in the entry and on the closed drop-down reaches the handler; Escape in
-  the entry and on the drop-down reaches the handler and does not close the window; the switch
+  the entry and on the closed drop-down reaches the handler and does not close the window; Enter
+  and Escape in the open list only pick a type and close the list; the switch
   made insensitive leaves the trash button usable; the focus moves to **+** after a removal; no
   GTK critical or JS error. Fail: report to the owner before going further.
 - **Acceptance**:
@@ -221,9 +230,9 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
     - removing a row whose check is delayed, then adding it again, shows only the new check's
       result; removing `claude-work` and saving drops its lines and its cache entries;
     - a save with text typed in a new row keeps that row and its text, and writes the rest;
-    - on a 1280x600 virtual monitor with the three built-in agents and five two-window custom
-      agents, one of them dimmed with its cause, the section is whole, and **Refresh now**, quick
-      open, and **Preferences…** stay in view, as QTA and QOP say.
+    - on the 1280x800 virtual monitor of AGENTS.md with the three built-in agents and five
+      two-window custom agents, one of them dimmed with its cause, the section is whole, and
+      **Refresh now**, quick open, and **Preferences…** stay in view, as QTA and QOP say.
     Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` shows one custom agent in `menu.png` and in
     `preferences-agents.png`.
@@ -236,9 +245,10 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
     `setting`; a custom agent is a provider built from its entry, `{id, name, command, type}`,
     whose reader is its type's (`readClaude`, `readCodex`, `readAgy` in `src/agents.js`, which
     already take the found path), and whose slots, labels, and messages are its type's.
-    `readQuota`, `readQuotaCache` (`validWindow`, `validPeriod`), the quota state, the cache,
-    and the menu take the list of providers, built-in and enabled custom ones, as an argument
-    instead of reading `PROVIDERS` alone; the extension's `_loadQuotaCache` passes it.
+    `readQuota` takes the provider object itself, so the preferences check every listed agent,
+    off ones included. `readQuotaCache` (`validWindow`, `validPeriod`), the quota state, the
+    cache, and the menu take the list of providers, built-in and enabled custom ones, as an
+    argument instead of reading `PROVIDERS` alone; the extension's `_loadQuotaCache` passes it.
   - `forgetPeriods` matches by `startsWith(provider + ':')` and `validPeriod` splits on `:` into
     exactly three fields; a custom identifier holds `:` itself, so both parse from the right
     instead, and compare the identifier whole.
