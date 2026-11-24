@@ -15,7 +15,9 @@ tab while changes are unsaved. Greenlight is growing from a pull request monitor
 what the agents do, and one long page no longer scales. TAB builds on PRM, QOP, QTA, ORD, and
 ABT, whose rules all still apply except the ones it replaces, which TAB-P1 and TAB-P2 rewrite in
 those specs: PRM's **Save preferences** rule (it applies every setting and closes the window),
-PRM's and ORD's mentions of **Save preferences**, ORD's rule on pending focus moves, QOP's shortcut
+PRM's and ORD's mentions of **Save preferences**, ORD's rule on pending focus moves and its
+save of `owner-filters` compared with the stored filters (TAB compares with the window's
+baseline, so an external change survives an unrelated save), QOP's shortcut
 validation (which field takes the focus), QTA's placement of the **Agent quotas** group and its
 save during a check (which closes the window), and ABT's **About** group at the bottom of the
 window. The settings, their keys, their values, and what each row does are unchanged. The mockup
@@ -66,11 +68,11 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   otherwise: in a window without unsaved changes, it writes nothing and shows no toast. A quick
   open shortcut (QOP) set to `<Control>s` is GNOME Shell's and takes the keys first; Greenlight
   does not change it.
-- **Notify at** text: while it is typed, text that is a whole number counts as that number
-  clamped to 50–100, and any other text (empty, `abc`) counts as the value last committed, so the
-  banner follows a typed `83` before the field is left. Before anything is read, a save commits
-  the text the same way: a whole number becomes its clamped value; any other text is replaced by
-  the value last committed.
+- **Notify at** text: a whole number from 50 to 100 is a value; any other text (empty, `abc`,
+  `8`, `120`) is not. While it is typed, a value counts as that value and other text counts as
+  the value last committed, so the banner follows a typed `83` before the field is left. Leaving
+  the field, and a save before anything is read, commit a value, and replace other text with the
+  value last committed.
 - An invalid keyboard shortcut stops the save before anything is written, from any tab: the
   window switches to **Pull requests**, scrolls the shortcut field into view, marks it, and gives
   it the focus, as QOP says. Editing the field clears the mark. (PREFS-SHORTCUT)
@@ -167,7 +169,10 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   `prefs.save` action on the window. Pass: the window opens with its three tabs, the banner shows
   above each page's scrolled content and stays while it scrolls, disabling the action makes every
   banner's button insensitive, the **Pull requests** icon looks like the panel glyph in a
-  screenshot (outlined strokes, not filled blobs), and the logs have no GTK critical or JS error. Fail: report to the owner before going further; there is no silent fallback.
+  screenshot (outlined strokes, not filled blobs), **Notify at** with `update-policy` `IF_VALID`
+  keeps its last value for empty text, `abc`, `8`, and `120` on Tab, and the logs have no GTK
+  critical or JS error. Fail: report to the owner before going further; there is no silent
+  fallback.
 - **Acceptance**:
   - `npm run lint` and `make check` pass.
   - Unit tests (`node --test`) for the save batch as a pure function of the values to write and a
@@ -207,8 +212,11 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     check `settings.is_writable(key)` for every key before writing any.
   - **Notify at** is an `Adw.SpinRow`: parse its text from the `Gtk.Editable` `changed` signal
     (`notify::value` fires only on commit) without calling `update()` there, which would rewrite
-    the text mid-keystroke; at save, set the text to the committed value when it is not a whole
-    number, then call `update()`. `update()` alone clamps invalid text to 50.
+    the text mid-keystroke; at save, call `update()`. Under the default `update-policy`
+    (`ALWAYS`), `update()` and leaving the field clamp invalid text to 50: set the row's
+    `update-policy` to `IF_VALID` (`Gtk.SpinButtonUpdatePolicy`), which keeps the last value for
+    invalid or out-of-range text, and check it in the prototype (empty text, `abc`, `8`, `120`,
+    then Tab and `Ctrl+S`).
   - A key cannot be locked in an unprivileged headless session (the keyfile backend reads locks
     only from `/etc/glib-2.0/settings/locks`), hence the unit test for the not-writable rule.
   - ORD's `focusLater()` checks the target's root; it also needs **Pull requests** to be the
@@ -220,7 +228,7 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   only with unsaved changes and its title, `Ctrl+S` doing nothing in a clean window, a save that
   writes only the changed settings and the pending normalizations, and the baseline after a save
   and after a check. The PRM and QTA lines TAB-P1 rewrote with its restrictions are updated to the
-  final behavior.
+  final behavior, and ORD's `owner-filters` save rule is rewritten to compare with the baseline.
 - **Acceptance**:
   - Unit tests (`node --test`) for the pure comparison: author trimming; the three shortcut
     classes, equivalence, and an invalid stored value that opens clean; the **Notify at** text
@@ -228,12 +236,13 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     changed only a spelling, a move and a move back, a completed order on open (missing and stale
     logins) that is clean, a paused owner, a mode change that keeps the stored scope and one
     between **All except…** and **Only…**; the pending normalizations, including a
-    `Could not check` provider locked on with another tab unsaved, whose save writes it unchanged;
+    `Could not check` provider locked on with another tab unsaved, whose save leaves its key out of
+    the batch;
     the banner texts for one, two, and three tabs.
   - In the headless GNOME Shell: a changed author shows the banner on every tab and its title
     names **Pull requests**; typing it back hides it; a changed **Notify at** adds **Agents** to
     the title; typing `83` in **Notify at** and pressing `Ctrl+S` with the focus still in it saves
-    83; `Ctrl+S` in a clean window writes nothing and shows no toast; an external `gsettings set`
+    83; clearing it and pressing Tab shows the last value again; `Ctrl+S` in a clean window writes nothing and shows no toast; an external `gsettings set`
     of the author followed by an **Agents**-only save keeps the external author; an unavailable
     provider whose check turns its switch off shows no banner, and the next save stores it off;
     closing with changes closes at once and writes nothing (checked with `gsettings` on the
