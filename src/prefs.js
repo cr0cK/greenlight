@@ -345,6 +345,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         let cancellable = new Gio.Cancellable();
         let taskGeneration = 0;
         let ghBusy = false;
+        let removalMessage = null;
 
         const updateOwnerStatus = (message = '') => {
             const activeCount = [...owners.values()].filter(owner => owner.enabled).length;
@@ -582,7 +583,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         .find(button => button.get_sensitive())
                     : ownerEntry);
                 ownerSettingsTouched = true;
-                updateOwnerStatus(owner.login + ' will be removed when you save.');
+                removalMessage = owner.login + ' will be removed when you save.';
+                updateOwnerStatus(removalMessage);
             });
 
             fillOwnerGroup(owner);
@@ -944,8 +946,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 }
                 saved.apply();
             }
-            // A pending-removal message is stale once the removal is saved.
-            if (plan.blockedKey === null)
+            // A pending-removal message is stale once the removal is saved; others stay.
+            if (plan.blockedKey === null && ownerStatus.get_subtitle() === removalMessage)
                 updateOwnerStatus();
             window.add_toast(new Adw.Toast({title: plan.message}));
         });
