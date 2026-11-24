@@ -68,8 +68,8 @@ const sameLogins = (first, second) =>
  * `owner-filters` holds now: owners that match it are not written again.
  *
  * Returns `{tabs, writes, invalidShortcut}`: the tabs with changes in tab order, the `{key,
- * value}` to write in write order, and whether the shortcut is an invalid text that differs from
- * its baseline, which stops the save.
+ * value}` to write in write order, and whether the shortcut is an invalid text, which stops the
+ * save.
  */
 export function planChanges(shown, baseline, pending, storedOwners) {
     const entries = [];
@@ -79,9 +79,10 @@ export function planChanges(shown, baseline, pending, storedOwners) {
     const ownersChanged = !sameOwnerFilters(shown.owners, baseline.owners);
     const ownersToWrite = ownersChanged ? ownerFiltersToSave(storedOwners, shown.owners) : null;
     add(PULL_REQUESTS_TAB, 'owner-filters', ownersChanged, ownersToWrite);
-    add(PULL_REQUESTS_TAB, 'owner-filters-configured', ownersChanged && ownersToWrite !== null, true);
+    add(PULL_REQUESTS_TAB, 'owner-filters-configured', ownersChanged, true);
     add(PULL_REQUESTS_TAB, 'owner-order', !sameLogins(shown.ownerOrder, baseline.ownerOrder), shown.ownerOrder);
-    add(PULL_REQUESTS_TAB, 'author-filter', shown.author !== baseline.author, shown.author);
+    const author = shown.author.trim();
+    add(PULL_REQUESTS_TAB, 'author-filter', author !== baseline.author.trim(), author);
     add(PULL_REQUESTS_TAB, 'refresh-interval', shown.refreshInterval !== baseline.refreshInterval,
         shown.refreshInterval);
     const shortcutChanged = !sameShortcut(shown.shortcut, baseline.shortcut);
@@ -92,7 +93,8 @@ export function planChanges(shown, baseline, pending, storedOwners) {
     add(AGENTS_TAB, 'agent-quota-interval', shown.quotaInterval !== baseline.quotaInterval, shown.quotaInterval);
     add(AGENTS_TAB, 'agent-quota-threshold', shown.threshold !== baseline.threshold, shown.threshold);
 
-    const invalidShortcut = shortcutChanged && shown.shortcut.kind === 'invalid';
+    // An invalid text stops the save, even a stored one the window opened clean with.
+    const invalidShortcut = shown.shortcut.kind === 'invalid';
     const tabs = [PULL_REQUESTS_TAB, AGENTS_TAB].filter(tab =>
         entries.some(entry => entry.tab === tab && entry.changed && entry.key !== 'owner-filters-configured'));
     const writes = entries

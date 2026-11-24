@@ -267,6 +267,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         for (const [provider, row] of Object.entries(quotaRows)) {
             readQuota(provider, {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
                 .then(result => {
+                    // The window closed while the check ran.
+                    if (quotaCancellable.is_cancelled())
+                        return;
                     if (result.status === 'ok') {
                         row.set_sensitive(true);
                         row.set_subtitle('Uses the ' + PROVIDERS[provider].command + ' CLI');
@@ -274,9 +277,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         // The window's own adjustment: the baseline follows, and the next save
                         // stores the switch off.
                         const key = PROVIDERS[provider].setting;
-                        baseline.switches[key] = false;
-                        pending.add(key);
-                        row.set_active(false);
+                        if (row.get_active()) {
+                            baseline.switches[key] = false;
+                            pending.add(key);
+                            row.set_active(false);
+                        }
                         row.set_subtitle(result.message);
                     } else {
                         // Not proven either way: keep the saved choice, locked.
@@ -710,8 +715,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 if (mode === 'all' || previousMode === 'all') {
                     owner.repositories = [];
                     owner.excludedRepositories = [];
+                    refreshSuspended = true;
                     for (const row of owner.repositoryRows.values())
                         row.set_active(true);
+                    refreshSuspended = false;
                 }
                 syncSelection(owner);
                 modeRow.set_subtitle(REPOSITORY_MODE_HINTS[mode]);
@@ -1009,6 +1016,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         // What the window shows when it opens is its baseline; its own adjustments of stored
         // values (see normalizationsAtOpen) are written by the next save, not offered as changes.
         let baseline = shownValues();
+        // A bulk reset of switches recomputes once at its end, not once per switch.
+        let refreshSuspended = false;
         const pending = normalizationsAtOpen({
             refreshInterval: settings.get_int('refresh-interval'),
             quotaInterval: settings.get_int('agent-quota-interval'),
@@ -1017,6 +1026,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
         /** Shows or hides the banner of every tab, and tells the save whether it has work. */
         function refreshUnsaved() {
+            if (refreshSuspended)
+                return;
             const {tabs} = planChanges(shownValues(), baseline, pending, []);
             hasChanges = tabs.length > 0;
             if (hasChanges) {

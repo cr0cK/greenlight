@@ -132,14 +132,26 @@ export function sameOwnerFilters(first, second) {
     return ownerFiltersKey(first) === ownerFiltersKey(second);
 }
 
+/** Puts back the stored spelling of the owners whose scope is the one stored. */
+function withStoredSpelling(owners, stored) {
+    const byLogin = new Map(normalizeOwnerFilters(stored).map(owner => [owner.login.toLowerCase(), owner]));
+    return normalizeOwnerFilters(owners).map(owner => {
+        const same = byLogin.get(owner.login.toLowerCase());
+        return same && sameOwnerFilters([owner], [same]) ? same : owner;
+    });
+}
+
 /**
  * Tells what a save writes to `owner-filters`: the serialized owners of the window, or null when
  * they match the stored document, names compared case-insensitively and the order ignored, so
  * that moving blocks, putting the owners back as they were, or discovering repositories under
- * another spelling writes nothing, keeps the stored spelling, and refreshes nothing.
+ * another spelling writes nothing and refreshes nothing. An owner that is the stored one keeps
+ * its stored spelling in what is written.
  */
 export function ownerFiltersToSave(stored, windowOwners) {
-    return sameOwnerFilters(stored, windowOwners) ? null : serializeOwnerFilters(windowOwners);
+    return sameOwnerFilters(stored, windowOwners)
+        ? null
+        : serializeOwnerFilters(withStoredSpelling(windowOwners, stored));
 }
 
 /** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */

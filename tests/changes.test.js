@@ -45,8 +45,10 @@ test('a window as opened has no change and writes nothing', () => {
 test('the author is compared trimmed, and typing it back clears the change', () => {
     assert.deepEqual(plan(change({author: 'monalisa'})).writes, [{key: 'author-filter', value: 'monalisa'}]);
     assert.deepEqual(plan(change({author: 'monalisa'})).tabs, ['Pull requests']);
-    // The shown author is trimmed by the caller; a baseline stored with spaces is trimmed too.
-    assert.deepEqual(plan(change({author: '@me'}), change({author: '@me'})).tabs, []);
+    assert.deepEqual(plan(change({author: '  monalisa '})).writes, [{key: 'author-filter', value: 'monalisa'}]);
+    // Spaces around the stored author or the typed one are not a change.
+    assert.deepEqual(plan(change({author: ' @me  '})).tabs, []);
+    assert.deepEqual(plan(change({author: '@me'}), change({author: ' @me'})).tabs, []);
 });
 
 test('the shortcut is blank, valid, or invalid', () => {
@@ -78,10 +80,17 @@ test('an invalid shortcut differs from any stored value, and stops the save', ()
     assert.ok(!result.writes.some(({key}) => key === 'quick-open-shortcut'));
 });
 
-test('a stored invalid shortcut opens clean, and editing it makes a change', () => {
+test('a stored invalid shortcut opens clean, still stops a save, and editing it makes a change', () => {
     const baseline = change({shortcut: shortcut('not-a-key', undefined)});
-    assert.deepEqual(plan(baseline, baseline), {tabs: [], writes: [], invalidShortcut: false});
-    assert.equal(plan(change({shortcut: shortcut('not-a-ke', undefined)}), baseline).invalidShortcut, true);
+    const clean = plan(baseline, baseline);
+    assert.deepEqual(clean.tabs, []);
+    assert.deepEqual(clean.writes, []);
+    // A save of another change is stopped while the stored shortcut stays invalid.
+    assert.equal(plan({...baseline, quotaInterval: 120}, baseline).invalidShortcut, true);
+    assert.deepEqual(plan({...baseline, quotaInterval: 120}, baseline).tabs, ['Agents']);
+    const edited = plan(change({shortcut: shortcut('not-a-ke', undefined)}), baseline);
+    assert.deepEqual(edited.tabs, ['Pull requests']);
+    assert.equal(edited.invalidShortcut, true);
     assert.equal(plan(change({shortcut: shortcut('', undefined)}), baseline).invalidShortcut, false);
 });
 
@@ -146,7 +155,9 @@ test('owners changed and changed back, with the store changed meanwhile, write n
 
 test('changed owners are written unless the store already holds them', () => {
     const paused = change({owners: [owner('acme', {enabled: false}), stored[1]]});
-    assert.deepEqual(plan(paused, opened(), new Set(), paused.owners).writes, []);
+    // Only the configured flag stays: the save drops it when the store holds it too.
+    assert.deepEqual(plan(paused, opened(), new Set(), paused.owners).writes,
+        [{key: 'owner-filters-configured', value: true}]);
     assert.deepEqual(plan(paused, opened(), new Set(), paused.owners).tabs, ['Pull requests']);
 });
 
@@ -202,7 +213,7 @@ test('a provider turned off by its check is a pending normalization, not a chang
 
 test('a provider locked on by a failed check is left out of the batch', () => {
     const result = plan(change({author: 'x'}));
-    assert.ok(result.writes.every(({key}) => key === 'author-filter'));
+    assert.deepEqual(result.writes, [{key: 'author-filter', value: 'x'}]);
 });
 
 test('the banner names the tabs in tab order', () => {

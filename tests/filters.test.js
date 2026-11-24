@@ -174,3 +174,13 @@ test('owner-filters compares names case-insensitively and keeps the stored spell
     // The mode is kept: nothing excluded is not the same as an empty selection.
     assert.ok(!sameOwnerFilters([owner('acme')], [owner('acme', {repositories: []})]));
 });
+
+test('a save keeps the stored spelling of the owners it did not change', () => {
+    const stored = [owner('Acme', {repositories: ['Acme/Web']}), owner('octo')];
+    const written = ownerFiltersToSave(stored, [
+        owner('acme', {repositories: ['ACME/web']}),
+        owner('octo', {enabled: false}),
+    ]);
+    assert.deepEqual(JSON.parse(written).map(entry => [entry.login, entry.repositories, entry.enabled]),
+        [['Acme', ['Acme/Web'], true], ['octo', null, false]]);
+});
