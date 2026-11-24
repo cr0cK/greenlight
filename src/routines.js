@@ -83,14 +83,17 @@ export function failureCause(service) {
  * `activeState`, and `stateChange` (all times in microseconds), and `service` is null when
  * systemd does not load it, else has `result`, `execMainCode`, `execMainStatus`,
  * `execMainStart`, `activeState`, `subState`, `inactiveExit`, `stateChange`, `conditionResult`,
- * and `conditionTimestamp`. Returns `{name, unit, service, description, state, time, cause, nextAt}`:
- * the state is the first of State's list that applies, `time` its time in microseconds, `cause`
- * the failure's text (failed only), and `nextAt` the next run in microseconds, null when not
- * scheduled.
+ * `conditionTimestamp`, and `stateChangeMonotonic` (the timer has it too). Returns
+ * `{name, unit, service, description, state, time, cause, failure, nextAt}`: the state is the
+ * first of State's list that applies, `time` its time in microseconds, `cause` the failure's text
+ * (failed only), `failure` the identity of the failed run (failed only): `key` is the service's
+ * or, for a timer failure, the timer's own, and `order` its `StateChangeTimestampMonotonic`; and
+ * `nextAt` the next run in microseconds, null when not scheduled.
  */
 export function readRoutine(raw, nowRealUs, nowMonotonicUs) {
     const {unit, description, timer, service} = raw;
     const routine = {
+        failure: null,
         name: routineName(unit),
         unit,
         // The service the timer activates: what Run now starts and View logs reads.
@@ -104,14 +107,22 @@ export function readRoutine(raw, nowRealUs, nowMonotonicUs) {
     if (service === null)
         return {...routine, state: 'not-loaded'};
 
-    if (service.activeState === 'failed')
-        return {...routine, state: 'failed', time: service.stateChange, cause: failureCause(service)};
+    if (service.activeState === 'failed') {
+        return {
+            ...routine,
+            state: 'failed',
+            time: service.stateChange,
+            cause: failureCause(service),
+            failure: {key: 'service:' + timer.unit, order: service.stateChangeMonotonic},
+        };
+    }
     if (timer.result !== 'success') {
         return {
             ...routine,
             state: 'failed',
             time: timer.stateChange,
             cause: 'timer failed: ' + timer.result,
+            failure: {key: 'timer:' + unit, order: timer.stateChangeMonotonic},
         };
     }
     const state = service.activeState;
@@ -319,4 +330,82 @@ export class JobWait {
     cancel() {
         this.settle(null);
     }
+}
+
+// Failure notifications and the panel dot ----------------------------------------------------
+
+/**
+ * Decides which failed runs notify. A failed run is identified by `routine.failure`: its service
+ * (a timer failure: its timer) and the monotonic time of the state change, so a re-read does not
+ * notify it twice and a later run does. Nothing is stored: a new tracker starts with a baseline.
+ */
+export class FailureTracker {
+    constructor() {
+        // The watched timers whose first successful read was taken as a quiet baseline.
+        this._baselined = new Set();
+        // The latest run each routine has read, by `<timer unit> <failure key>`.
+        this._seen = new Map();
+        // The latest run notified, by failure key: a service two timers share notifies once. One
+        // entry per failing service or timer, kept for the life of the extension.
+        this._announced = new Map();
+    }
+
+    /**
+     * Takes a read of the watched routines (`stale` ones, whose last read failed, are skipped)
+     * and returns the routines whose failed run is new, one per run. A routine's first read is a
+     * baseline and never notifies. A run a routine has not read before notifies, unless another
+     * routine's read already notified it, and a service two watched timers share notifies under
+     * the first name by sort order. Every routine is compared with what it knew before this read.
+     */
+    observe(routines, watched) {
+        for (const unit of [...this._baselined]) {
+            if (!watched.includes(unit))
+                this._baselined.delete(unit);
+        }
+        for (const id of [...this._seen.keys()]) {
+            if (!watched.includes(id.split(' ')[0]))
+                this._seen.delete(id);
+        }
+        const due = new Map();
+        for (const routine of sortRoutines(routines)) {
+            if (routine.stale || !watched.includes(routine.unit))
+                continue;
+            const baseline = !this._baselined.has(routine.unit);
+            this._baselined.add(routine.unit);
+            const {failure} = routine;
+            if (!failure)
+                continue;
+            const id = routine.unit + ' ' + failure.key;
+            const known = (this._seen.get(id) ?? -Infinity) >= failure.order;
+            this._seen.set(id, Math.max(this._seen.get(id) ?? -Infinity, failure.order));
+            if (baseline || known || (this._announced.get(failure.key) ?? -Infinity) >= failure.order)
+                continue;
+            const run = failure.key + ' ' + failure.order;
+            if (!due.has(run))
+                due.set(run, routine);
+        }
+        for (const {failure} of due.values()) {
+            this._announced.set(failure.key,
+                Math.max(this._announced.get(failure.key) ?? -Infinity, failure.order));
+        }
+        return [...due.values()];
+    }
+}
+
+/** The title and body of the notification of a failed run: `<name> failed`, `<cause> · <HH:MM>`. */
+export function failureNotification(routine) {
+    return {title: routine.name + ' failed', body: routine.cause + ' · ' + clockText(routine.time)};
+}
+
+/** The title of the notification that says the logs of a routine did not open. */
+export const logsFailureTitle = routine => 'Could not open the logs of ' + routine.name;
+
+/** Whether the panel shows the dot: a watched routine is failed, stale or not. */
+export function hasFailedRoutine(routines) {
+    return routines.some(routine => routine.state === 'failed');
+}
+
+/** The accessible name of the panel indicator. */
+export function indicatorName(routines) {
+    return hasFailedRoutine(routines) ? 'Greenlight, a routine failed' : 'Greenlight';
 }
