@@ -360,7 +360,10 @@ export class FailureTracker {
         }
         if (watched.length === 0)
             this._last.clear();
-        const due = [];
+        // Every routine is compared with what was known before this read, so the order they are
+        // visited in (a baseline first, say) never hides a run from the others.
+        const newest = new Map();
+        const due = new Map();
         for (const routine of sortRoutines(routines)) {
             if (routine.stale || !watched.includes(routine.unit))
                 continue;
@@ -372,11 +375,15 @@ export class FailureTracker {
             const last = this._last.get(failure.key);
             if (last !== undefined && failure.order <= last)
                 continue;
-            this._last.set(failure.key, failure.order);
-            if (!baseline)
-                due.push(routine);
+            newest.set(failure.key, Math.max(newest.get(failure.key) ?? failure.order, failure.order));
+            // One notification per run, under the first name that is not a baseline.
+            const run = failure.key + ' ' + failure.order;
+            if (!baseline && !due.has(run))
+                due.set(run, routine);
         }
-        return due;
+        for (const [key, order] of newest)
+            this._last.set(key, order);
+        return [...due.values()];
     }
 }
 
