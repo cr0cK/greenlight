@@ -261,6 +261,7 @@ class Mock:
             self.owner_id = 0
             # A systemd that restarts has no subscriber left: clients subscribe again.
             self.subscribers.clear()
+            self.held.clear()
             self.log('name dropped')
 
     def on_control_call(self, _connection, _sender, _path, _interface, _method, parameters, invocation):

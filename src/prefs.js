@@ -319,15 +319,17 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 routinesGroup.add(row);
         };
         // A description or an error message is text, not Pango markup.
-        const createStatusRow = (title, subtitle = '') =>
-            new Adw.ActionRow({title, subtitle, use_markup: false});
+        // The row turns markup off before it gets its text: its setters parse at once.
+        const createStatusRow = (title, subtitle = '') => {
+            const row = new Adw.ActionRow({use_markup: false});
+            row.set_title(title);
+            row.set_subtitle(subtitle);
+            return row;
+        };
         const createRoutineSwitch = (unit, subtitle) => {
-            const row = new Adw.SwitchRow({
-                title: routineName(unit),
-                subtitle,
-                active: storedRoutines.includes(unit),
-                use_markup: false,
-            });
+            const row = new Adw.SwitchRow({use_markup: false, active: storedRoutines.includes(unit)});
+            row.set_title(routineName(unit));
+            row.set_subtitle(subtitle);
             routineSwitches.set(unit, row);
             row.connect('notify::active', refreshUnsaved);
             return row;

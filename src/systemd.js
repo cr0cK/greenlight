@@ -99,7 +99,7 @@ const microseconds = (dictionary, name) => {
 /** Reads the timer and its service. A service systemd does not load comes back as null. */
 async function readUnit(connection, entry, cancellable, hooks) {
     const [unit, description, , , , , timerPath] = entry;
-    hooks?.path(timerPath);
+    hooks?.path(unit, timerPath);
     const [timerProperties, timerUnit] = await Promise.all([
         getAll(connection, timerPath, BUS_NAME + '.Timer', cancellable),
         getAll(connection, timerPath, BUS_NAME + '.Unit', cancellable),
@@ -117,7 +117,7 @@ async function readUnit(connection, entry, cancellable, hooks) {
         stateChangeMonotonic: microseconds(timerUnit, 'StateChangeTimestampMonotonic'),
     };
 
-    hooks?.unit(serviceName);
+    hooks?.service(unit, serviceName);
 
     let servicePath = null;
     try {
@@ -125,13 +125,14 @@ async function readUnit(connection, entry, cancellable, hooks) {
             new GLib.Variant('(s)', [serviceName]), '(o)', cancellable)).deepUnpack()[0];
     } catch (error) {
         // systemd answering that it has no such unit is the only way a service is not loaded: a
-        // timeout or a closed connection is a failed read, which keeps the last state.
-        if (!Gio.DBusError.is_remote_error(error))
+        // timeout, a closed connection, or any other error is a failed read, which keeps the last
+        // state.
+        if (Gio.DBusError.get_remote_error(error) !== BUS_NAME + '.NoSuchUnit')
             throw error;
     }
     let service = null;
     if (servicePath !== null) {
-        hooks?.path(servicePath);
+        hooks?.path(unit, servicePath);
         const [serviceProperties, serviceUnit] = await Promise.all([
             getAll(connection, servicePath, BUS_NAME + '.Service', cancellable),
             getAll(connection, servicePath, BUS_NAME + '.Unit', cancellable),
@@ -157,8 +158,9 @@ async function readUnit(connection, entry, cancellable, hooks) {
  * Reads the timers that match `patterns` (`['*.timer']` for all of them) that activate a
  * service. Returns one entry per timer, `{unit, raw, timerPath, servicePath}` when it read or
  * `{unit, error, timerPath}` when its own read failed; rejects when the timer list itself cannot
- * be read. `hooks` (optional) hears each object path (`path`) and service unit name (`unit`) as
- * soon as it is known, before its properties are read, so a listener can exist before the read.
+ * be read. `hooks` (optional) hears, for a timer unit, each of its object paths (`path(timer,
+ * path)`) and its service's name (`service(timer, name)`) as soon as it is known, before the
+ * properties are read, so a listener can exist before the read.
  */
 export async function readTimers(connection, patterns, cancellable, hooks = null) {
     const reply = await call(connection, MANAGER_PATH, MANAGER, 'ListUnitsByPatterns',
@@ -222,7 +224,8 @@ export class RoutineWatcher {
         this._nameWatchId = 0;
         this._managerSignals = [];
         this._pathSignals = new Map();
-        this._relevant = new Set();
+        // Per watched timer, the name of its service, once known.
+        this._serviceOf = new Map();
         // Per watched timer, the object paths of its timer and service that it listens to.
         this._unitPaths = new Map();
     }
@@ -256,8 +259,10 @@ export class RoutineWatcher {
             if (!units.includes(unit))
                 this._unitPaths.delete(unit);
         }
-        for (const unit of units)
-            this._relevant.add(unit);
+        for (const unit of [...this._serviceOf.keys()]) {
+            if (!units.includes(unit))
+                this._serviceOf.delete(unit);
+        }
         this._syncSubscriptions();
         this._invalidate();
         if (this._connection && !this.noOwner)
@@ -316,7 +321,7 @@ export class RoutineWatcher {
                     callback(parameters);
             });
         const unitSignal = parameters => {
-            if (this._relevant.has(parameters.get_child_value(0).get_string()[0]))
+            if (this._isRelevant(parameters.get_child_value(0).get_string()[0]))
                 this._request();
         };
         this._managerSignals = [
@@ -329,6 +334,11 @@ export class RoutineWatcher {
             connection, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => reportFailure(this._onOwner(session, true)),
             () => reportFailure(this._onOwner(session, false)));
+    }
+
+    /** Whether a unit of a manager signal is a watched timer, or the service of one. */
+    _isRelevant(unit) {
+        return this._watched.includes(unit) || [...this._serviceOf.values()].includes(unit);
     }
 
     async _onOwner(session, present) {
@@ -429,9 +439,20 @@ export class RoutineWatcher {
         try {
             // Each object path gets its listener before its properties are read, so a change
             // between the read and the end of the snapshot still reaches the watcher.
+            const current = () => !cancellable.is_cancelled() && this._generation === generation;
             results = await readTimers(this._connection, patterns, cancellable, {
-                path: path => this._listen(path),
-                unit: unit => this._relevant.add(unit),
+                path: (unit, path) => {
+                    if (!current())
+                        return;
+                    this._listen(path);
+                    const paths = this._unitPaths.get(unit) ?? new Set();
+                    paths.add(path);
+                    this._unitPaths.set(unit, paths);
+                },
+                service: (unit, name) => {
+                    if (current())
+                        this._serviceOf.set(unit, name);
+                },
             });
         } catch (error) {
             if (cancellable.is_cancelled() || this._generation !== generation)
@@ -469,10 +490,7 @@ export class RoutineWatcher {
                 if (previous)
                     previous.stale = true;
                 this.error ??= result.error;
-                // The unit may recover: it keeps the listeners it had.
-                const paths = this._unitPaths.get(result.unit) ?? new Set();
-                paths.add(result.timerPath);
-                this._unitPaths.set(result.unit, paths);
+                // The unit may recover: it keeps the listeners it had, and those the read added.
             } else {
                 this.routines.set(result.unit, {raw: result.raw, stale: false});
                 this._unitPaths.set(result.unit,
@@ -487,9 +505,10 @@ export class RoutineWatcher {
             if (!answered.has(unit))
                 this._unitPaths.delete(unit);
         }
-        this._relevant = new Set(patterns);
-        for (const routine of this.routines.values())
-            this._relevant.add(routine.raw.timer.unit);
+        for (const unit of [...this._serviceOf.keys()]) {
+            if (!answered.has(unit))
+                this._serviceOf.delete(unit);
+        }
     }
 
     /** Listens to the property changes of one object path, once. */
