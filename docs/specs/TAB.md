@@ -11,12 +11,11 @@ tracking: "#57"
 
 TAB splits the preferences window into tabs, one per part of Greenlight (pull requests, agents,
 and the version), with one save that applies every tab, offered by a banner at the top of every
-tab while changes are unsaved, and a confirmation before unsaved changes are dropped. Greenlight
-is growing from a pull request monitor into a view of what the agents do, and one long page no
-longer scales. TAB builds on PRM, QOP, QTA, ORD, and ABT, whose rules all still apply except the
-ones it replaces, which TAB-P1 and TAB-P2 rewrite in those specs: PRM's **Save preferences** rule
-(it applies every setting and closes the window), PRM's and ORD's mentions of **Save
-preferences**, ORD's rules on closing without saving and on pending focus moves, QOP's shortcut
+tab while changes are unsaved. Greenlight is growing from a pull request monitor into a view of
+what the agents do, and one long page no longer scales. TAB builds on PRM, QOP, QTA, ORD, and
+ABT, whose rules all still apply except the ones it replaces, which TAB-P1 and TAB-P2 rewrite in
+those specs: PRM's **Save preferences** rule (it applies every setting and closes the window),
+PRM's and ORD's mentions of **Save preferences**, ORD's rule on pending focus moves, QOP's shortcut
 validation (which field takes the focus), QTA's placement of the **Agent quotas** group and its
 save during a check (which closes the window), and ABT's **About** group at the bottom of the
 window. The settings, their keys, their values, and what each row does are unchanged. The mockup
@@ -30,8 +29,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   `Adw.PreferencesPage` per tab added with `window.add()`), so the tab switcher, its place in the
   header bar, and the bottom bar it moves to in a narrow window are Adwaita's own, at Adwaita's
   own width threshold. (PREFS-NARROW)
-- Each tab has a title and a symbolic icon: **Pull requests** uses the extension's own
-  `greenlight-pr-symbolic` icon, the one of the panel indicator; **Agents** uses
+- Each tab has a title and a symbolic icon: **Pull requests** uses the pull request glyph of the
+  panel indicator, drawn for GTK as `greenlight-pr-gtk-symbolic` (see TAB-P1's notes); **Agents** uses
   `power-profile-balanced-symbolic`; **About** uses `help-about-symbolic`.
 - The window always opens on **Pull requests**. It does not remember the last tab.
 - Each tab scrolls on its own. Switching tabs keeps each tab's scroll position and every unsaved
@@ -64,22 +63,27 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   only one runs at a time, and its buttons and the save wait for it); the banner stays.
   (PREFS-BUSY)
 - `Ctrl+S`, inside the window, saves when the banner's **Save** is sensitive, and does nothing
-  otherwise. A quick open shortcut (QOP) set to `<Control>s` is GNOME Shell's and takes the keys
-  first; Greenlight does not change it.
-- Before anything is read, a save commits a value still being typed in **Notify at**: valid text
-  becomes its value, as leaving the field would do, and invalid text falls back to the field's
-  last value.
+  otherwise: in a window without unsaved changes, it writes nothing and shows no toast. A quick
+  open shortcut (QOP) set to `<Control>s` is GNOME Shell's and takes the keys first; Greenlight
+  does not change it.
+- **Notify at** text: while it is typed, text that is a whole number counts as that number
+  clamped to 50–100, and any other text (empty, `abc`) counts as the value last committed, so the
+  banner follows a typed `83` before the field is left. Before anything is read, a save commits
+  the text the same way: a whole number becomes its clamped value; any other text is replaced by
+  the value last committed.
 - An invalid keyboard shortcut stops the save before anything is written, from any tab: the
   window switches to **Pull requests**, scrolls the shortcut field into view, marks it, and gives
   it the focus, as QOP says. Editing the field clears the mark. (PREFS-SHORTCUT)
 - A save writes the settings whose value, as the window shows it, differs from its baseline (see
   **Unsaved changes**), plus the pending normalizations listed there, and nothing else, in one
-  batch: a fresh settings object in delay-apply mode, every write checked, then one `apply()`.
+  batch: every key to write is first checked writable, then the writes go through a fresh
+  settings object in delay-apply mode and one `apply()`.
   A setting nobody changed in the window is never written, so a change made elsewhere while the
   window is open (another `gsettings` write) survives a save that does not touch it; one changed
   on both sides takes the window's value.
-- When a write is refused (a locked key), the save reverts the batch, writes nothing, keeps every
-  unsaved change, and shows a toast `Could not save: <key> is not writable`.
+- When a key to write is not writable (a locked key), the save writes nothing, keeps every
+  unsaved change, and shows a toast `Could not save: <key> is not writable`, naming the first
+  such key.
 - After a successful save, the window stays open. The banner hides, and a toast reads
   `Preferences saved`. The values saved become the baseline. The owner blocks keep their state on
   screen (discovered repositories, filter text, open lists, scroll position). (PREFS-SAVED)
@@ -100,6 +104,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     with `Could not check`, keeps the saved choice and normalizes nothing;
   - a **Refresh every** stored outside the list and shown as 1 hour (QTA): the next save stores
     60;
+  - a **Refresh interval** stored outside PRM's list and shown as 2 minutes: the next save
+    stores 120;
   - the owner order, which ORD completes when the window opens (owners missing from
     `owner-order` added in ORD's kind-then-login order, unknown logins dropped): the baseline is
     that completed order, and the next save stores it, as ORD's save does.
@@ -127,29 +133,17 @@ is [`mockups/TAB.html`](mockups/TAB.html).
 
 ## Closing
 
-- Closing the window without unsaved changes closes it at once, and cancels the `gh` task and
-  the availability checks still running, as PRM and QTA say. (PREFS-CLOSE)
-- Closing it with unsaved changes, by any means the window offers (its close button or a
-  keyboard shortcut), keeps it open and shows a dialog instead: the heading `Save changes?`, the
-  body `Pull requests has unsaved changes.` or `Pull requests and Agents have unsaved changes.`,
-  the tabs named in tab order, and three responses: **Cancel**, **Discard** (destructive), and
-  **Save** (suggested, the default). `Escape` is **Cancel**. (PREFS-CLOSE)
-- Only one dialog exists at a time. While it is open, its body and its **Save** follow the window:
-  a `gh` answer that changes which tabs are unsaved updates the body, and **Save** is insensitive
-  while a `gh` task runs, as the banner's is. **Discard** and **Cancel** stay available.
-- **Cancel** closes the dialog and leaves the window, its unsaved changes (owner moves included),
-  and its running tasks as they were.
-- **Discard** closes the window without writing anything, and cancels the running tasks.
-- **Save** saves as the banner does, then closes the window. When the save stops on an invalid
-  shortcut or a refused write, the dialog closes, the window stays open, and the save's own rule
-  applies (the shortcut field takes the focus once the dialog has released it, or the toast
-  shows).
-- While the dialog is open, Greenlight keeps the preferences service running, so the window
-  cannot close under it.
+- Closing the window, by any means it offers, closes it at once, with or without unsaved changes,
+  and drops them, as before TAB: the banner is what tells the user they are not saved. It cancels
+  the `gh` task and the availability checks still running, as PRM and QTA say. (PREFS-CLOSE)
+- There is no confirmation dialog: GNOME Shell's preferences service releases the window in its
+  own `close-request` handler, which runs before the extension's, so a window kept open by the
+  extension would outlive the service that tracks it.
 
 ## Out of scope
 
 - Applying a setting as soon as it changes, without a save.
+- A confirmation before closing with unsaved changes (see **Closing**).
 - Remembering the last tab, a search over the settings, and a mark on the tab switcher's buttons.
 - Moving a setting to another tab, or changing a row's text, beyond the **Save preferences** row
   removed.
@@ -164,30 +158,33 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   preferences steps and screenshots follow.
 - **Temporary restrictions**, delivered by TAB-P2: there is no unsaved-change tracking, so the
   banner shows on every tab at all times, titled `Save your changes to apply them`, its **Save**
-  sensitive whenever no `gh` task runs; a save writes every setting whose value differs from the
-  stored one, as PRM's save does today, with the batch, the refused-write rule, and the toast of
-  **Save**; closing the window drops unsaved changes without a dialog, as before TAB.
+  sensitive whenever no `gh` task runs, and `Ctrl+S` with it; a save writes every setting whose
+  value differs from the stored one, as PRM's save does today, with the batch, the
+  not-writable rule, and the toast of **Save**.
 - **Prototype first** (throwaway, in the headless GNOME Shell of AGENTS.md, opened with
   `gnome-extensions prefs`): `fillPreferencesWindow` adds three `Adw.PreferencesPage`s with
   `window.add()`, each with an `Adw.Banner` as its `banner`, whose button activates a
   `prefs.save` action on the window. Pass: the window opens with its three tabs, the banner shows
   above each page's scrolled content and stays while it scrolls, disabling the action makes every
-  banner's button insensitive, the custom icon resolves, and the logs have no GTK critical or JS
-  error. Fail: report to the owner before going further; there is no silent fallback.
+  banner's button insensitive, the **Pull requests** icon looks like the panel glyph in a
+  screenshot (outlined strokes, not filled blobs), and the logs have no GTK critical or JS error. Fail: report to the owner before going further; there is no silent fallback.
 - **Acceptance**:
   - `npm run lint` and `make check` pass.
+  - Unit tests (`node --test`) for the save batch as a pure function of the values to write and a
+    writable predicate: one key not writable writes nothing and names that key.
   - In the headless GNOME Shell: the window opens on **Pull requests** with the tabs in order
     and their icons; each tab holds exactly the groups **Tabs** lists; one save applies a changed
     author, a moved owner block, and a changed **Notify at**, the window stays open, and the toast
     shows; an invalid shortcut saved from **Agents**, with **Pull requests** scrolled past the
     field, switches to **Pull requests** with the field in view, marked, and focused, and writes
-    nothing; a save with a locked key (`gsettings` lock through a keyfile `locks` directory)
-    writes nothing and shows the refused-write toast; the banner's **Save** is insensitive while
+    nothing; the banner's **Save** is insensitive while
     **Discover accounts** runs; a **Discover accounts** answer that lands while **Agents** is shown
     moves no focus; a narrow window shows Adwaita's bottom switcher. Screenshots of each, and no
     `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` captures each tab: `preferences.png` stays the **Pull requests**
-    tab; `preferences-agents.png` and `preferences-about.png` are new; README.md shows them.
+    tab; `preferences-agents.png` and `preferences-about.png` are new; README.md shows them. The
+    script switches tabs with the Clutter virtual device of AGENTS.md (focus the switcher, then
+    the arrow keys), not through a product-side hook.
 - **Technical notes**:
   - GNOME Shell's preferences window (`extensionPrefsDialog.js` in GNOME Shell 49 and 50)
     requires a `visible_page` after `fillPreferencesWindow()` returns, so the pages go through
@@ -200,49 +197,47 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     `Adw.Banner` is a `Gtk.Actionable`. `Ctrl+S` is a `Gtk.ShortcutController` on the window,
     scope `managed`, activating `prefs.save`.
   - `Adw.PreferencesPage` takes an `icon-name` only: add the extension directory to the icon
-    theme with `Gtk.IconTheme.get_for_display(window.get_display()).add_search_path(this.path)`
-    so `greenlight-pr-symbolic` resolves from `src/greenlight-pr-symbolic.svg`.
+    theme with `Gtk.IconTheme.get_for_display(window.get_display()).add_search_path(this.path)`.
+    GTK's symbolic loader fills every path, so the stroke-only `src/greenlight-pr-symbolic.svg`
+    renders as blobs (as `greenlight-open-symbolic.svg` already notes): ship a fill-only outlined
+    copy, `src/greenlight-pr-gtk-symbolic.svg`, and add it to `EXTRA_SOURCES` in the Makefile.
   - Each save takes a fresh `this.getSettings()` and calls `delay()` on it; AGENTS.md warns that
-    `delay()` is permanent, so that object is never used after its `apply()` or `revert()`. Each
-    `set_*` returns `false` for a refused write: revert then.
-  - **Notify at** is an `Adw.SpinRow`: call its `update()` before reading its value.
+    `delay()` is permanent, so that object is never used after its `apply()`. In delay mode,
+    `set_*` returns `true` for a locked key and `apply()` then silently drops the whole batch, so
+    check `settings.is_writable(key)` for every key before writing any.
+  - **Notify at** is an `Adw.SpinRow`: parse its text from the `Gtk.Editable` `changed` signal
+    (`notify::value` fires only on commit) without calling `update()` there, which would rewrite
+    the text mid-keystroke; at save, set the text to the committed value when it is not a whole
+    number, then call `update()`. `update()` alone clamps invalid text to 50.
+  - A key cannot be locked in an unprivileged headless session (the keyfile backend reads locks
+    only from `/etc/glib-2.0/settings/locks`), hence the unit test for the not-writable rule.
   - ORD's `focusLater()` checks the target's root; it also needs **Pull requests** to be the
     window's `visible_page`, and `notify::visible-page` cancels the pending move.
 
-### TAB-P2: unsaved changes and the close dialog
+### TAB-P2: unsaved changes
 
-- **Scope**: **Unsaved changes**, **Closing**, and the parts of **Save** that TAB-P1 left out:
-  the banner shown only with unsaved changes and its title, a save that writes only the changed
-  settings and the pending normalizations, and the baseline after a save and after a check. The
-  PRM, QTA, and ORD lines TAB-P1 rewrote with its restrictions are updated to the final behavior,
-  ORD's included: **Cancel** keeps unsaved moves, **Discard** drops them.
-- **Prototype first** (throwaway): in the headless GNOME Shell, a `close-request` handler that
-  returns `true`, holds the application (`Gio.Application.get_default().hold()`) while an
-  `Adw.AlertDialog` is open, and releases it when the dialog answers. GNOME Shell's own handler
-  runs first and forgets the window, so check: after **Cancel**, the window stays usable for 60
-  seconds (longer than the service's inactivity timeout), a second **Preferences…** from the
-  menu meanwhile does not open a second window or does no harm, and closing again shows the
-  dialog again; after **Discard**, the window closes and the service exits as usual. Pass: all
-  of these hold on GNOME Shell 49. Fail: closing with unsaved changes discards them without a
-  dialog, as before TAB, the **Closing** rules on the dialog are left out, and the PR says so for
-  the owner to decide.
+- **Scope**: **Unsaved changes**, and the parts of **Save** that TAB-P1 left out: the banner shown
+  only with unsaved changes and its title, `Ctrl+S` doing nothing in a clean window, a save that
+  writes only the changed settings and the pending normalizations, and the baseline after a save
+  and after a check. The PRM and QTA lines TAB-P1 rewrote with its restrictions are updated to the
+  final behavior.
 - **Acceptance**:
   - Unit tests (`node --test`) for the pure comparison: author trimming; the three shortcut
-    classes, equivalence, and an invalid stored value that opens clean; an owner configuration
-    equal after a **Discover** that changed only a spelling, a move and a move back, a completed
-    order on open (missing and stale logins) that is clean, a paused owner, a mode change that
-    keeps the stored scope and one between **All except…** and **Only…**; the pending
-    normalizations; the banner and dialog texts for one, two, and three tabs.
+    classes, equivalence, and an invalid stored value that opens clean; the **Notify at** text
+    rule (`83`, `8`, `120`, empty, `abc`); an owner configuration equal after a **Discover** that
+    changed only a spelling, a move and a move back, a completed order on open (missing and stale
+    logins) that is clean, a paused owner, a mode change that keeps the stored scope and one
+    between **All except…** and **Only…**; the pending normalizations, including a
+    `Could not check` provider locked on with another tab unsaved, whose save writes it unchanged;
+    the banner texts for one, two, and three tabs.
   - In the headless GNOME Shell: a changed author shows the banner on every tab and its title
     names **Pull requests**; typing it back hides it; a changed **Notify at** adds **Agents** to
     the title; typing `83` in **Notify at** and pressing `Ctrl+S` with the focus still in it saves
-    83; an external `gsettings set` of the author followed by an **Agents**-only save keeps the
-    external author; an unavailable provider whose check turns its switch off shows no banner,
-    and the next save stores it off; closing with changes shows the dialog, **Cancel** keeps them
-    (an owner move included), **Discard** closes without writing (checked with `gsettings` on the
-    keyfile), **Save** writes and closes; a dialog opened with **Agents** only unsaved updates its
-    body when a **Discover accounts** answer adds an owner. Screenshots, and no `JS ERROR` or
-    `JS WARNING` in the log.
+    83; `Ctrl+S` in a clean window writes nothing and shows no toast; an external `gsettings set`
+    of the author followed by an **Agents**-only save keeps the external author; an unavailable
+    provider whose check turns its switch off shows no banner, and the next save stores it off;
+    closing with changes closes at once and writes nothing (checked with `gsettings` on the
+    keyfile). Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` regenerates the three preferences captures, and README.md follows.
   - `npm run lint` and `make check` pass.
 - **Technical notes**:
@@ -252,7 +247,7 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     keys to write. `ownerFiltersToSave()` in `src/filters.js` already returns `null` when the
     owners would be saved as they are; check that it compares names case-insensitively and keeps
     the stored spelling, and make it do so.
+  - The `prefs.save` action is enabled only while a tab has unsaved changes and no `gh` task runs.
   - Recompute the banner on every change signal of the rows (`changed`, `notify::selected`,
     `notify::active`, `notify::value`, and the **Notify at** text) and after every owner block
     change (`renderOwners()`, `fillOwnerGroup()`, a move, a trash icon).
-  - The running tasks are cancelled at the final close only, no longer in every `close-request`.
