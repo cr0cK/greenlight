@@ -537,6 +537,34 @@ test('a timer that joins a watched service does not hide its run from the timer 
     assert.deepEqual(due.map(routine => routine.name), ['b-timer']);
 });
 
+test('a timer that first reads a shared run while the other is stale leaves the run to the other', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-timer', 'b-timer');
+    tracker.observe([calm('b-timer')], watchedOf('b-timer'));
+    // a-timer joins and reads the failure as its baseline while b-timer's read is stale.
+    assert.deepEqual(tracker.observe([sharing('a-timer', 5000 * SECOND), {...sharing('b-timer', 5000 * SECOND), stale: true}],
+        watched), []);
+    const due = tracker.observe([sharing('a-timer', 5000 * SECOND), sharing('b-timer', 5000 * SECOND)], watched);
+    assert.deepEqual(due.map(routine => routine.name), ['b-timer']);
+    assert.deepEqual(tracker.observe([sharing('a-timer', 5000 * SECOND), sharing('b-timer', 5000 * SECOND)], watched), []);
+});
+
+test('a run announced while a sharing timer was stale is not announced again when it returns', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-timer', 'b-timer');
+    tracker.observe([calm('a-timer'), calm('b-timer')], watched);
+    assert.equal(tracker.observe([sharing('a-timer', 5000 * SECOND), {...calm('b-timer'), stale: true}], watched).length, 1);
+    assert.deepEqual(tracker.observe([sharing('a-timer', 5000 * SECOND), sharing('b-timer', 5000 * SECOND)], watched), []);
+});
+
+test('a failure read while stale is not known: the fresh read of it notifies', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job');
+    tracker.observe([ok('a-job')], watched);
+    assert.deepEqual(tracker.observe([{...failed('a-job', {stateChangeMonotonic: 5000 * SECOND}), stale: true}], watched), []);
+    assert.equal(tracker.observe([failed('a-job', {stateChangeMonotonic: 5000 * SECOND})], watched).length, 1);
+});
+
 test('two timers that read different runs of one service each notify their run', () => {
     const tracker = new FailureTracker();
     const watched = watchedOf('a-timer', 'b-timer');

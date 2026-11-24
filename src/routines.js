@@ -343,26 +343,30 @@ export class FailureTracker {
     constructor() {
         // The watched timers whose first successful read was taken as a quiet baseline.
         this._baselined = new Set();
-        // The latest run read per failure key, by its order.
-        this._last = new Map();
+        // The latest run each routine has read, by `<timer unit> <failure key>`.
+        this._seen = new Map();
+        // The latest run notified, by failure key: a service two timers share notifies once.
+        this._announced = new Map();
     }
 
     /**
      * Takes a read of the watched routines (`stale` ones, whose last read failed, are skipped)
      * and returns the routines whose failed run is new, one per run. A routine's first read is a
-     * baseline and never notifies. A service two watched timers share notifies under the first
-     * name by sort order.
+     * baseline and never notifies. A run a routine has not read before notifies, unless another
+     * routine's read already notified it, and a service two watched timers share notifies under
+     * the first name by sort order. Every routine is compared with what it knew before this read.
      */
     observe(routines, watched) {
         for (const unit of [...this._baselined]) {
             if (!watched.includes(unit))
                 this._baselined.delete(unit);
         }
+        for (const id of [...this._seen.keys()]) {
+            if (!watched.includes(id.split(' ')[0]))
+                this._seen.delete(id);
+        }
         if (watched.length === 0)
-            this._last.clear();
-        // Every routine is compared with what was known before this read, so the order they are
-        // visited in (a baseline first, say) never hides a run from the others.
-        const newest = new Map();
+            this._announced.clear();
         const due = new Map();
         for (const routine of sortRoutines(routines)) {
             if (routine.stale || !watched.includes(routine.unit))
@@ -372,17 +376,19 @@ export class FailureTracker {
             const {failure} = routine;
             if (!failure)
                 continue;
-            const last = this._last.get(failure.key);
-            if (last !== undefined && failure.order <= last)
+            const id = routine.unit + ' ' + failure.key;
+            const known = (this._seen.get(id) ?? -Infinity) >= failure.order;
+            this._seen.set(id, Math.max(this._seen.get(id) ?? -Infinity, failure.order));
+            if (baseline || known || (this._announced.get(failure.key) ?? -Infinity) >= failure.order)
                 continue;
-            newest.set(failure.key, Math.max(newest.get(failure.key) ?? failure.order, failure.order));
-            // One notification per run, under the first name that is not a baseline.
             const run = failure.key + ' ' + failure.order;
-            if (!baseline && !due.has(run))
+            if (!due.has(run))
                 due.set(run, routine);
         }
-        for (const [key, order] of newest)
-            this._last.set(key, order);
+        for (const {failure} of due.values()) {
+            this._announced.set(failure.key,
+                Math.max(this._announced.get(failure.key) ?? -Infinity, failure.order));
+        }
         return [...due.values()];
     }
 }
