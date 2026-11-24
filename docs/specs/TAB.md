@@ -69,7 +69,7 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   open shortcut (QOP) set to `<Control>s` is GNOME Shell's and takes the keys first; Greenlight
   does not change it.
 - **Notify at** text: a whole number from 50 to 100 is a value; any other text (empty, `abc`,
-  `8`, `120`) is not. While it is typed, a value counts as that value and other text counts as
+  `8`, `120`, `83.5`) is not. While it is typed, a value counts as that value and other text counts as
   the value last committed, so the banner follows a typed `83` before the field is left. Leaving
   the field, and a save before anything is read, commit a value, and replace other text with the
   value last committed.
@@ -170,7 +170,7 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   above each page's scrolled content and stays while it scrolls, disabling the action makes every
   banner's button insensitive, the **Pull requests** icon looks like the panel glyph in a
   screenshot (outlined strokes, not filled blobs), **Notify at** with `update-policy` `IF_VALID`
-  keeps its last value for empty text, `abc`, `8`, and `120` on Tab, and the logs have no GTK
+  keeps its last value for empty text, `abc`, `8`, `120`, and `83.5` on Tab, and the logs have no GTK
   critical or JS error. Fail: report to the owner before going further; there is no silent
   fallback.
 - **Acceptance**:
@@ -215,8 +215,9 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     the text mid-keystroke; at save, call `update()`. Under the default `update-policy`
     (`ALWAYS`), `update()` and leaving the field clamp invalid text to 50: set the row's
     `update-policy` to `IF_VALID` (`Gtk.SpinButtonUpdatePolicy`), which keeps the last value for
-    invalid or out-of-range text, and check it in the prototype (empty text, `abc`, `8`, `120`,
-    then Tab and `Ctrl+S`).
+    invalid or out-of-range text, and reject text that is not a whole number in the row's `input`
+    handler (`IF_VALID` alone accepts `83.5`); check both in the prototype (empty text, `abc`,
+    `8`, `120`, `83.5`, then Tab and `Ctrl+S`).
   - A key cannot be locked in an unprivileged headless session (the keyfile backend reads locks
     only from `/etc/glib-2.0/settings/locks`), hence the unit test for the not-writable rule.
   - ORD's `focusLater()` checks the target's root; it also needs **Pull requests** to be the
@@ -232,7 +233,7 @@ is [`mockups/TAB.html`](mockups/TAB.html).
 - **Acceptance**:
   - Unit tests (`node --test`) for the pure comparison: author trimming; the three shortcut
     classes, equivalence, and an invalid stored value that opens clean; the **Notify at** text
-    rule (`83`, `8`, `120`, empty, `abc`); an owner configuration equal after a **Discover** that
+    rule (`83`, `8`, `120`, `83.5`, empty, `abc`); an owner configuration equal after a **Discover** that
     changed only a spelling, a move and a move back, a completed order on open (missing and stale
     logins) that is clean, a paused owner, a mode change that keeps the stored scope and one
     between **All except…** and **Only…**; the pending normalizations, including a
@@ -243,7 +244,9 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     names **Pull requests**; typing it back hides it; a changed **Notify at** adds **Agents** to
     the title; typing `83` in **Notify at** and pressing `Ctrl+S` with the focus still in it saves
     83; clearing it and pressing Tab shows the last value again; `Ctrl+S` in a clean window writes nothing and shows no toast; an external `gsettings set`
-    of the author followed by an **Agents**-only save keeps the external author; an unavailable
+    of the author followed by an **Agents**-only save keeps the external author; pausing and
+    resuming an owner, then an external change of `owner-filters`, then an **Agents**-only save
+    keeps the external owners; an unavailable
     provider whose check turns its switch off shows no banner, and the next save stores it off;
     closing with changes closes at once and writes nothing (checked with `gsettings` on the
     keyfile). Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
