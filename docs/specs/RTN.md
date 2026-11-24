@@ -10,140 +10,222 @@ tracking: "#59"
 # Greenlight — RTN specification
 
 RTN shows the routines that run on this computer, the user's systemd timers, in the Greenlight
-menu next to the pull requests and the agent quotas: when each one last ran, whether that run
-succeeded, and when it runs next. It notifies a failed run, marks the panel indicator while a
-watched routine is failed, and lets the user run a routine now or read its logs. The user picks
-the routines to watch in a new **Routines** tab of the preferences. It builds on TAB, PRM, QOP,
-and QTA, whose rules all still apply except three it changes, which RTN-P1 rewrites in those
-specs: TAB's list of tabs (a **Routines** tab before **About**), PRM's menu order and QOP's menu
-height (a **Routines** section after the agent quotas section, which stays in view), and PRM's
-panel indicator (a red dot while a watched routine is failed, RTN-P3). The mockup is
-[`mockups/RTN.html`](mockups/RTN.html).
+menu next to the pull requests and the agent quotas: how each one's last run ended and when it
+runs next. It notifies a failed run, marks the panel indicator while a watched routine is
+failed, and lets the user run a routine now or read its logs. The user picks the routines to
+watch in a new **Routines** tab of the preferences. It builds on TAB, PRM, QOP, and QTA, whose
+rules all still apply except the ones it changes: TAB's list of tabs and its texts naming the
+unsaved tabs (a **Routines** tab before **About**), PRM's menu order, QTA's separators, and QOP's
+menu height (a **Routines** section after the agent quotas section, which stays in view), all
+rewritten by RTN-P1; and PRM's panel indicator (a red dot while a watched routine is failed),
+rewritten by RTN-P3. The mockup is [`mockups/RTN.html`](mockups/RTN.html).
 
 ## Scope
 
-- A routine is a timer unit of the user's systemd instance (`systemctl --user`), with the service
-  it activates. System timers (`systemctl` without `--user`), services without a timer, cron,
-  and timers of other users are out of scope.
+- A routine is a timer unit of the user's systemd instance (`systemctl --user`) that activates a
+  `.service` unit. System timers (`systemctl` without `--user`), timers that activate another
+  kind of unit, services without a timer, cron, and timers of other users are out of scope.
 - Greenlight reads systemd through its D-Bus API on the session bus, never by parsing
   `systemctl` output. It never creates, edits, enables, disables, or stops a unit: its only write
-  is **Run now**, which starts the routine's service once.
+  is **Run now**, which asks systemd for one start of the routine's service, under the unit's own
+  dependency, conflict, and restart rules.
 - Nothing is watched by default. With no watched routine, Greenlight makes no systemd call
   outside the preferences window.
+- systemd keeps a routine's history in memory: after the user's systemd instance restarts (a new
+  login without lingering), a routine shows **No run recorded** until it runs.
 
 ## Reading systemd
 
 - The bus name is `org.freedesktop.systemd1` on the session bus, object
-  `/org/freedesktop/systemd1`, interface `org.freedesktop.systemd1.Manager`.
-- The timers are the units that `ListUnitsByPatterns([], ['*.timer'])` returns: every timer the
-  user instance has loaded, active or not. A timer file that is not loaded (never enabled nor
-  started) is not listed.
+  `/org/freedesktop/systemd1`, interface `org.freedesktop.systemd1.Manager`. Every call is
+  asynchronous and has a 5-second timeout.
+- The timers are the units that `ListUnitsByPatterns([], ['*.timer'])` returns (every timer the
+  user instance has loaded, active or not) whose `Timer.Unit` ends with `.service`. A timer file
+  that is not loaded is not listed.
 - A routine's name is its timer unit name without `.timer` (`nightly-report`); its description is
   the timer's `Description`.
-- From the timer (`org.freedesktop.systemd1.Timer`): `Unit` (the service it activates),
-  `NextElapseUSecRealtime`, `NextElapseUSecMonotonic`, and `LastTriggerUSec`; from its unit
-  interface, `ActiveState`.
-- From the service (`org.freedesktop.systemd1.Service` and `Unit`): `ActiveState`, `Result`,
-  `ExecMainStatus`, `ExecMainCode`, and `InactiveEnterTimestamp`.
-- **Next run**: `NextElapseUSecRealtime` when it is not 0; otherwise, when
-  `NextElapseUSecMonotonic` is not 0, now plus its distance from the current monotonic time;
-  otherwise none, which reads `not scheduled`. A timer whose `ActiveState` is not `active`
-  has no next run either.
-- **Last run**: `LastTriggerUSec`; 0 means the routine never ran, which reads `never ran`.
-- **State** of a routine, from its service:
-  - **Running** when the service's `ActiveState` is `activating`, `active`, `reloading`, or
-    `deactivating`.
-  - otherwise **Failed** when its `ActiveState` is `failed`;
-  - otherwise **Never ran** when the last run is none;
-  - otherwise **Succeeded**.
-- The **cause** of a failure, from the service's `Result`: `exit-code` reads `exit code <N>`
-  (`ExecMainStatus`); `signal` and `core-dump` read `killed by signal <N>` (`ExecMainStatus`);
-  `timeout` reads `timed out`; `oom-kill` reads `out of memory`; `start-limit-hit` reads
-  `start limit hit`; any other value reads as itself.
+- Properties are read with `org.freedesktop.DBus.Properties.GetAll`, once per interface:
+  - the timer (`org.freedesktop.systemd1.Timer`): `Unit`, `NextElapseUSecRealtime`,
+    `NextElapseUSecMonotonic`, `LastTriggerUSec`, and `Result`; its `Unit` interface:
+    `ActiveState`;
+  - the service, whose object path comes from the manager's `GetUnit(<Timer.Unit>)`
+    (`org.freedesktop.systemd1.Service`): `Result`, `ExecMainCode`, `ExecMainStatus`,
+    `ExecMainStartTimestamp`, and `ExecMainExitTimestamp`; its `Unit` interface: `ActiveState`,
+    `SubState`, `InactiveExitTimestamp`, `StateChangeTimestamp`,
+    `StateChangeTimestampMonotonic`, `ConditionResult`, and `ConditionTimestamp`.
+- A `GetUnit` that fails for the service while the manager answers marks that routine
+  **Service not loaded**: its row reads `service not loaded`, with no button, and it never counts
+  as failed.
+
+### Next run
+
+- `NextElapseUSecRealtime` and `NextElapseUSecMonotonic` are each unset when they are 0 or
+  2^64 − 1. A set monotonic value converts to a date as now plus its distance from the current
+  monotonic time. The next run is the earlier of the set values; with none, or when the timer's
+  `ActiveState` is not `active`, the routine is not scheduled, which reads `not scheduled`.
+- Greenlight leaves the schedule to systemd: a manual start can move the next run (a timer with
+  `OnUnitActiveSec=` or `OnUnitInactiveSec=`), and the row shows the value systemd reports on the
+  next read.
+
+### State
+
+A routine's state is the first of these that applies, from its timer and its service:
+
+1. **Failed** when the service's `ActiveState` is `failed`, or the timer's `Result` is not
+   `success` (systemd could not start the service).
+2. **Running** when the service's `ActiveState` is `activating`, `deactivating`, or
+   `reloading`, or it is `active` with a `SubState` other than `exited`. Its time is
+   `InactiveExitTimestamp`.
+3. **Skipped** when the service's `ConditionResult` is false and its `ConditionTimestamp` is
+   later than its `ExecMainStartTimestamp`: the last start was skipped by a `Condition…=`.
+4. **No run recorded** when `ExecMainStartTimestamp` is 0.
+5. **Succeeded** when `ExecMainCode` is 1 (exited) and `ExecMainStatus` is 0, the service being
+   `inactive`, or `active` with the `SubState` `exited` (`RemainAfterExit=yes`).
+6. otherwise **Unknown**: a run ended without a failed state that Greenlight cannot read as a
+   success, such as a failure cleared by `systemctl --user reset-failed`.
+
+- The time of **Failed**, **Skipped**, **Succeeded**, and **Unknown** is the service's
+  `StateChangeTimestamp`, or the timer's `LastTriggerUSec` for a timer failure.
+- The **cause** of a failure:
+  - a timer failure reads `timer failed: <Timer.Result>`;
+  - `exit-code` with `ExecMainCode` 1 and a non-zero `ExecMainStatus` reads
+    `exit code <ExecMainStatus>`;
+  - `signal` or `core-dump` with `ExecMainCode` 2 or 3 reads
+    `killed by signal <ExecMainStatus>`;
+  - `exit-code`, `signal`, or `core-dump` otherwise (a failed `ExecStartPre=` or another control
+    command) reads `a start command failed`;
+  - `timeout` reads `timed out`; `oom-kill` reads `out of memory`; `start-limit-hit` reads
+    `start limit hit`; any other value reads as itself.
 - A failure stays **Failed** until systemd clears it: the next run, a manual start, or
   `systemctl --user reset-failed`. Greenlight never clears it.
-- Updates: once at least one routine is watched, Greenlight calls the manager's `Subscribe()`,
+
+### Updates
+
+- Once at least one routine is watched, Greenlight watches the owner of
+  `org.freedesktop.systemd1`. While it has one, Greenlight calls the manager's `Subscribe()`,
   listens to `PropertiesChanged` on the object paths of the watched timers and their services,
-  and to the manager's `UnitNew`, `UnitRemoved`, and `Reloading`, and re-reads the watched
-  routines on each, at most once per second. It also re-reads them when the menu opens. It
-  calls `Unsubscribe()` when the last routine stops being watched, and when the extension is
+  and to the manager's `UnitNew`, `UnitRemoved`, `JobRemoved`, and `Reloading`, and re-reads the
+  watched routines after each, at most once per second, with a trailing read for every signal
+  that arrives during that second.
+- It also re-reads them when the menu opens, and after `Reloading(false)` resolves the unit and
+  service paths again.
+- When the name loses its owner, every row turns stale (dimmed, see **Menu**). When it gets one
+  back, Greenlight subscribes again, resolves the paths again, and re-reads. A reply that arrives
+  after the owner changed or after the watched list changed is dropped.
+- It calls `Unsubscribe()` when the last routine stops being watched, and when the extension is
   disabled.
-- Every D-Bus call has a 5-second timeout. A failed read keeps the last state of each routine,
-  dimmed, as QTA does for a quota.
+- A failed read keeps the last state of the routines it concerned, marked stale. Only the
+  routines whose read failed turn stale; the others stay as read.
 
 ## Preferences
 
 - A **Routines** tab, between **Agents** and **About**, uses the `alarm-symbolic` icon. It holds
   one **Routines** group, described `Show your systemd user timers in the menu. Greenlight reads
   them from systemd and never changes a unit.` (PREFS-ROUTINES)
-- Opening the window lists the timers, sorted by name, one switch row each: the title is the
+- The tab starts from the stored `watched-routines`, a list of timer unit names
+  (`nightly-report.timer`). Opening the window reads the timers once; while the read runs, the
+  group shows one row `Reading systemd timers…` and the stored routines stay watched.
+- Once read, the group lists the timers, sorted by name, one switch row each: the title is the
   routine's name, the subtitle its description, then ` · next <time>` with the next run as the
-  menu shows it. While the list loads, the group shows one row `Reading systemd timers…`.
-- A switch on means watched. The watched routines are stored in `watched-routines`, a list of
-  timer unit names (`nightly-report.timer`), on **Save** as TAB says; the **Routines** tab has
-  unsaved changes when the set of switches on differs from the stored list, whatever the order.
+  menu shows it. A switch on means watched.
 - A stored timer that the list does not return keeps a row, its switch on, subtitled
   `Not loaded by systemd`, so it can be switched off. (PREFS-ROUTINES)
 - No timer at all: one row, `No systemd user timers`, subtitled
-  `Create one with systemctl --user, then reopen Preferences.` (PREFS-EMPTY)
-- systemd unreachable (no `org.freedesktop.systemd1` on the session bus, or a failed call): one
-  row, `Could not read systemd timers`, subtitled with the D-Bus error message; stored routines
-  keep their rows, switches on, subtitled `Stored; not read from systemd`, so a save keeps them.
-  (PREFS-ERROR)
+  `Create one with systemctl --user, then reopen Preferences.`, after the stored rows if any.
+  (PREFS-EMPTY)
+- systemd unreachable (no owner for `org.freedesktop.systemd1`, or a failed call): one row,
+  `Could not read systemd timers`, subtitled with the D-Bus error message; stored routines keep
+  their rows, switches on, subtitled `Stored; not read from systemd`. (PREFS-ERROR)
 - The list is read once per window; there is no refresh button.
+- Under TAB, the **Routines** tab's setting is the set of watched timers. Its baseline is the
+  stored list, and it has unsaved changes when the set of switches on differs from it, whatever
+  the order. A read that is still running or that failed changes nothing, so saving another tab
+  meanwhile keeps `watched-routines` as stored. A save stores the watched names sorted.
+- TAB's texts naming the unsaved tabs cover three: `Unsaved changes in Pull requests, Agents, and
+  Routines` on the banner, `Pull requests, Agents, and Routines have unsaved changes.` in the
+  close dialog.
 
 ## Menu
 
 - A **Routines** section sits below the agent quotas section, or below the pull request list
-  when that section is absent, and above **Preferences…**, with a separator above it. It shows
-  when at least one routine is watched, and hides while quick open has text, as the quota
-  section does. It does not scroll: on a short screen the pull request list gives way, as QOP's
-  menu height says. (MENU-ROUTINES, MENU-TYPING)
+  when that section is absent, and above **Preferences…**. It shows when at least one routine is
+  watched, and hides while quick open has text, as the quota section does. (MENU-ROUTINES,
+  MENU-TYPING)
+- Separators: one separator between two shown neighbors among the pull request list, the quota
+  section, the **Routines** section, and **Preferences…**, never two in a row. With both sections
+  hidden, one separator stays between the list and **Preferences…**, as QTA says.
 - A heading reads `Routines`, then one row per watched routine, sorted by name. A watched
-  routine whose timer is no longer loaded is left out of the menu.
+  routine whose timer is no longer loaded is left out; when none is left, a dimmed line reads
+  `No watched routine is loaded by systemd.`
+- Until the first read answers, a dimmed line under the heading reads `Reading systemd…`. When
+  the first read fails, it reads `Could not read systemd: <cause>`.
+- Height: the section shows at most six rows; with more, it scrolls on its own, and moving
+  keyboard focus to a row scrolls it into view. Beyond that, on a short screen, the pull request
+  list gives way, as QOP's menu height says. **Preferences…** stays in view.
 - Each row holds, from left to right: a status icon, the name, the status text, the next run,
   and two icon buttons, **Run now** and **View logs**. (MENU-ROUTINES)
   - **Succeeded**: a green check (`#26a269`) and `ran <age>`.
   - **Failed**: a red cross (`#c01c28`) and `failed <age> · <cause>`, in red. (MENU-FAILED)
-  - **Running**: a yellow dot (`#e5a50a`) and `running since <time>`.
-  - **Never ran**: a grey dash (`#77767b`) and `never ran`.
-  - The next run reads `next in <duration>` under a day away, else `next <weekday> <HH:MM>`, or
-    `not scheduled`. Ages read as ORD's ages do (`now`, `12 min`, `5 h`, `3 d`, then a date),
-    followed by ` ago`, except a date.
+  - **Running**: a yellow dot (`#e5a50a`) and `running since <HH:MM>`.
+  - **Skipped**: a grey dash (`#77767b`) and `skipped <age> · condition not met`.
+  - **No run recorded**: a grey dash and `no run recorded`.
+  - **Unknown**: a grey dash and `last run <age> · result unknown`.
+  - **Service not loaded**: a grey dash and `service not loaded`, without buttons.
+  - The next run reads `next in <duration>` under a day away (`next in 11 min`,
+    `next in 6 h 20 min`), else `next <weekday> <HH:MM>`, or `not scheduled`. Ages read as ORD's
+    ages do (`now`, `12 min`, `5 h`, `3 d`, then a date), followed by ` ago`, except a date.
 - Times use the local time zone and 24-hour `HH:MM`. They are computed when the section renders:
-  on each re-read and each time the menu opens.
+  on each read and each time the menu opens.
+- A stale row (its last read failed, or systemd lost its bus name) is dimmed, its **Run now** is
+  insensitive, and a dimmed line under the heading reads `Could not read systemd: <cause>`, or
+  `systemd is not running` after the name lost its owner. (MENU-READ-ERROR)
+- Keyboard: a row is a static item (it takes no focus and a click on it opens nothing); its two
+  buttons take the focus in order with Tab and act on Enter or Space. A read updates the rows in
+  place: a focused button keeps the focus while its row and action still exist.
 - The row's accessible name reads `<name>, <status text>, <next run>`.
-- A failed read dims every row and adds a dimmed line under the heading:
-  `Could not read systemd: <cause>`.
-- A click on a row opens nothing. The section has no **Updated** line.
+- The section has no **Updated** line.
 
 ## Run now
 
 - **Run now** (`media-playback-start-symbolic`, accessible name `Run <name> now`) calls the
-  manager's `StartUnit(<service>, 'replace')`. The menu stays open. (MENU-RUNNING)
-- It is insensitive while the routine is **Running**.
-- The row turns **Running** from the re-read that follows. When the call fails, the row shows a
-  dimmed line under it, `Could not start <name>: <D-Bus error message>`, until the next
-  successful start or the menu closes.
-- Starting the service does not move the timer's next run; systemd decides that.
+  manager's `StartUnit(<service>, 'fail')`, which refuses to replace a job already queued for a
+  conflicting unit. The menu stays open. (MENU-RUNNING)
+- It is insensitive while the routine is **Running**, while its row is stale, and from the call
+  until the `JobRemoved` of the job the call returned, or 30 seconds without one. Greenlight
+  listens to `JobRemoved` before it sends the call.
+- A `JobRemoved` result of `done` re-reads the routine, which then shows how the run is going or
+  how it ended (a quick oneshot can already read **Succeeded** or **Failed**). Another result, a
+  refused call, or the 30 seconds show a dimmed line under the row until the next successful
+  start or the menu closes: `Could not start <name>: <D-Bus error message>` for a refused call,
+  `Could not start <name>: job <result>` for a job result (`failed`, `dependency`, `skipped`,
+  `canceled`, `timeout`), `Could not start <name>: no answer from systemd` after 30 seconds.
 
 ## View logs
 
 - **View logs** (`utilities-terminal-symbolic`, accessible name `View <name> logs`) opens a
   terminal that runs `journalctl --user -u <service> -e`, which opens the pager at the end of
   the routine's logs. The menu closes. (MENU-FAILED)
-- The terminal is the first one found in `PATH`: `xdg-terminal-exec <command…>`, then
-  `ptyxis -- <command…>`, `kgx -- <command…>`, `gnome-terminal -- <command…>`. Every command is an
-  argument array, never a shell string.
-- No terminal found: the row shows a dimmed line under it,
-  `No terminal found. Run: journalctl --user -u <service> -e`, until the menu closes.
+- The terminal is the first of these found, each looked up in `PATH`, then in `~/.local/bin`:
+  `xdg-terminal-exec <command…>`, `ptyxis -- <command…>`, `kgx -- <command…>`,
+  `gnome-terminal -- <command…>`. Greenlight starts the path it found, with an argument array,
+  never a shell string.
+- No terminal found, or the one found fails to start: from the menu, the row shows a dimmed line
+  under it, `No terminal found. Run: journalctl --user -u <service> -e` or
+  `Could not open a terminal: <error>. Run: journalctl --user -u <service> -e`, and the menu
+  stays open; from a notification, a notification `Could not open the logs of <name>` carries the
+  same text.
 
 ## Failure notifications
 
-- A watched routine that turns **Failed** notifies once: the title `<name> failed`, the body
-  `<cause> · <HH:MM>`, the time being the service's `InactiveEnterTimestamp`. (NOTIF)
-- A failed run is identified by its routine and its `InactiveEnterTimestamp`, so a re-read does
-  not notify it twice, and a later failed run notifies again.
+- A watched routine notifies once per **observed** failed run: the title `<name> failed`, the
+  body `<cause> · <HH:MM>`, the time being the state's time. (NOTIF)
+- A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`
+  (or the timer's `LastTriggerUSec` for a timer failure), so a re-read does not notify it twice,
+  and a later failed run notifies again. Two watched timers that activate the same service
+  notify once, under the first name by sort order.
+- Greenlight reads states, not events: a run that fails and is followed by another run before
+  Greenlight reads (with D-Bus signals, within the same second; with the polling fallback of
+  RTN-P1, within 30 seconds) is not observed and does not notify.
 - When the extension starts, and when a routine starts being watched, its current state is a
   quiet baseline: a routine already **Failed** does not notify. A restart of the extension or
   the session sets a new baseline; nothing is stored.
@@ -157,13 +239,14 @@ panel indicator (a red dot while a watched routine is failed, RTN-P3). The mocku
   `Greenlight, a routine failed`. (MENU-FAILED)
 - The dot follows the state: it goes away once no watched routine is **Failed** (a successful
   run, `reset-failed`, or the routine no longer watched). Opening the menu does not clear it.
-- The `PR <n>` label and PRM's `PR !` are unchanged. A failed read keeps the dot as it was.
+- The `PR <n>` label and PRM's `PR !` are unchanged. A stale row keeps the dot as it was.
 
 ## Out of scope
 
-- System timers, services without a timer, and routines from other schedulers (cron, at).
+- System timers, timers that activate something other than a service, services without a timer,
+  and routines from other schedulers (cron, at).
 - Creating, editing, enabling, disabling, or stopping a unit, and `reset-failed`.
-- Reading or showing log lines inside Greenlight.
+- Reading or showing log lines inside Greenlight, and a history of past runs.
 - A setting to turn the failure notifications or the dot off.
 
 ## Plans
@@ -171,80 +254,102 @@ panel indicator (a red dot while a watched routine is failed, RTN-P3). The mocku
 ### RTN-P1: watched routines in the menu
 
 - **Depends on**: TAB merged (TAB-P1 and TAB-P2), since the **Routines** tab and its unsaved
-  changes use TAB's tabs and **Save**.
+  changes use TAB's tabs and save.
 - **Scope**: **Scope**, **Reading systemd**, **Preferences**, and **Menu**, without the two
-  buttons. The TAB, PRM, and QOP rules RTN changes are rewritten in those specs (the **Routines**
-  tab, the menu order, the menu height), each with `v1.6` in `amended`. README.md describes the
-  routines.
-- **Temporary restrictions**: no **Run now** or **View logs** button (RTN-P2); no notification and
-  no panel dot (RTN-P3).
-- **Prototype first** (throwaway): from GJS in the user's real session, call
-  `ListUnitsByPatterns`, read the properties above for one timer and its service, `Subscribe()`,
-  and receive a `PropertiesChanged` when the service is started with `systemctl --user start`.
-  Pass: every property reads with the types above and the signal arrives within 2 seconds. Fail:
-  without the signal, re-read the watched routines every 30 seconds and when the menu opens, and
-  say so in the PR.
+  buttons. The TAB, PRM, QTA, and QOP rules RTN changes here (the **Routines** tab and TAB's
+  three-tab texts, the menu order, the separators, the menu height) are rewritten in those
+  specs, each with `v1.6` in `amended`. README.md describes the routines.
+- **Temporary restrictions**: no **Run now** or **View logs** button (RTN-P2); no notification
+  and no panel dot (RTN-P3). P1 does not listen to `JobRemoved`.
+- **Prototype first** (throwaway): from GJS in the user's real session, with a disposable
+  `greenlight-probe.timer` and `greenlight-probe.service` written to a scratch directory and
+  linked with `systemctl --user link`, then removed: call `ListUnitsByPatterns`, `GetAll` for each
+  interface above, `Subscribe()`, and receive `PropertiesChanged` when the service is started with
+  `systemctl --user start`. Pass: every property reads with the types above and the signal
+  arrives within 2 seconds. Fail: Greenlight re-reads the watched routines every 30 seconds and
+  when the menu opens instead of listening to signals; the acceptance below then expects updates
+  within 30 seconds; the PR says so.
 - **Acceptance**:
-  - Unit tests (`node --test`) for a pure `src/routines.js`: the state from each
-    `ActiveState`/`Result` pair, each cause text, the next run from the realtime value, the
-    monotonic value, and neither, the age and next-run texts across a day and a week, the sort,
-    and the accessible name.
+  - Unit tests (`node --test`) for a pure `src/routines.js`: each state of **State** from its
+    properties (a `RemainAfterExit` service, a skipped start, a timer failure, a pre-start
+    failure, a cleared failure reading **Unknown**); each cause text; the next run with each
+    value unset as 0 and as 2^64 − 1, with both set in each order; the age and next-run texts
+    across a day and a week; the sort; the accessible name; the three-tab TAB texts.
   - In the headless GNOME Shell, against a mock `org.freedesktop.systemd1` on its private bus
-    (see the technical notes) with one succeeded, one failed, one running, and one never-run
-    timer: the **Routines** tab lists them, a switch saved through TAB's **Save** stores
-    `watched-routines`, the menu shows the four rows with their texts, typing in quick open hides
-    the section, a property change on the mock updates the row within 2 seconds, and stopping the
-    mock dims the rows with the cause. Screenshots, and no `JS ERROR` or `JS WARNING` in the
-    log.
+    (see the technical notes) with timers in each state: the **Routines** tab lists them sorted;
+    saving **Agents** while the read is held pending keeps `watched-routines`; a switch saved
+    through TAB's save stores `watched-routines`; the menu shows each row with its text; seven
+    watched routines make the section scroll with **Preferences…** in view on a 1280×600
+    monitor; the four combinations of the quota and routine sections show one separator between
+    neighbors; typing in quick open hides the section; a property change on the mock updates
+    its row within 2 seconds (30 in the polling fallback); dropping the mock's bus name dims the
+    rows with `systemd is not running`, and bringing it back restores them. Screenshots, and no
+    `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` runs the same mock with fictional timers; `menu.png` shows the
     section, and a new `preferences-routines.png` the tab.
   - `npm run lint` and `make check` pass.
 - **Technical notes**:
   - The private `dbus-run-session` of the headless shell has no systemd, so the tests and the
     screenshots run a mock: a small script under `scripts/screenshots/` that owns
-    `org.freedesktop.systemd1` on that bus and serves the manager and unit interfaces above from
-    a JSON fixture, written with `Gio` (in GJS, or in `python3` with `gi.repository.Gio`, so no
-    new dependency), and can change a property and emit `PropertiesChanged` on request.
-  - `Gio.DBusProxy` per unit, created with `Gio.DBusProxyFlags.DO_NOT_AUTO_START` so a session
-    without systemd fails fast; the unit object path comes from `ListUnitsByPatterns`, or from
-    the manager's `GetUnit` for the service.
+    `org.freedesktop.systemd1` on that bus and serves the manager, unit, timer, and service
+    interfaces above from a JSON fixture, written with `Gio` (in GJS, or in `python3` with
+    `gi.repository.Gio`, so no new dependency). It emits signals only after `Subscribe()`, can
+    change a property and emit `PropertiesChanged` on request, can hold a reply, and can release
+    and take back its bus name.
+  - Call `GetAll` with `Gio.DBusConnection.call` and a cancellable per read rather than
+    `Gio.DBusProxy`, whose cache holds one interface and is invalidated without values. Watch
+    the name with `Gio.bus_watch_name_on_connection`.
   - `GLib.get_monotonic_time()` is `CLOCK_MONOTONIC` in microseconds, the clock of
-    `NextElapseUSecMonotonic`.
-  - Keep the parsing and texts in `src/routines.js`, which imports nothing from `gi://`, as
-    AGENTS.md asks; the D-Bus client goes in its own module shared by the extension and the
-    preferences, as `src/agents.js` is for the quota CLIs.
+    `NextElapseUSecMonotonic` and `StateChangeTimestampMonotonic`.
+  - Keep the state, the texts, and the next-run choice in `src/routines.js`, which imports
+    nothing from `gi://`, as AGENTS.md asks; the D-Bus client goes in its own module shared by
+    the extension and the preferences, as `src/agents.js` is for the quota CLIs.
+  - The routine rows are `PopupBaseMenuItem`s with `{activate: false, hover: false,
+    can_focus: false}` (AGENTS.md); the buttons are focusable `St.Button`s. The six-row cap is a
+    `St.ScrollView` around the section's box, as the pull request list does.
   - The new key `watched-routines` (`as`, default `[]`) goes in the GSettings schema.
 
 ### RTN-P2: Run now and View logs
 
-- **Scope**: **Run now** and **View logs**.
+- **Scope**: **Run now** and **View logs**, with the `JobRemoved` listening.
 - **Acceptance**:
-  - Unit tests for the terminal choice (each candidate missing in turn, none found) and the
-    argument arrays.
-  - In the headless GNOME Shell with the mock: **Run now** calls `StartUnit` with the service
-    and `replace` (the mock logs the call), turns the row **Running**, and is insensitive while
-    it runs; a mock that answers an error shows the `Could not start` line; **View logs** starts
-    the first terminal of a scratch `PATH` holding stub terminals that log their arguments, and
-    with none, shows the `No terminal found` line. Screenshots, and no `JS ERROR` or
-    `JS WARNING` in the log.
+  - Unit tests for the terminal choice (each candidate missing in turn, a candidate only in
+    `~/.local/bin`, none found), the argument arrays, and the job result texts.
+  - In the headless GNOME Shell with the mock: **Run now** calls `StartUnit` with the service and
+    `fail` (the mock logs the call) and is insensitive until the mock's `JobRemoved`; a queued job
+    that the mock keeps running turns the row **Running**; a quick oneshot that ends before the
+    re-read reads **Succeeded**; a `dependency` job result and a refused call each show their
+    `Could not start` line; a timer with `OnUnitActiveSec=` shows the next run the mock reports
+    after the start; **View logs** starts the first terminal of a scratch `PATH` holding stub
+    terminals that log their arguments, a stub that fails to start shows the
+    `Could not open a terminal` line, and with none, the `No terminal found` line. Screenshots,
+    and no `JS ERROR` or `JS WARNING` in the log.
+  - `scripts/screenshots.sh` regenerates `menu.png` with the buttons.
   - `npm run lint` and `make check` pass.
-- **Technical notes**: start the terminal with `Gio.Subprocess` and an argument array, with the
-  extension's lookup in `PATH` (and `~/.local/bin`, as `findCli` does in `src/agents.js`).
+- **Technical notes**: start the terminal with `Gio.Subprocess` and an argument array whose first
+  item is the path found, with the lookup of `findCli` in `src/agents.js`.
 
 ### RTN-P3: failure notifications and the panel dot
 
-- **Scope**: **Failure notifications** and **Panel indicator**.
+- **Scope**: **Failure notifications** and **Panel indicator**. PRM's panel indicator rule is
+  rewritten for the dot, with `v1.6` in `amended`.
 - **Acceptance**:
-  - Unit tests for the run identity, the baseline at start and when a routine starts being
-    watched, a second failed run, and the dot from a set of states.
+  - Unit tests for the run identity (a service failure, a timer failure, a direct inactive to
+    failed change, two timers on one service), the baseline at start and when a routine starts
+    being watched, a second failed run, and the dot from a set of states.
   - In the headless GNOME Shell with the mock: a routine already failed at start shows the dot
     and does not notify; a watched routine that turns failed notifies once with its title and
-    body, and a re-read does not notify again; clicking the notification starts the logs
-    terminal stub; a successful run removes the dot; the indicator's accessible name follows.
-    Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
+    body, and a re-read does not notify again; dismissing that notification, then a second
+    failed run, notifies again, and clicking the second one starts the logs terminal stub;
+    without a terminal, clicking it shows the `Could not open the logs` notification; a
+    successful run removes the dot; the indicator's accessible name follows. Screenshots, and no
+    `JS ERROR` or `JS WARNING` in the log.
+  - `scripts/screenshots.sh` regenerates `menu.png` with a failed routine and the dot.
   - `npm run lint` and `make check` pass.
 - **Technical notes**:
-  - A `MessageTray.Notification` on Greenlight's own source, whose `activated` signal opens the
-    logs; `Main.notify` cannot carry the action.
+  - A `MessageTray.Notification` on Greenlight's own `MessageTray.Source`, whose `activated`
+    signal opens the logs; `Main.notify` cannot carry the action. The source destroys itself
+    with its last notification: create it again when it is gone, and destroy it when the
+    extension is disabled.
   - The dot is a small `St.Widget` over the panel icon, in a `St.Widget` with a
     `Clutter.BinLayout`, aligned to the top right, hidden when no watched routine is **Failed**.
