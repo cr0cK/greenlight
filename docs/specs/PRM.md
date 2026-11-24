@@ -98,7 +98,7 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   (QTA), the **Routines** section when shown (RTN), and **Preferences…**.
 - The list groups pull requests under `<owner> · <n> pull request(s)` headings, ordered as ORD says
   (by the order of the owner blocks in the preferences), and sorts each group by last update. Only
-  the list scrolls; the panel menu caps its height.
+  the list and the routine rows (RTN) scroll; the panel menu caps its height.
 - Each row has a status icon, then:
   - first line: the `#number` badge, up to three labels in their GitHub color (text dark on light
     colors, white on dark ones, the number badge color when a label has no valid color), a `+N`

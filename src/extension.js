@@ -1129,9 +1129,9 @@ export default class GreenlightExtension extends Extension {
     _sizeRoutineRows() {
         const rows = this._routineRows.box.get_children();
         const rowHeight = rows.length > 0 ? rows[0].get_preferred_height(-1)[1] : 0;
-        this._routineScrollView.style = rows.length > ROUTINE_ROWS_KEPT
-            ? 'min-height: ' + Math.round(ROUTINE_ROWS_KEPT * rowHeight) + 'px; max-height: ' +
-                Math.round(ROUTINE_ROWS_VISIBLE * rowHeight) + 'px;'
+        this._routineScrollView.style = rows.length > 0
+            ? 'min-height: ' + Math.round(Math.min(rows.length, ROUTINE_ROWS_KEPT) * rowHeight) +
+                'px; max-height: ' + Math.round(ROUTINE_ROWS_VISIBLE * rowHeight) + 'px;'
             : '';
     }
 

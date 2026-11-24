@@ -318,17 +318,21 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             for (const row of rows)
                 routinesGroup.add(row);
         };
+        // A description or an error message is text, not Pango markup.
+        const createStatusRow = (title, subtitle = '') =>
+            new Adw.ActionRow({title, subtitle, use_markup: false});
         const createRoutineSwitch = (unit, subtitle) => {
             const row = new Adw.SwitchRow({
                 title: routineName(unit),
                 subtitle,
                 active: storedRoutines.includes(unit),
+                use_markup: false,
             });
             routineSwitches.set(unit, row);
             row.connect('notify::active', refreshUnsaved);
             return row;
         };
-        setRoutineRows([new Adw.ActionRow({title: 'Reading systemd timers…'})]);
+        setRoutineRows([createStatusRow('Reading systemd timers…')]);
 
         /** The timers systemd returned, with the stored ones it did not, sorted by name. */
         const showTimers = entries => {
@@ -336,8 +340,6 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const nowReal = GLib.get_real_time();
             const nowMonotonic = GLib.get_monotonic_time();
             const rows = new Map(entries.map(entry => {
-                if (entry.error !== undefined)
-                    return [entry.unit, {name: routineName(entry.unit), subtitle: entry.error}];
                 const routine = readRoutine(entry.raw, nowReal, nowMonotonic);
                 return [entry.unit, {name: routine.name, subtitle: timerSubtitle(routine, now)}];
             }));
@@ -348,12 +350,17 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const shown = sortRoutines([...rows].map(([unit, row]) => ({...row, unit})))
                 .map(({unit, subtitle}) => createRoutineSwitch(unit, subtitle));
             if (entries.length === 0) {
-                shown.push(new Adw.ActionRow({
-                    title: 'No systemd user timers',
-                    subtitle: 'Create one with systemctl --user, then reopen Preferences.',
-                }));
+                shown.push(createStatusRow('No systemd user timers',
+                    'Create one with systemctl --user, then reopen Preferences.'));
             }
             setRoutineRows(shown);
+        };
+        /** systemd could not be read: its error, then the stored timers, still watched. */
+        const showReadError = message => {
+            setRoutineRows([
+                createStatusRow('Could not read systemd timers', message),
+                ...storedRoutines.map(unit => createRoutineSwitch(unit, 'Stored; not read from systemd')),
+            ]);
         };
 
         const routinesCancellable = new Gio.Cancellable();
@@ -361,16 +368,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             // The window closed while systemd was read.
             if (routinesCancellable.is_cancelled())
                 return;
-            showTimers(entries);
+            // A call that failed for one timer is a failed read: none of it is trusted.
+            const failed = entries.find(entry => entry.error !== undefined);
+            if (failed)
+                showReadError(failed.error);
+            else
+                showTimers(entries);
             routinesRead = true;
             refreshUnsaved();
         }, error => {
             if (routinesCancellable.is_cancelled())
                 return;
-            setRoutineRows([
-                new Adw.ActionRow({title: 'Could not read systemd timers', subtitle: errorMessage(error)}),
-                ...storedRoutines.map(unit => createRoutineSwitch(unit, 'Stored; not read from systemd')),
-            ]);
+            showReadError(errorMessage(error));
             routinesRead = true;
             refreshUnsaved();
         });

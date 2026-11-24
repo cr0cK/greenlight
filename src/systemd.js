@@ -97,8 +97,9 @@ const microseconds = (dictionary, name) => {
 };
 
 /** Reads the timer and its service. A service systemd does not load comes back as null. */
-async function readUnit(connection, entry, cancellable) {
+async function readUnit(connection, entry, cancellable, hooks) {
     const [unit, description, , , , , timerPath] = entry;
+    hooks?.path(timerPath);
     const [timerProperties, timerUnit] = await Promise.all([
         getAll(connection, timerPath, BUS_NAME + '.Timer', cancellable),
         getAll(connection, timerPath, BUS_NAME + '.Unit', cancellable),
@@ -116,16 +117,21 @@ async function readUnit(connection, entry, cancellable) {
         stateChangeMonotonic: microseconds(timerUnit, 'StateChangeTimestampMonotonic'),
     };
 
+    hooks?.unit(serviceName);
+
     let servicePath = null;
     try {
         servicePath = (await call(connection, MANAGER_PATH, MANAGER, 'GetUnit',
             new GLib.Variant('(s)', [serviceName]), '(o)', cancellable)).deepUnpack()[0];
     } catch (error) {
-        if (cancellable?.is_cancelled())
+        // systemd answering that it has no such unit is the only way a service is not loaded: a
+        // timeout or a closed connection is a failed read, which keeps the last state.
+        if (!Gio.DBusError.is_remote_error(error))
             throw error;
     }
     let service = null;
     if (servicePath !== null) {
+        hooks?.path(servicePath);
         const [serviceProperties, serviceUnit] = await Promise.all([
             getAll(connection, servicePath, BUS_NAME + '.Service', cancellable),
             getAll(connection, servicePath, BUS_NAME + '.Unit', cancellable),
@@ -150,21 +156,23 @@ async function readUnit(connection, entry, cancellable) {
 /**
  * Reads the timers that match `patterns` (`['*.timer']` for all of them) that activate a
  * service. Returns one entry per timer, `{unit, raw, timerPath, servicePath}` when it read or
- * `{unit, error}` when its own read failed; rejects when the timer list itself cannot be read.
+ * `{unit, error, timerPath}` when its own read failed; rejects when the timer list itself cannot
+ * be read. `hooks` (optional) hears each object path (`path`) and service unit name (`unit`) as
+ * soon as it is known, before its properties are read, so a listener can exist before the read.
  */
-export async function readTimers(connection, patterns, cancellable) {
+export async function readTimers(connection, patterns, cancellable, hooks = null) {
     const reply = await call(connection, MANAGER_PATH, MANAGER, 'ListUnitsByPatterns',
         new GLib.Variant('(asas)', [[], patterns]), '(a(ssssssouso))', cancellable);
     const entries = reply.get_child_value(0).deepUnpack();
     const results = await Promise.all(entries.map(async entry => {
         const unit = entry[0];
         try {
-            const read = await readUnit(connection, entry, cancellable);
+            const read = await readUnit(connection, entry, cancellable, hooks);
             return read && {unit, ...read};
         } catch (error) {
             if (cancellable?.is_cancelled())
                 throw error;
-            return {unit, error: errorMessage(error)};
+            return {unit, error: errorMessage(error), timerPath: entry[6]};
         }
     }));
     return results.filter(Boolean);
@@ -195,6 +203,7 @@ export class RoutineWatcher {
         this._watched = [];
         // Never reset: a late reply compares it with the value it started with.
         this._generation = 0;
+        this._ownerEpoch = 0;
         this._reset();
     }
 
@@ -214,7 +223,8 @@ export class RoutineWatcher {
         this._managerSignals = [];
         this._pathSignals = new Map();
         this._relevant = new Set();
-        this._paths = new Set();
+        // Per watched timer, the object paths of its timer and service that it listens to.
+        this._unitPaths = new Map();
     }
 
     get watched() {
@@ -242,15 +252,24 @@ export class RoutineWatcher {
             if (!units.includes(unit))
                 this.routines.delete(unit);
         }
+        for (const unit of [...this._unitPaths.keys()]) {
+            if (!units.includes(unit))
+                this._unitPaths.delete(unit);
+        }
+        for (const unit of units)
+            this._relevant.add(unit);
+        this._syncSubscriptions();
         this._invalidate();
         if (this._connection && !this.noOwner)
             reportFailure(this._read());
         this._onChange();
     }
 
-    /** Reads again, as when the menu opens. */
+    /** Reads again, as when the menu opens; a connection that failed to open is tried again. */
     refresh() {
-        if (this._connection && !this.noOwner)
+        if (this._watched.length > 0 && !this._session)
+            reportFailure(this._open());
+        else if (this._connection && !this.noOwner)
             this._request();
     }
 
@@ -268,6 +287,8 @@ export class RoutineWatcher {
         } catch (error) {
             if (this._session !== session)
                 return;
+            // No connection: the next menu opening, or a new watched list, tries again.
+            this._session = null;
             this.firstRead = true;
             this.error = errorMessage(error);
             this._onChange();
@@ -314,6 +335,7 @@ export class RoutineWatcher {
         if (this._session !== session)
             return;
         this._invalidate();
+        const epoch = ++this._ownerEpoch;
         if (!present) {
             this.noOwner = true;
             this._stopPolling();
@@ -322,21 +344,24 @@ export class RoutineWatcher {
             return;
         }
         this.noOwner = false;
-        const generation = this._generation;
+        let subscribed = true;
         try {
             await call(this._connection, MANAGER_PATH, MANAGER, 'Subscribe', null, '()', session.cancellable);
-            this._stopPolling();
         } catch {
-            if (this._session !== session || this._generation !== generation)
-                return;
+            subscribed = false;
+        }
+        // Another owner came, or the watcher closed, while Subscribe() ran: that one answers for itself.
+        if (this._session !== session || this._ownerEpoch !== epoch)
+            return;
+        if (subscribed) {
+            this._stopPolling();
+        } else {
             // Without a subscription nothing announces a change: poll, and keep the rows fresh.
             this._startPolling();
         }
-        // The owner changed or the list did while Subscribe() ran: that change reads by itself.
-        if (this._session === session && this._generation === generation) {
-            reportFailure(this._read());
-            this._onChange();
-        }
+        // Reads from here on are covered by the subscription: read the state it starts from.
+        reportFailure(this._read());
+        this._onChange();
     }
 
     /** Everything in flight answers for a state that no longer holds. */
@@ -402,7 +427,12 @@ export class RoutineWatcher {
         let results = null;
         let failure = null;
         try {
-            results = await readTimers(this._connection, patterns, cancellable);
+            // Each object path gets its listener before its properties are read, so a change
+            // between the read and the end of the snapshot still reaches the watcher.
+            results = await readTimers(this._connection, patterns, cancellable, {
+                path: path => this._listen(path),
+                unit: unit => this._relevant.add(unit),
+            });
         } catch (error) {
             if (cancellable.is_cancelled() || this._generation !== generation)
                 return;
@@ -439,36 +469,48 @@ export class RoutineWatcher {
                 if (previous)
                     previous.stale = true;
                 this.error ??= result.error;
+                // The unit may recover: it keeps the listeners it had.
+                const paths = this._unitPaths.get(result.unit) ?? new Set();
+                paths.add(result.timerPath);
+                this._unitPaths.set(result.unit, paths);
             } else {
                 this.routines.set(result.unit, {raw: result.raw, stale: false});
+                this._unitPaths.set(result.unit,
+                    new Set([result.timerPath, result.servicePath].filter(Boolean)));
             }
         }
         for (const unit of [...this.routines.keys()]) {
             if (!answered.has(unit))
                 this.routines.delete(unit);
         }
+        for (const unit of [...this._unitPaths.keys()]) {
+            if (!answered.has(unit))
+                this._unitPaths.delete(unit);
+        }
         this._relevant = new Set(patterns);
         for (const routine of this.routines.values())
             this._relevant.add(routine.raw.timer.unit);
-        this._paths = new Set(results.flatMap(result =>
-            [result.timerPath, result.servicePath].filter(Boolean)));
     }
 
-    /** Listens to the property changes of the paths the last read resolved, and of no other. */
+    /** Listens to the property changes of one object path, once. */
+    _listen(path) {
+        if (this._pathSignals.has(path))
+            return;
+        this._pathSignals.set(path, this._connection.signal_subscribe(
+            BUS_NAME, PROPERTIES, 'PropertiesChanged', path, null, Gio.DBusSignalFlags.NONE,
+            () => this._request()));
+    }
+
+    /** Drops the listeners of paths that no watched timer or service of a read has any more. */
     _syncSubscriptions() {
-        const paths = this._paths;
+        if (!this._connection)
+            return;
+        const wanted = new Set([...this._unitPaths.values()].flatMap(paths => [...paths]));
         for (const [path, id] of [...this._pathSignals]) {
-            if (!paths.has(path)) {
+            if (!wanted.has(path)) {
                 this._connection.signal_unsubscribe(id);
                 this._pathSignals.delete(path);
             }
-        }
-        for (const path of paths) {
-            if (this._pathSignals.has(path))
-                continue;
-            this._pathSignals.set(path, this._connection.signal_subscribe(
-                BUS_NAME, PROPERTIES, 'PropertiesChanged', path, null, Gio.DBusSignalFlags.NONE,
-                () => this._request()));
         }
     }
 
@@ -477,6 +519,7 @@ export class RoutineWatcher {
         const connection = this._connection;
         const session = this._session;
         this._invalidate();
+        this._ownerEpoch++;
         this._stopPolling();
         if (this._throttleId)
             GLib.Source.remove(this._throttleId);
@@ -489,17 +532,9 @@ export class RoutineWatcher {
                 Gio.bus_unwatch_name(this._nameWatchId);
             for (const id of [...this._managerSignals, ...this._pathSignals.values()])
                 connection.signal_unsubscribe(id);
-            // Closing the connection ends the subscription whether or not this call lands.
-            connection.call(BUS_NAME, MANAGER_PATH, MANAGER, 'Unsubscribe', null, null,
-                Gio.DBusCallFlags.NO_AUTO_START, CALL_TIMEOUT_MS, null,
-                (source, result) => {
-                    try {
-                        source.call_finish(result);
-                    } catch {
-                        // The name may have no owner.
-                    }
-                    closeConnection(source);
-                });
+            // Closing the connection ends the subscription: systemd counts subscribers by bus
+            // name, and this one is Greenlight's alone.
+            closeConnection(connection);
         }
         this._reset();
     }
