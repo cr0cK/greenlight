@@ -24,7 +24,11 @@ if [[ ${1:-} != --inside ]]; then
     export GSETTINGS_SCHEMA_DIR=$XDG_DATA_HOME/gnome-shell/extensions/$UUID/schemas
     # The agy runner writes a no-op xdg-open under the cache directory, which stays in the scratch one.
     export XDG_CACHE_HOME=$WORK/cache
-    export PATH=$ROOT/scripts/screenshots:$PATH GTK_A11Y=none
+    # GNOME Shell starts ibus-daemon from PATH, and outside the desktop session it can outlive
+    # the bus and grow without bound: a no-op stands in for it.
+    mkdir -p "$WORK/bin"
+    ln -sfn "$(type -P true)" "$WORK/bin/ibus-daemon"
+    export PATH=$WORK/bin:$ROOT/scripts/screenshots:$PATH GTK_A11Y=none
     # The display name stays short: the Wayland socket path must fit in 108 bytes.
     export WAYLAND_DISPLAY=greenlight-shot
     exec dbus-run-session -- "$0" --inside

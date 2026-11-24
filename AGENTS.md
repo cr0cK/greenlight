@@ -52,6 +52,11 @@ headless GNOME Shell and drive it, rather than asking the user to check:
   `org.gnome.shell enabled-extensions` in that keyfile, and never touch the user's dconf.
 - The Wayland socket path must stay under 108 bytes, so keep the display name short and leave
   `XDG_RUNTIME_DIR` at its usual `/run/user/<uid>`.
+- GNOME Shell starts `ibus-daemon` from `PATH`. Outside the desktop session it can outlive the
+  private bus, then spin and grow by gigabytes a minute until the machine runs out of memory.
+  Put an `ibus-daemon` symlink to `true` first in the shell's `PATH`, as `scripts/screenshots.sh`
+  and `scripts/sandbox.sh` do; input methods are then off, and typing goes through XKB. After a
+  run, `pgrep -x ibus-daemon` must list only the desktop's own.
 - `gh` keeps its token in the desktop keyring, which a private D-Bus session cannot reach. Pass
   `GH_TOKEN=$(gh auth token)` and `GH_CONFIG_DIR=~/.config/gh`.
 - `org.gnome.Shell.Eval` and `org.gnome.Shell.Screenshot` need unsafe mode. Enable it with a
