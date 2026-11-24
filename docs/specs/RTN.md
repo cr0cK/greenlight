@@ -1,6 +1,6 @@
 ---
 code: RTN
-status: draft
+status: active
 version: v1.6
 created: 2026-11-24
 builds-on: TAB
@@ -227,7 +227,7 @@ A routine's state is the first of these that applies, from its timer and its ser
   screen (systemd's default `SYSTEMD_LESS` holds `F`, which quits at once then, and an inherited
   `SYSTEMD_PAGER` or `PAGER` such as `cat` would not page at all; systemd honors
   `SYSTEMD_PAGER` only with `SYSTEMD_PAGERSECURE` set). Without `less` installed, journalctl
-  prints the logs and the terminal may close; that is out of scope. The variables are
+  may use another pager or print the logs and let the terminal close; that is out of scope. The variables are
   part of the command because ptyxis and gnome-terminal run it in an already-running server that
   ignores the caller's environment. The menu closes. (MENU-FAILED)
 - The terminal is the first of these found, each looked up in `PATH`, then in `~/.local/bin`:
@@ -300,7 +300,8 @@ A routine's state is the first of these that applies, from its timer and its ser
      (the probe service runs `false`), `systemctl --user reset-failed`, the timer elapsing, and
      the timer's next run moving to a new future deadline after a run: a recurring timer
      (`OnActiveSec=10s` with `OnUnitActiveSec=20s`) whose own `PropertiesChanged`, on the
-     `Timer` interface, carries a `NextElapseUSecMonotonic` later than the one read before;
+     `Timer` interface, carries a `NextElapseUSecMonotonic` that is set (neither 0 nor 2^64 − 1), in the future, and
+     later than the one read before;
   3. `NextElapseUSecMonotonic` converted with `GLib.get_monotonic_time()` matches
      `systemctl --user list-timers` within a second.
   A check of 2 that fails makes Greenlight also re-read the watched routines every 30 seconds
@@ -341,8 +342,8 @@ A routine's state is the first of these that applies, from its timer and its ser
     `Gio.DBusProxy`, whose cache holds one interface and is invalidated without values. Watch
     the name with `Gio.bus_watch_name_on_connection` on Greenlight's own connection
     (`Gio.DBusConnection.new_for_address` with `Gio.dbus_address_get_for_bus_sync(SESSION)` and
-    the `AUTHENTICATION_CLIENT | MESSAGE_BUS_CONNECTION` flags). Listen to `JobRemoved` whether or
-    not `Subscribe()` succeeded.
+    the `AUTHENTICATION_CLIENT | MESSAGE_BUS_CONNECTION` flags). RTN-P2 listens to `JobRemoved`
+    whether or not `Subscribe()` succeeded.
   - `GLib.get_monotonic_time()` is `CLOCK_MONOTONIC` in microseconds, the clock of
     `NextElapseUSecMonotonic` (systemd's `dbus-timer.c` converts its boottime deadline with
     `timer_next_elapse_monotonic()`) and of `StateChangeTimestampMonotonic`; prototype check 3
@@ -368,7 +369,8 @@ A routine's state is the first of these that applies, from its timer and its ser
     running turns the row **Running** with no error line, even past 30 seconds; a quick oneshot
     that ends before the re-read reads **Succeeded**; a `failed` job result shows **Failed** and no
     `Could not start` line; a `dependency` job result, a refused call, and a held reply each
-    show their `Could not start` line, also with the mock refusing `Subscribe()`; a timer with `OnUnitActiveSec=` shows the next run the mock reports
+    show their `Could not start` line, also with the mock refusing `Subscribe()`, under which a
+    `done` job also updates the row before the next poll; a timer with `OnUnitActiveSec=` shows the next run the mock reports
     after the start; **View logs** starts the first terminal of a scratch `PATH` holding stub
     terminals that log their arguments, which include `env SYSTEMD_PAGERSECURE=0 SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl`, a stub that fails to start shows the
     `Could not open a terminal` line, and with none, the `No terminal found` line. Screenshots,
