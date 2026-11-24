@@ -24,7 +24,7 @@ dashboard, and it stores no token.
   windows, each with a pace mark that shows whether you spend faster than the window allows,
   and an alert at your threshold.
 - **Routines.** The systemd user timers you pick, in the menu: how each one's last run ended
-  and when it runs next.
+  and when it runs next, with **Run now** and **View logs** buttons.
 - **Quick open.** <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>, type `api 42`, check the
   preview, and press Enter.
 - **No credentials.** Greenlight reuses `gh` and each agent's own CLI. It never reads, stores,
@@ -157,10 +157,21 @@ row shows:
   condition (`skipped`), a timer that never ran (`no run recorded`), a result Greenlight cannot
   read (`result unknown`), or a service systemd does not load (`service not loaded`).
 - **The next run**: `next in 11 min`, `next Thu 13:00`, or `not scheduled`.
+- **Two buttons**: **Run now** (the play icon) asks systemd to start the routine's service once,
+  and **View logs** (the terminal icon) opens a terminal on `journalctl --user -u <service> -e`.
+
+**Run now** keeps the menu open and is greyed out while the routine runs. A start that does not
+happen says why in a dimmed line under the row (`Could not start nightly-report: job dependency`)
+until the next successful start or the menu closes. **View logs** closes the menu and opens the
+first terminal it finds, among `xdg-terminal-exec`, `ptyxis`, `kgx`, and `gnome-terminal`, in
+`PATH` or `~/.local/bin`; without one, a line under the row gives the `journalctl` command to run
+yourself. Both buttons take the keyboard focus in order with <kbd>Tab</kbd>, and act on
+<kbd>Enter</kbd> or <kbd>Space</kbd>.
 
 With more than six routines the rows scroll. The section hides while quick open has text.
 
-Greenlight reads systemd's own D-Bus API and never changes a unit. It listens to systemd only
+Greenlight reads systemd's own D-Bus API and never creates, edits, enables, disables, or stops a
+unit; its only write is **Run now**. It listens to systemd only
 while a routine is watched, and updates a row within a second of a change. A row dims when systemd
 cannot be read, and the section says why. systemd keeps its history in memory: after your systemd
 restarts (a new login without lingering), a routine reads `no run recorded` until it runs.

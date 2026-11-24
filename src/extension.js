@@ -29,13 +29,18 @@ import {readQuota} from './agents.js';
 import {
     STATES as ROUTINE_STATES,
     accessibleName as routineAccessibleName,
+    canRun,
+    jobResultReason,
+    logsAccessibleName,
     nextText,
     normalizeWatched,
     readRoutine,
+    runAccessibleName,
     sortRoutines,
+    startErrorText,
     statusText,
 } from './routines.js';
-import {RoutineWatcher} from './systemd.js';
+import {RoutineWatcher, errorMessage, openLogs} from './systemd.js';
 import {
     PROVIDERS,
     formatAge,
@@ -300,6 +305,11 @@ function createNoticeItem(iconName, color, text, detail = null) {
     return item;
 }
 
+/** An async step nobody awaits: an unexpected failure is logged, never an unhandled rejection. */
+function reportRoutineFailure(promise) {
+    promise.catch(error => console.error('Greenlight: routines: ' + errorMessage(error)));
+}
+
 /** Secondary text; the Shell theme has no dim-label class, so opacity does the dimming. */
 function createDimLabel(text, params = {}) {
     return new St.Label({
@@ -344,6 +354,10 @@ export default class GreenlightExtension extends Extension {
         this._quotaSourceId = 0;
         this._quotaShown = false;
         this._routinesShown = false;
+        // Per watched timer: whether a start is waiting for systemd, and the lines under its row.
+        this._routineActions = new Map();
+        // The buttons of the rows, by `<timer>|run` and `<timer>|logs`, to give the focus back.
+        this._routineButtons = new Map();
         this._loadQuotaCache();
 
         this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
@@ -463,6 +477,9 @@ export default class GreenlightExtension extends Extension {
         this._routineNotices = null;
         this._routineRows = null;
         this._routineScrollView = null;
+        // After the indicator: destroying its menu closes it, which clears the lines under the rows.
+        this._routineActions = null;
+        this._routineButtons = null;
         this._pullRequestItems = [];
         this._cancellable = null;
     }
@@ -1091,10 +1108,21 @@ export default class GreenlightExtension extends Extension {
         const watcher = this._routineWatcher;
         this._routinesShown = watcher.watched.length > 0;
         this._updateSectionVisibility();
+        // A read updates the rows in place for the keyboard: the focused button, if its row and
+        // action still exist after the rebuild, gets the focus back.
+        const focused = global.stage.get_key_focus();
+        const focusedKey = [...this._routineButtons].find(([, button]) => button === focused)?.[0];
         this._routineNotices.removeAll();
         this._routineRows.removeAll();
-        if (!this._routinesShown)
+        this._routineButtons.clear();
+        if (!this._routinesShown) {
+            this._routineActions.clear();
             return;
+        }
+        for (const unit of [...this._routineActions.keys()]) {
+            if (!watcher.watched.includes(unit))
+                this._routineActions.delete(unit);
+        }
 
         const now = Date.now();
         const nowReal = GLib.get_real_time();
@@ -1116,9 +1144,16 @@ export default class GreenlightExtension extends Extension {
             item.add_child(label);
             this._routineNotices.addMenuItem(item);
         }
-        for (const routine of routines)
+        for (const routine of routines) {
             this._routineRows.addMenuItem(this._createRoutineItem(routine, now));
-        this._sizeRoutineRows();
+            const action = this._routineActions.get(routine.unit);
+            for (const line of [action?.startNotice, action?.logsNotice].filter(Boolean))
+                this._routineRows.addMenuItem(this._createRoutineLine(line, routine.stale));
+        }
+        this._sizeRoutineRows(routines.length);
+        const restored = focusedKey && this._routineButtons.get(focusedKey);
+        if (restored)
+            restored.grab_key_focus();
     }
 
     /**
@@ -1126,13 +1161,14 @@ export default class GreenlightExtension extends Extension {
      * short screen the pull request list shrinks first, and the rows only down to
      * ROUTINE_ROWS_KEPT of them, so Preferences… stays in view without hiding the section.
      */
-    _sizeRoutineRows() {
+    _sizeRoutineRows(count) {
+        // The first child is always a row: the lines of a row come after it.
         const rows = this._routineRows.box.get_children();
         // CSS lengths are scaled by the theme's factor; allocations already are.
         const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
         const rowHeight = rows.length > 0 ? rows[0].get_preferred_height(-1)[1] / scale : 0;
         this._routineScrollView.style = rows.length > 0
-            ? 'min-height: ' + Math.round(Math.min(rows.length, ROUTINE_ROWS_KEPT) * rowHeight) +
+            ? 'min-height: ' + Math.round(Math.min(count, ROUTINE_ROWS_KEPT) * rowHeight) +
                 'px; max-height: ' + Math.round(ROUTINE_ROWS_VISIBLE * rowHeight) + 'px;'
             : '';
     }
@@ -1161,10 +1197,129 @@ export default class GreenlightExtension extends Extension {
         item.add_child(createDimLabel(nextText(routine, now) ?? '', {
             style: 'min-width: 8em; font-size: smaller; text-align: right;',
         }));
+        if (routine.state === 'not-loaded') {
+            // No buttons, but the next run stays in line with the other rows.
+            item.add_child(new St.Widget({style: 'width: 56px;'}));
+        } else {
+            const action = this._routineActions.get(routine.unit);
+            item.add_child(this._createRoutineButton(routine, 'run', 'media-playback-start-symbolic',
+                runAccessibleName(routine), canRun(routine, action?.starting ?? false),
+                () => reportRoutineFailure(this._runRoutine(routine)), item));
+            item.add_child(this._createRoutineButton(routine, 'logs', 'utilities-terminal-symbolic',
+                logsAccessibleName(routine), true, () => this._viewRoutineLogs(routine), item));
+        }
         if (routine.stale)
             item.opacity = 140;
         item.accessible_name = routineAccessibleName(routine, now);
         return item;
+    }
+
+    /**
+     * An icon button of a row. An insensitive one is dimmed and does nothing, but stays in the
+     * focus order, so a focused button keeps the focus while its action is on hold.
+     */
+    _createRoutineButton(routine, action, iconName, accessibleName, sensitive, onClick, item) {
+        const button = new St.Button({
+            child: new St.Icon({icon_name: iconName, icon_size: 14}),
+            y_align: Clutter.ActorAlign.CENTER,
+            can_focus: true,
+            track_hover: sensitive,
+            accessible_name: accessibleName,
+        });
+        // The Shell theme has no hover or focus style for a bare button, so the tint is inline.
+        const style = highlighted => 'padding: 3px 5px; border-radius: 6px; margin-left: 2px; ' +
+            'background-color: rgba(127, 127, 127, ' + (highlighted ? '0.3' : '0') + ');';
+        const refresh = () => (button.style = style(sensitive && (button.hover || button.has_key_focus())));
+        refresh();
+        button.opacity = sensitive ? 255 : 90;
+        button.connect('notify::hover', refresh);
+        button.connect('key-focus-in', () => {
+            refresh();
+            ensureActorVisibleInScrollView(this._routineScrollView, item);
+        });
+        button.connect('key-focus-out', refresh);
+        button.connect('clicked', () => {
+            if (sensitive)
+                onClick();
+        });
+        this._routineButtons.set(routine.unit + '|' + action, button);
+        return button;
+    }
+
+    /** A dimmed line under a row: a start that did not happen, or logs that did not open. */
+    _createRoutineLine(text, stale) {
+        const item = this._createQuotaRow();
+        const label = createDimLabel(text, {style: 'max-width: 34em; font-size: smaller;'});
+        wrapLabel(label);
+        item.add_child(label);
+        item.accessible_name = text;
+        if (stale)
+            item.opacity = 140;
+        return item;
+    }
+
+    _routineAction(unit) {
+        if (!this._routineActions.has(unit))
+            this._routineActions.set(unit, {starting: false, startNotice: null, logsNotice: null});
+        return this._routineActions.get(unit);
+    }
+
+    /**
+     * Run now: one StartUnit, with the row's button insensitive from the call until its reply.
+     * The row itself follows systemd's own signals; the job's end re-reads it, and a job result
+     * that is neither done nor failed says why nothing started.
+     */
+    async _runRoutine(routine) {
+        const watcher = this._routineWatcher;
+        const action = this._routineAction(routine.unit);
+        if (action.starting)
+            return;
+        action.starting = true;
+        this._renderRoutines();
+        // The service of the row as it shows, not whatever a read in flight is about to say.
+        const outcome = await watcher.start(routine.service);
+        // The extension was disabled, the watcher closed, or the routine stopped being watched
+        // (and maybe started again, with its own row state) while systemd was answering.
+        const stale = () => this._routineWatcher !== watcher ||
+            this._routineActions.get(routine.unit) !== action;
+        if (outcome.closed || stale())
+            return;
+        action.starting = false;
+        if (outcome.dropped) {
+            // Another systemd answers from here on: the row follows its own read.
+            this._renderRoutines();
+            return;
+        }
+        if (outcome.error !== undefined) {
+            action.startNotice = startErrorText(routine.name, outcome.error);
+            this._renderRoutines();
+            return;
+        }
+        // systemd accepted the start: an earlier refusal no longer applies.
+        action.startNotice = null;
+        // Without a subscription nothing else announces the start before the next poll.
+        watcher.refresh();
+        this._renderRoutines();
+        const result = await outcome.job;
+        // A null result is a wait that was dropped: systemd changed owner, or Greenlight stopped.
+        if (result === null || stale())
+            return;
+        const reason = jobResultReason(result);
+        if (reason !== null) {
+            action.startNotice = startErrorText(routine.name, reason);
+            this._renderRoutines();
+        }
+    }
+
+    /** View logs: a terminal on the journal of the service, and the menu closes. */
+    _viewRoutineLogs(routine) {
+        const error = openLogs(routine.service);
+        const action = this._routineAction(routine.unit);
+        action.logsNotice = error;
+        if (error === null)
+            this._indicator.menu.close();
+        else
+            this._renderRoutines();
     }
 
     _readCache() {
@@ -1331,6 +1486,9 @@ export default class GreenlightExtension extends Extension {
                 this._routineWatcher.refresh();
                 this._renderRoutines();
             } else {
+                // The lines about a start or a terminal last until the menu closes.
+                for (const action of this._routineActions.values())
+                    action.startNotice = action.logsNotice = null;
                 this._quickOpenEntry.set_text('');
                 this._setPreviewTarget(null);
                 this._setPointerCursor(false);

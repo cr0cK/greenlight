@@ -1,16 +1,21 @@
 // The D-Bus client of the routines: reads the user's systemd timers and their services over a
 // connection of its own to the session bus, and keeps the watched ones up to date. Shared by the
-// extension (which watches) and the preferences (which read once). Never writes: no unit is
-// created, edited, enabled, disabled, or stopped.
+// extension (which watches) and the preferences (which read once). Never creates, edits, enables,
+// disables, or stops a unit: its one write is the start of a routine's service. It also starts the
+// terminal of View logs.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+
+import {findCli} from './agents.js';
+import {JobWait, NO_ANSWER_REASON, chooseTerminal, terminalErrorText} from './routines.js';
 
 const BUS_NAME = 'org.freedesktop.systemd1';
 const MANAGER_PATH = '/org/freedesktop/systemd1';
 const MANAGER = BUS_NAME + '.Manager';
 const PROPERTIES = 'org.freedesktop.DBus.Properties';
 const CALL_TIMEOUT_MS = 5000;
+const START_TIMEOUT_MS = 30000;
 const THROTTLE_MS = 1000;
 const POLL_SECONDS = 30;
 
@@ -181,6 +186,27 @@ export async function readTimers(connection, patterns, cancellable, hooks = null
 }
 
 /**
+ * Opens a terminal on the journal of a routine's service, as View logs and a failure notification
+ * do. Starts the first terminal found with an argument array, never a shell string, and does not
+ * wait for it. Returns null once it started, else the text that says why not, with the command to
+ * run instead.
+ */
+export function openLogs(service) {
+    const argv = chooseTerminal(service, findCli);
+    if (argv === null)
+        return terminalErrorText(service);
+    try {
+        const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.NONE});
+        launcher.set_cwd(GLib.get_home_dir());
+        // The terminal outlives Greenlight: GLib reaps it when it exits, and nothing here stops it.
+        launcher.spawnv(argv);
+    } catch (error) {
+        return terminalErrorText(service, errorMessage(error));
+    }
+    return null;
+}
+
+/**
  * Reads every timer once, over a connection of its own, without `Subscribe()`: the preferences'
  * list. Rejects when systemd cannot be read.
  */
@@ -223,6 +249,8 @@ export class RoutineWatcher {
         this._pollId = 0;
         this._nameWatchId = 0;
         this._managerSignals = [];
+        // The starts waiting for their job to end.
+        this._jobs = new Set();
         this._pathSignals = new Map();
         // Per watched timer, the name of its service, once known.
         this._serviceOf = new Map();
@@ -329,6 +357,12 @@ export class RoutineWatcher {
             manager('UnitRemoved', unitSignal),
             // A reload makes every unit path and property suspect.
             manager('Reloading', () => this._request()),
+            // systemd sends it to the caller of a job even without Subscribe(), and the
+            // subscription exists before any call can be made over this connection.
+            manager('JobRemoved', parameters => {
+                const [, jobPath, unit, result] = parameters.deepUnpack();
+                this._onJobRemoved(jobPath, unit, result);
+            }),
         ];
         this._nameWatchId = Gio.bus_watch_name_on_connection(
             connection, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
@@ -341,10 +375,75 @@ export class RoutineWatcher {
         return this._watched.includes(unit) || [...this._serviceOf.values()].includes(unit);
     }
 
+    /** A job ended: it settles the start that asked for it, and a watched unit is read again. */
+    _onJobRemoved(jobPath, unit, result) {
+        for (const job of this._jobs) {
+            if (job.service === unit)
+                job.removed(jobPath, result);
+        }
+        if (this._isRelevant(unit))
+            this._request();
+    }
+
+    /**
+     * Drops the starts in flight and the waits for jobs: after another systemd took over, or
+     * Greenlight stopped listening, a reply or a job path means nothing.
+     */
+    _dropJobs() {
+        for (const job of [...this._jobs]) {
+            job.cancellable.cancel();
+            job.cancel();
+        }
+    }
+
+    /**
+     * Starts `service`, the service of a watched routine as its row shows it, with
+     * `StartUnit(service, 'fail')`, which refuses to replace a job already queued for a
+     * conflicting unit. Resolves once systemd answers, with `{job}` (a promise of the job's
+     * result, which has no time limit: a oneshot service's start job ends when its process exits;
+     * null when the wait is dropped), `{error, noAnswer}` for a refused call or no reply within
+     * 30 seconds, `{dropped: true}` when systemd changed owner meanwhile (its answer would be for
+     * another manager), or `{closed: true}` when the watcher closed.
+     */
+    async start(service) {
+        const session = this._session;
+        const connection = this._connection;
+        if (!session || !connection || this.noOwner)
+            return {error: 'systemd is not available', noAnswer: false};
+        // Listens before the call is sent: a result that comes first waits for the reply.
+        const job = new JobWait(service);
+        job.cancellable = new Gio.Cancellable();
+        this._jobs.add(job);
+        job.result.then(() => this._jobs.delete(job));
+        let path;
+        try {
+            const reply = await call(connection, MANAGER_PATH, MANAGER, 'StartUnit',
+                new GLib.Variant('(ss)', [service, 'fail']), '(o)', job.cancellable, START_TIMEOUT_MS);
+            path = reply.deepUnpack()[0];
+        } catch (error) {
+            job.cancel();
+            if (this._session !== session)
+                return {closed: true};
+            if (job.cancellable.is_cancelled())
+                return {dropped: true};
+            const timedOut = error.matches?.(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT) ?? false;
+            return {error: timedOut ? NO_ANSWER_REASON : errorMessage(error), noAnswer: timedOut};
+        }
+        if (this._session !== session) {
+            job.cancel();
+            return {closed: true};
+        }
+        if (job.cancellable.is_cancelled())
+            return {dropped: true};
+        job.accept(path);
+        return {job: job.result};
+    }
+
     async _onOwner(session, present) {
         if (this._session !== session)
             return;
         this._invalidate();
+        this._dropJobs();
         const epoch = ++this._ownerEpoch;
         if (!present) {
             this.noOwner = true;
@@ -538,6 +637,7 @@ export class RoutineWatcher {
         const connection = this._connection;
         const session = this._session;
         this._invalidate();
+        this._dropJobs();
         this._ownerEpoch++;
         this._stopPolling();
         if (this._throttleId)

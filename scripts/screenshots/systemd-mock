@@ -20,6 +20,17 @@ Command(s json) -> s, whose JSON holds a "cmd":
   add               {"timer": {...}}: adds a timer as the fixture does and emits UnitNew
   remove            {"unit": "sync-mail.timer"}: removes it and emits UnitRemoved
   reload            emits Reloading(true), then Reloading(false)
+  on-start          {"unit": "sync-mail.service", "outcome": "done|running|succeeded|failed|result|refuse",
+                     "result": "dependency", "message": "...", "nextInSec": 600}: what the next
+                     StartUnit of that service does. Every outcome answers with a job path, except
+                     refuse (a D-Bus error with the message). done: JobRemoved done, nothing else
+                     (the default). running: the service turns active and running, and no
+                     JobRemoved follows, as a oneshot's start job lasts until its process exits.
+                     succeeded or failed: the service ends that way before JobRemoved done or
+                     failed. result: JobRemoved with that result and no change. nextInSec moves
+                     the timer's monotonic next run, as OnUnitActiveSec= does after a start.
+                     Also changes properties with PropertiesChanged to subscribers.
+  end-job           {"unit": "sync-mail.service", "result": "done"}: ends the running job
   log               returns the calls and events so far, one per line
 The same lines go to the file named by $SYSTEMD_MOCK_LOG.
 
@@ -98,6 +109,8 @@ class Mock:
         self.held_methods = set()
         self.held = []
         self.job = 0
+        self.start_plans = {}  # service name -> what its next StartUnit does
+        self.running_jobs = {}  # service name -> job path of a start that has not ended
         self.lines = []
         self.owner_id = 0
         self.log_path = os.environ.get('SYSTEMD_MOCK_LOG')
@@ -241,11 +254,59 @@ class Mock:
         elif method == 'StartUnit':
             name, mode = parameters.unpack()
             self.log('StartUnit %s %s' % (name, mode))
+            plan = self.start_plans.pop(name, {})
+            outcome = plan.get('outcome', 'done')
+            if outcome == 'refuse':
+                invocation.return_dbus_error(SD + 'Failed', plan.get('message', 'Start refused by the mock'))
+                return
             self.job += 1
-            job_path = '/org/freedesktop/systemd1/job/%d' % self.job
+            job_id = self.job
+            job_path = '/org/freedesktop/systemd1/job/%d' % job_id
+            if outcome in ('running', 'succeeded', 'failed'):
+                self.run_service(name, outcome)
+            if 'nextInSec' in plan:
+                self.move_next_run(name, plan['nextInSec'])
             invocation.return_value(GLib.Variant('(o)', (job_path,)))
+            if outcome == 'running':
+                self.running_jobs[name] = (sender, job_id, job_path)
+                return
+            result = {'succeeded': 'done', 'failed': 'failed', 'result': plan.get('result', 'done')}.get(outcome, 'done')
             self.emit(sender, MANAGER_PATH, SD + 'Manager', 'JobRemoved',
-                      GLib.Variant('(uoss)', (self.job, job_path, name, 'done')))
+                      GLib.Variant('(uoss)', (job_id, job_path, name, result)))
+
+    def change(self, unit, interface, props):
+        """Sets properties of a unit and tells the subscribers, as systemd does."""
+        changed = {}
+        for prop, value in props.items():
+            self.units[unit][interface][prop] = value
+            changed[prop] = GLib.Variant(TYPES[interface][prop], value)
+        self.log('set %s %s %s' % (unit, interface, sorted(changed)))
+        self.emit_subscribed(escape(unit), 'org.freedesktop.DBus.Properties', 'PropertiesChanged',
+                             GLib.Variant('(sa{sv}as)', (SD + interface, changed, [])))
+
+    def run_service(self, name, outcome):
+        """A start of the service: it runs, or has already ended well or badly."""
+        now, mono = GLib.get_real_time(), GLib.get_monotonic_time()
+        if outcome == 'running':
+            self.change(name, 'Service', {'ExecMainStartTimestamp': now})
+            self.change(name, 'Unit', {'ActiveState': 'active', 'SubState': 'running',
+                                       'InactiveExitTimestamp': now, 'ConditionResult': True,
+                                       'ConditionTimestamp': now})
+            return
+        failed = outcome == 'failed'
+        self.change(name, 'Service', {'Result': 'exit-code' if failed else 'success', 'ExecMainCode': 1,
+                                      'ExecMainStatus': 1 if failed else 0, 'ExecMainStartTimestamp': now,
+                                      'ExecMainExitTimestamp': now})
+        self.change(name, 'Unit', {'ActiveState': 'failed' if failed else 'inactive',
+                                   'SubState': 'failed' if failed else 'dead', 'InactiveExitTimestamp': now,
+                                   'StateChangeTimestamp': now, 'StateChangeTimestampMonotonic': mono,
+                                   'ConditionResult': True, 'ConditionTimestamp': now})
+
+    def move_next_run(self, service, seconds):
+        for timer_unit in self.timers:
+            if self.units[timer_unit]['Timer']['Unit'] == service:
+                self.change(timer_unit, 'Timer', {'NextElapseUSecRealtime': 0,
+                                                  'NextElapseUSecMonotonic': GLib.get_monotonic_time() + int(seconds * USEC)})
 
     # Control -------------------------------------------------------------------------------------
 
@@ -309,6 +370,17 @@ class Mock:
             self.log('remove ' + unit)
             self.emit_subscribed(MANAGER_PATH, SD + 'Manager', 'UnitRemoved',
                                  GLib.Variant('(so)', (unit, escape(unit))))
+        elif name == 'on-start':
+            self.start_plans[command['unit']] = command
+        elif name == 'end-job':
+            sender, job_id, job_path = self.running_jobs.pop(command['unit'])
+            result = command.get('result', 'done')
+            if result == 'done':
+                self.run_service(command['unit'], 'succeeded')
+            elif result == 'failed':
+                self.run_service(command['unit'], 'failed')
+            self.emit(sender, MANAGER_PATH, SD + 'Manager', 'JobRemoved',
+                      GLib.Variant('(uoss)', (job_id, job_path, command['unit'], result)))
         elif name == 'reload':
             self.log('reload')
             for flag in (True, False):
