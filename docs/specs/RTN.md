@@ -38,7 +38,13 @@ rewritten by RTN-P3. The mockup is [`mockups/RTN.html`](mockups/RTN.html).
 
 - The bus name is `org.freedesktop.systemd1` on the session bus, object
   `/org/freedesktop/systemd1`, interface `org.freedesktop.systemd1.Manager`. Every call is
-  asynchronous and has a 5-second timeout.
+  asynchronous and has a 5-second timeout, except **Run now**'s `StartUnit`, which has 30
+  seconds.
+- Greenlight talks to systemd over its own connection to the session bus, opened when the first
+  routine is watched and closed when the last one stops being watched or the extension is
+  disabled, not over GNOME Shell's shared one: systemd counts subscribers by bus name, so a
+  connection of its own keeps Greenlight's `Subscribe()` and `Unsubscribe()` from touching other
+  code's, and closing it ends the subscription.
 - The timers are the units that `ListUnitsByPatterns([], ['*.timer'])` returns (every timer the
   user instance has loaded, active or not) whose `Timer.Unit` ends with `.service`. A timer file
   that is not loaded is not listed.
@@ -118,12 +124,9 @@ A routine's state is the first of these that applies, from its timer and its ser
 - When the name loses its owner, every row turns stale (dimmed, see **Menu**). When it gets one
   back, Greenlight subscribes again, resolves the paths again, and re-reads. A reply that arrives
   after the owner changed or after the watched list changed is dropped.
-- systemd counts subscribers by bus name, and GNOME Shell's name is shared with other code: a
-  `Subscribe()` answered `AlreadySubscribed` counts as success, and Greenlight then never calls
-  `Unsubscribe()`, which would cut the signals of whoever subscribed first. Otherwise it calls
-  `Unsubscribe()` when the last routine stops being watched and when the extension is disabled,
-  and ignores `NotSubscribed`. Any other `Subscribe()` error switches to the polling of RTN-P1's
-  fallback, without marking rows stale.
+- A `Subscribe()` error switches to the polling of RTN-P1's fallback, without marking rows
+  stale. systemd sends `JobRemoved` to the caller of a job even without a subscription, so
+  **Run now** works the same under that fallback.
 - A failed read keeps the last state of the routines it concerned, marked stale. Only the
   routines whose read failed turn stale; the others stay as read.
 
@@ -137,7 +140,7 @@ A routine's state is the first of these that applies, from its timer and its ser
   group shows one row `Reading systemd timers…` and the stored routines stay watched.
 - Once read, the group lists the timers, sorted by name, one switch row each: the title is the
   routine's name, the subtitle its description, then ` · next <time>` with the next run as the
-  menu shows it. A switch on means watched.
+  menu shows it, or nothing more when the menu shows none. A switch on means watched.
 - A stored timer that the list does not return keeps a row, its switch on, subtitled
   `Not loaded by systemd`, so it can be switched off. (PREFS-ROUTINES)
 - No timer at all: one row, `No systemd user timers`, subtitled
@@ -193,7 +196,8 @@ A routine's state is the first of these that applies, from its timer and its ser
 - Keyboard: a row is a static item (it takes no focus and a click on it opens nothing); its two
   buttons take the focus in order with Tab and act on Enter or Space. A read updates the rows in
   place: a focused button keeps the focus while its row and action still exist.
-- The row's accessible name reads `<name>, <status text>, <next run>`.
+- The row's accessible name reads `<name>, <status text>, <next run>`, without the next run when
+  the row shows none (**Running**).
 - The section has no **Updated** line.
 
 ## Run now
@@ -211,15 +215,17 @@ A routine's state is the first of these that applies, from its timer and its ser
 - A dimmed line under the row reports a start that did not happen, until the next successful
   start or the menu closes: `Could not start <name>: <D-Bus error message>` for a refused call,
   `Could not start <name>: no answer from systemd` for no reply within 30 seconds, and
-  `Could not start <name>: job <result>` for a job result of `dependency`, `canceled`, `timeout`,
-  or `skipped`. A result of `failed` shows no line: the row's **Failed** state says it.
+  `Could not start <name>: job <result>` for any job result other than `done` and `failed`
+  (`dependency`, `canceled`, `timeout`, `skipped`, `assert`, and the others). A result of `failed` shows no line: the row's **Failed** state says it.
 
 ## View logs
 
 - **View logs** (`utilities-terminal-symbolic`, accessible name `View <name> logs`) opens a
-  terminal that runs `env SYSTEMD_LESS=RSXMK journalctl --user -u <service> -e`, which opens the
+  terminal that runs `env SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl --user -u <service> -e`, which opens the
   pager at the end of the routine's logs and keeps it open until `q`, even when the logs fit one
-  screen (systemd's default `SYSTEMD_LESS` holds `F`, which quits at once then). The variable is
+  screen (systemd's default `SYSTEMD_LESS` holds `F`, which quits at once then, and an inherited
+  `SYSTEMD_PAGER` or `PAGER` such as `cat` would not page at all; journalctl falls back to its
+  own pager list when `less` is missing). The variable is
   part of the command because ptyxis and gnome-terminal run it in an already-running server that
   ignores the caller's environment. The menu closes. (MENU-FAILED)
 - The terminal is the first of these found, each looked up in `PATH`, then in `~/.local/bin`:
@@ -238,8 +244,9 @@ A routine's state is the first of these that applies, from its timer and its ser
   body `<cause> · <HH:MM>`, the time being the state's time. (NOTIF)
 - A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`
   (or the timer's own `StateChangeTimestampMonotonic` for a timer failure), so a re-read does not notify it twice,
-  and a later failed run notifies again. Two watched timers that activate the same service
-  notify once, under the first name by sort order.
+  and a later failed run notifies again. Two watched timers that activate the same service share
+  its failed runs: such a run notifies once, under the first name by sort order. A timer failure
+  belongs to its timer alone and notifies under its name.
 - Greenlight reads states, not events: a run that fails and is followed by another run before
   Greenlight reads (with D-Bus signals, within the same second; with the polling fallback of
   RTN-P1, within 30 seconds) is not observed and does not notify.
@@ -288,8 +295,9 @@ A routine's state is the first of these that applies, from its timer and its ser
   1. every property reads, with the D-Bus types `t` for timestamps and `NextElapse…`, `i` for
      `ExecMainCode` and `ExecMainStatus`, `b` for `ConditionResult`, and `s` for the rest;
   2. a `PropertiesChanged` arrives within 2 seconds for each of: a manual start, a failed run
-     (the probe service runs `false`), `systemctl --user reset-failed`, the timer elapsing (a
-     `OnActiveSec=10s` timer), and the timer's next run changing after a run;
+     (the probe service runs `false`), `systemctl --user reset-failed`, the timer elapsing, and
+     the timer's next run moving to a new future deadline after a run (a recurring timer,
+     `OnActiveSec=10s` with `OnUnitActiveSec=20s`, whose next run is read before and after);
   3. `NextElapseUSecMonotonic` converted with `GLib.get_monotonic_time()` matches
      `systemctl --user list-timers` within a second.
   A check of 2 that fails makes Greenlight also re-read the watched routines every 30 seconds
@@ -326,7 +334,10 @@ A routine's state is the first of these that applies, from its timer and its ser
     and take back its bus name.
   - Call `GetAll` with `Gio.DBusConnection.call` and a cancellable per read rather than
     `Gio.DBusProxy`, whose cache holds one interface and is invalidated without values. Watch
-    the name with `Gio.bus_watch_name_on_connection`.
+    the name with `Gio.bus_watch_name_on_connection` on Greenlight's own connection
+    (`Gio.DBusConnection.new_for_address` with `Gio.dbus_address_get_for_bus_sync(SESSION)` and
+    the `AUTHENTICATION_CLIENT | MESSAGE_BUS_CONNECTION` flags). The mock emits `JobRemoved` to
+    a job's caller whether or not it subscribed, as systemd does.
   - `GLib.get_monotonic_time()` is `CLOCK_MONOTONIC` in microseconds, the clock of
     `NextElapseUSecMonotonic` (systemd's `dbus-timer.c` converts its boottime deadline with
     `timer_next_elapse_monotonic()`) and of `StateChangeTimestampMonotonic`; prototype check 3
@@ -336,7 +347,8 @@ A routine's state is the first of these that applies, from its timer and its ser
     the extension and the preferences, as `src/agents.js` is for the quota CLIs.
   - The routine rows are `PopupBaseMenuItem`s with `{activate: false, hover: false,
     can_focus: false}` (AGENTS.md); the buttons are focusable `St.Button`s. The six-row cap is a
-    `St.ScrollView` around the section's box, as the pull request list does.
+    `St.ScrollView` around a box that holds only the routine rows and their attached lines; the
+    heading and the section-level lines sit outside it.
   - The new key `watched-routines` (`as`, default `[]`) goes in the GSettings schema.
 
 ### RTN-P2: Run now and View logs
@@ -353,7 +365,7 @@ A routine's state is the first of these that applies, from its timer and its ser
     `Could not start` line; a `dependency` job result, a refused call, and a held reply each
     show their `Could not start` line; a timer with `OnUnitActiveSec=` shows the next run the mock reports
     after the start; **View logs** starts the first terminal of a scratch `PATH` holding stub
-    terminals that log their arguments, which include `env SYSTEMD_LESS=RSXMK journalctl`, a stub that fails to start shows the
+    terminals that log their arguments, which include `env SYSTEMD_PAGER=less SYSTEMD_LESS=RSXMK journalctl`, a stub that fails to start shows the
     `Could not open a terminal` line, and with none, the `No terminal found` line. Screenshots,
     and no `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` regenerates `menu.png` with the buttons.
