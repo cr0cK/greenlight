@@ -1285,6 +1285,11 @@ export default class GreenlightExtension extends Extension {
         if (outcome.closed || stale())
             return;
         action.starting = false;
+        if (outcome.dropped) {
+            // Another systemd answers from here on: the row follows its own read.
+            this._renderRoutines();
+            return;
+        }
         if (outcome.error !== undefined) {
             action.startNotice = startErrorText(routine.name, outcome.error);
             this._renderRoutines();

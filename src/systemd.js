@@ -385,10 +385,15 @@ export class RoutineWatcher {
             this._request();
     }
 
-    /** Drops the waits for jobs: after another systemd took over, a job path means nothing. */
+    /**
+     * Drops the starts in flight and the waits for jobs: after another systemd took over, or
+     * Greenlight stopped listening, a reply or a job path means nothing.
+     */
     _dropJobs() {
-        for (const job of [...this._jobs])
+        for (const job of [...this._jobs]) {
+            job.cancellable.cancel();
             job.cancel();
+        }
     }
 
     /**
@@ -397,7 +402,8 @@ export class RoutineWatcher {
      * conflicting unit. Resolves once systemd answers, with `{job}` (a promise of the job's
      * result, which has no time limit: a oneshot service's start job ends when its process exits;
      * null when the wait is dropped), `{error, noAnswer}` for a refused call or no reply within
-     * 30 seconds, or `{closed: true}` when the watcher closed meanwhile.
+     * 30 seconds, `{dropped: true}` when systemd changed owner meanwhile (its answer would be for
+     * another manager), or `{closed: true}` when the watcher closed.
      */
     async start(service) {
         const session = this._session;
@@ -406,17 +412,20 @@ export class RoutineWatcher {
             return {error: 'systemd is not available', noAnswer: false};
         // Listens before the call is sent: a result that comes first waits for the reply.
         const job = new JobWait(service);
+        job.cancellable = new Gio.Cancellable();
         this._jobs.add(job);
         job.result.then(() => this._jobs.delete(job));
         let path;
         try {
             const reply = await call(connection, MANAGER_PATH, MANAGER, 'StartUnit',
-                new GLib.Variant('(ss)', [service, 'fail']), '(o)', session.cancellable, START_TIMEOUT_MS);
+                new GLib.Variant('(ss)', [service, 'fail']), '(o)', job.cancellable, START_TIMEOUT_MS);
             path = reply.deepUnpack()[0];
         } catch (error) {
             job.cancel();
             if (this._session !== session)
                 return {closed: true};
+            if (job.cancellable.is_cancelled())
+                return {dropped: true};
             const timedOut = error.matches?.(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT) ?? false;
             return {error: timedOut ? NO_ANSWER_REASON : errorMessage(error), noAnswer: timedOut};
         }
@@ -424,6 +433,8 @@ export class RoutineWatcher {
             job.cancel();
             return {closed: true};
         }
+        if (job.cancellable.is_cancelled())
+            return {dropped: true};
         job.accept(path);
         return {job: job.result};
     }
