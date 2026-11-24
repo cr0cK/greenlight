@@ -1,6 +1,6 @@
 ---
 code: TAB
-status: draft
+status: active
 version: v1.5
 created: 2026-11-24
 builds-on: PRM
@@ -217,7 +217,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     `update-policy` to `IF_VALID` (`Gtk.SpinButtonUpdatePolicy`), which keeps the last value for
     invalid or out-of-range text, and reject text that is not a whole number in the row's `input`
     handler (`IF_VALID` alone accepts `83.5`); check both in the prototype (empty text, `abc`,
-    `8`, `120`, `83.5`, then Tab and `Ctrl+S`).
+    `8`, `120`, `83.5`, each with Tab, then again with `83.5` still in the focused field and
+    `Ctrl+S`).
   - A key cannot be locked in an unprivileged headless session (the keyfile backend reads locks
     only from `/etc/glib-2.0/settings/locks`), hence the unit test for the not-writable rule.
   - ORD's `focusLater()` checks the target's root; it also needs **Pull requests** to be the
@@ -246,7 +247,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     83; clearing it and pressing Tab shows the last value again; `Ctrl+S` in a clean window writes nothing and shows no toast; an external `gsettings set`
     of the author followed by an **Agents**-only save keeps the external author; pausing and
     resuming an owner, then an external change of `owner-filters`, then an **Agents**-only save
-    keeps the external owners; an unavailable
+    keeps the external owners (each external write is followed by a 2-second wait, so the
+    preferences process reloads the keyfile before the save); an unavailable
     provider whose check turns its switch off shows no banner, and the next save stores it off;
     closing with changes closes at once and writes nothing (checked with `gsettings` on the
     keyfile). Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
