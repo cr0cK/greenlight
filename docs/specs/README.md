@@ -36,6 +36,9 @@ rules lists its version in the earlier one's `amended`. Mockups are in [`mockups
   menu; tracking issue #36.
 - [`ORD`](ORD.md) (2026-11-19): the order of quick open suggestions, newest activity first, and
   the owner sections in the menu in the order of the owner blocks; tracking issue #47.
+- [`TAB`](TAB.md) (2026-11-24): the preferences window in tabs (Pull requests, Agents, About),
+  and a save banner on every tab while changes are unsaved;
+  tracking issue #57.
 - [`RTN`](RTN.md) (2026-11-24): the user's systemd timers as routines: a **Routines** tab to pick
   them, a menu section with their last and next runs, **Run now**, **View logs**, failure
   notifications, and a red dot on the panel icon; tracking issue #59.
