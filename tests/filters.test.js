@@ -4,6 +4,7 @@ import {test} from 'node:test';
 import {
     nextSearchLimit,
     normalizeOwnerFilters,
+    sameOwnerFilters,
     searchScopes,
     ownerFiltersToSave,
     serializeOwnerFilters,
@@ -160,4 +161,16 @@ test('a save writes owner-filters only when the owners changed, whatever the blo
     assert.ok(ownerFiltersToSave(stored, [stored[0]]));
     // Owners added then removed again, on an empty store: nothing to write.
     assert.equal(ownerFiltersToSave([], []), null);
+});
+
+test('owner-filters compares names case-insensitively and keeps the stored spelling', () => {
+    const stored = [owner('Acme', {kind: 'organization', repositories: ['Acme/Web', 'Acme/api']})];
+    const rediscovered = [owner('acme', {kind: 'organization', repositories: ['acme/API', 'ACME/web']})];
+    assert.equal(ownerFiltersToSave(stored, rediscovered), null);
+    assert.ok(sameOwnerFilters(stored, rediscovered));
+    // A different scope is a change, and the window's spelling is what gets written.
+    const changed = [owner('acme', {kind: 'organization', repositories: ['acme/web']})];
+    assert.equal(ownerFiltersToSave(stored, changed), serializeOwnerFilters(changed));
+    // The mode is kept: nothing excluded is not the same as an empty selection.
+    assert.ok(!sameOwnerFilters([owner('acme')], [owner('acme', {repositories: []})]));
 });

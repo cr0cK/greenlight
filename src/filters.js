@@ -113,13 +113,33 @@ export function serializeOwnerFilters(filters) {
 }
 
 /**
+ * Serializes owners as a comparison key: the document of serializeOwnerFilters with the logins
+ * and repository names in lower case, since GitHub names are case-insensitive. The mode is kept:
+ * an owner watching every repository except none and one with a selected list differ.
+ */
+function ownerFiltersKey(filters) {
+    const lower = names => names?.map(name => name.toLowerCase()).sort() ?? null;
+    return JSON.stringify(normalizeOwnerFilters(filters).map(owner => ({
+        ...owner,
+        login: owner.login.toLowerCase(),
+        repositories: lower(owner.repositories),
+        excludedRepositories: lower(owner.excludedRepositories),
+    })).sort(compareOwnersKindThenLogin));
+}
+
+/** Tells whether two owner lists configure the same scopes, whatever their spelling and order. */
+export function sameOwnerFilters(first, second) {
+    return ownerFiltersKey(first) === ownerFiltersKey(second);
+}
+
+/**
  * Tells what a save writes to `owner-filters`: the serialized owners of the window, or null when
- * they match the stored document, both in the kind-then-login order, so that moving blocks, or
- * putting the owners back as they were, writes nothing and refreshes nothing.
+ * they match the stored document, names compared case-insensitively and the order ignored, so
+ * that moving blocks, putting the owners back as they were, or discovering repositories under
+ * another spelling writes nothing, keeps the stored spelling, and refreshes nothing.
  */
 export function ownerFiltersToSave(stored, windowOwners) {
-    const next = serializeOwnerFilters(windowOwners);
-    return next === serializeOwnerFilters(stored) ? null : next;
+    return sameOwnerFilters(stored, windowOwners) ? null : serializeOwnerFilters(windowOwners);
 }
 
 /** Splits owner/repository qualifiers without exceeding GitHub search query bounds. */
