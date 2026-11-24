@@ -51,8 +51,15 @@ sandbox_gsettings org.gnome.shell welcome-dialog-last-shown-version "'999'"
 sandbox_gsettings org.gnome.desktop.peripherals.keyboard numlock-state \
     "$(gsettings get org.gnome.desktop.peripherals.keyboard numlock-state)"
 
+# GNOME Shell starts ibus-daemon from PATH, and outside the desktop session it can outlive the
+# bus and grow without bound: a no-op stands in for it.
+mkdir -p "$SANDBOX/bin"
+printf '#!/bin/sh\nexit 0\n' >"$SANDBOX/bin/ibus-daemon"
+chmod 755 "$SANDBOX/bin/ibus-daemon"
+
 echo "Sandbox: $SANDBOX"
 exec env \
+    PATH="$SANDBOX/bin:$PATH" \
     XDG_DATA_HOME="$SANDBOX/data" \
     XDG_CONFIG_HOME="$SANDBOX/config" \
     GSETTINGS_BACKEND=keyfile \
