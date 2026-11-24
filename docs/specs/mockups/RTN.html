@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTN — mockup</title>
+<!--
+  Spec mockup: one self-contained file, no build, no dependency.
+
+  Each state of the UI is a <template data-state> below. The viewer lists them on the left, grouped
+  by screen, renders the selected one on the right in an isolated frame, and keeps the selection in
+  the URL (#/@<id>), so a link points at one state.
+
+  Attributes of a state:
+    id              the state's id, unique, such as SIGNIN-ERROR
+    data-screen     the screen it belongs to; screens are listed in order of first appearance
+    data-summary    a few words under the id in the list
+    data-label      the title shown above the frame
+    data-route      where the user is: a URL, a menu path, a window
+    data-rules      the spec rules it shows, such as "Sign-in, Errors"
+    data-kind       happy, edge, or error
+
+  Interactive: any element with data-goto="<state id>" takes the viewer to that state when clicked,
+  so the mockup can be walked through like the product. "Flow" outlines those elements.
+
+  Product styles go in <style id="product">; they apply inside each frame only. Use the variables
+  below so both themes work. When the project has a design system that can build to static HTML,
+  compose the states from its real components instead of imitating them.
+-->
+<style id="product" media="not all">
+  :root[data-theme="dark"] { --desk:#1d1d20; --menu:#303033; --fg:#ffffff; --dim:rgba(255,255,255,.62); --line:rgba(255,255,255,.1); --field:#424245; --panel:#000; --win:#222226; --hb:#2e2e32; --box:#2e2e32; --rowline:rgba(0,0,0,.3); --pill:rgba(255,255,255,.1); }
+  :root[data-theme="light"] { --desk:#deddda; --menu:#fafafb; --fg:#1f1f21; --dim:rgba(0,0,0,.6); --line:rgba(0,0,0,.1); --field:#ebebed; --panel:#000; --win:#fafafb; --hb:#ebebed; --box:#ffffff; --rowline:rgba(0,0,0,.08); --pill:rgba(0,0,0,.08); }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--desk); color: var(--fg); font: 15px/1.4 "Adwaita Sans", Cantarell, system-ui, sans-serif; padding: 0 24px 24px; }
+  .topbar { height: 30px; background: var(--panel); color: #fff; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 0 14px; margin: 0 -24px 8px; font-weight: 700; font-size: 14px; }
+  .ind { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 12px; background: rgba(255,255,255,.18); }
+  .ind .ic { position: relative; }
+  .ind .ic.dot::after { content: ""; position: absolute; right: -4px; top: -2px; width: 6px; height: 6px; border-radius: 3px; background: #c01c28; }
+  .menu { width: 680px; margin-left: auto; background: var(--menu); border: 1px solid var(--line); border-radius: 16px; padding: 8px 18px; }
+  .item { padding: 11px 0; } .sep { height: 1px; background: var(--line); }
+  .field { background: var(--field); border-radius: 8px; padding: 9px 12px; color: var(--dim); cursor: text; } .field.typed { color: var(--fg); }
+  .head { font-weight: 600; color: var(--dim); padding: 12px 0 6px; }
+  .pr { padding: 8px 0; } .pr b { font-weight: 600; } .badge { border-radius: 4px; padding: 1px 6px; font-size: 13px; font-weight: 700; color: #fff; background: #3c5268; }
+  .small { color: var(--dim); font-size: 13px; }
+  .q { color: var(--dim); font-size: 13px; padding: 3px 0; }
+  .r { display: grid; grid-template-columns: 22px 190px 1fr 140px 30px 30px; column-gap: 8px; align-items: center; height: 34px; }
+  .r.dimmed { opacity: .55; }
+  .r .st { font-weight: 900; text-align: center; } .ok { color: #26a269; } .ko { color: #c01c28; } .run { color: #e5a50a; } .nv { color: #77767b; }
+  .r .n { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .r .s { font-size: 13px; color: var(--dim); } .r .s.ko { color: #c01c28; } .r .nx { font-size: 13px; color: var(--dim); text-align: right; }
+  .btn { width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; font-size: 13px; cursor: pointer; } .btn:hover { background: var(--pill); } .btn.off { opacity: .35; cursor: default; }
+  .line { font-size: 13px; color: var(--dim); padding: 0 0 6px 30px; }
+  .link { cursor: pointer; }
+  .notif { width: 460px; margin-left: auto; background: var(--menu); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; cursor: pointer; }
+  .notif .app { font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; } .notif b { display: block; margin-top: 4px; }
+  .term { width: 680px; margin-left: auto; background: #171421; color: #d0cfcc; border-radius: 12px; font: 13px/1.5 ui-monospace, monospace; padding: 0 0 12px; overflow: hidden; }
+  .term .tt { background: #2e2e32; color: #fff; text-align: center; font: 700 13px system-ui; padding: 8px; margin-bottom: 8px; } .term div { padding: 0 12px; } .term .e { color: #f66151; }
+  .w { width: 720px; background: var(--win); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-top: 16px; }
+  .hb { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 8px; background: var(--hb); }
+  .hb .sp { flex: 1; display: flex; justify-content: center; gap: 4px; }
+  .tab { position: relative; padding: 6px 12px; border-radius: 8px; font-weight: 700; color: var(--dim); } .tab.on { background: var(--pill); color: var(--fg); }
+  .tab.dot::after { content: ""; position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; border-radius: 3px; background: #3584e4; }
+  .save { background: #3584e4; color: #fff; border-radius: 8px; padding: 6px 14px; font-weight: 700; cursor: pointer; } .save.off { opacity: .45; cursor: default; }
+  .body { padding: 8px 64px 24px; }
+  .group h3 { margin: 18px 0 4px; font-size: 15px; } .group p { margin: 0 0 10px; color: var(--dim); font-size: 14px; }
+  .box { background: var(--box); border-radius: 12px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--rowline); } .row:last-child { border-bottom: 0; }
+  .row .t { flex: 1; } .row .t span { display: block; font-size: 12px; color: var(--dim); }
+  .sw { width: 46px; height: 26px; border-radius: 13px; background: #77767b; position: relative; flex-shrink: 0; cursor: pointer; }
+  .sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 10px; background: #fff; }
+  .sw.on { background: #3584e4; } .sw.on::after { left: 23px; }
+  .banner { display: flex; align-items: center; gap: 12px; padding: 8px 16px 8px 64px; background: color-mix(in srgb, #3584e4 22%, var(--win)); font-weight: 600; } .banner .bt { flex: 1; text-align: center; }
+  .note { font-size: 13px; color: var(--dim); margin-top: 10px; max-width: 720px; margin-left: auto; }
+</style>
+<style id="chrome">
+  * { box-sizing: border-box; }
+  :root { --c-bg:#0b1118; --c-panel:#111a24; --c-fg:#dbe4ec; --c-muted:#7d8d9c; --c-border:#223040; --c-accent:#14b8a6; }
+  html, body { height: 100%; margin: 0; }
+  body.viewer { display: flex; background: var(--c-bg); color: var(--c-fg); font: 13px/1.4 system-ui, sans-serif; }
+  aside { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--c-border); background: var(--c-panel); }
+  aside .head { padding: 14px 16px; border-bottom: 1px solid var(--c-border); }
+  aside .head h1 { font-size: 14px; margin: 0 0 4px; }
+  aside .head p { margin: 0; color: var(--c-muted); font-size: 11px; }
+  nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+  nav h2 { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--c-muted); margin: 12px 16px 4px; font-weight: 600; }
+  nav .item { display: flex; align-items: center; }
+  nav .state { flex: 1; min-width: 0; text-align: left; background: none; border: 1px solid transparent; color: var(--c-fg); padding: 6px 14px; cursor: pointer; }
+  nav .state:hover { background: #ffffff0d; }
+  nav .state[aria-current="true"] { border-color: var(--c-accent); background: #14b8a614; }
+  nav .state[aria-current="true"] .id { color: var(--c-accent); }
+  nav .id { display: block; font: 11px/1.4 ui-monospace, monospace; }
+  nav .sum { display: block; color: var(--c-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  nav .copy { opacity: 0; background: none; border: 0; color: var(--c-muted); cursor: pointer; padding: 4px 8px; }
+  nav .item:hover .copy, nav .copy:focus-visible { opacity: 1; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--c-border); background: var(--c-panel); }
+  header button { background: none; color: var(--c-fg); border: 1px solid var(--c-border); border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  header button:disabled { opacity: .4; cursor: default; }
+  header button[aria-pressed="true"] { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+  header .count { color: var(--c-muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  header .title { flex: 1; min-width: 0; }
+  header .title b { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .title span { display: block; color: var(--c-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .kind { font-size: 10px; text-transform: uppercase; border: 1px solid var(--c-border); border-radius: 10px; padding: 2px 8px; color: var(--c-muted); }
+  header .kind.error { color: #f05252; border-color: #f0525266; }
+  header .kind.edge { color: #e3a008; border-color: #e3a00866; }
+  iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+</style>
+</head>
+<body>
+
+<!-- States of RTN. Each names the spec sections it shows. -->
+
+<template data-state id="MENU-ROUTINES" data-screen="Menu" data-summary="Four watched routines" data-label="Menu — the Routines section" data-route="Top bar › Greenlight" data-rules="Menu, Reading systemd" data-kind="happy">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 12 min ago · exit code 1</span><span class="nx">next in 18 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div><p class="note">sync-mail is failed, so the panel icon has the red dot. ▶ is Run now, ▤ is View logs.</p>
+</template>
+<template data-state id="MENU-FAILED" data-screen="Menu" data-summary="Failed routine and the dot" data-label="Menu — a failed routine, the dot on the panel icon" data-route="Top bar › Greenlight" data-rules="Menu, Panel indicator, View logs" data-kind="error">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 2 min ago · killed by signal 9</span><span class="nx">next in 28 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div><p class="note">The dot stays until sync-mail runs successfully or is reset; opening the menu does not clear it.</p>
+</template>
+<template data-state id="MENU-RUNNING" data-screen="Menu" data-summary="Run now: running" data-label="Menu — after Run now on sync-mail" data-route="Top bar › Greenlight" data-rules="Run now" data-kind="happy">
+<div class="topbar"><span class="ind"><span class="ic">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-START-ERROR">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-START-ERROR">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-START-ERROR">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st run">●</span><span class="n">sync-mail</span><span class="s">running since 12:14</span><span class="nx">next in 18 min</span><span class="btn off" title="Run sync-mail now">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div><p class="note">Run now is insensitive while it runs. The dot left with the failed state. Click another ▶ to see a failed start.</p>
+</template>
+<template data-state id="MENU-START-ERROR" data-screen="Menu" data-summary="Run now failed" data-label="Menu — the start call failed" data-route="Top bar › Greenlight" data-rules="Run now" data-kind="error">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="line">Could not start nightly-report: Unit nightly-report.service is masked.</div><div class="r"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 12 min ago · exit code 1</span><span class="nx">next in 18 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div>
+</template>
+<template data-state id="MENU-NO-TERMINAL" data-screen="Menu" data-summary="No terminal found" data-label="Menu — View logs without a terminal" data-route="Top bar › Greenlight" data-rules="View logs" data-kind="error">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 12 min ago · exit code 1</span><span class="nx">next in 18 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="line">No terminal found. Run: journalctl --user -u sync-mail.service -e</div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div>
+</template>
+<template data-state id="MENU-READ-ERROR" data-screen="Menu" data-summary="systemd unreachable" data-label="Menu — a failed read dims the rows" data-route="Top bar › Greenlight" data-rules="Reading systemd" data-kind="error">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="q">Could not read systemd: Timeout was reached</div><div class="r dimmed"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r dimmed"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r dimmed"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r dimmed"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 12 min ago · exit code 1</span><span class="nx">next in 18 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div>
+</template>
+<template data-state id="MENU-TYPING" data-screen="Menu" data-summary="Quick open has text" data-label="Menu — quick open has text: sections hidden" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="edge">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field typed">plat 42</div></div><div class="sep"></div><div class="small" style="padding:8px 0">acme/web #42 · Fix the login redirect</div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div><p class="note">The quota and Routines sections hide while quick open has text.</p>
+</template>
+<template data-state id="NOTIF" data-screen="Notification" data-summary="A run failed" data-label="Notification — a watched routine failed" data-route="Notification banner" data-rules="Failure notifications" data-kind="error">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="notif" data-goto="TERMINAL"><div class="app"><span>Greenlight</span><span>now</span></div><b>sync-mail failed</b><span>exit code 1 · 12:02</span></div><p class="note">Clicking it opens the logs.</p>
+</template>
+<template data-state id="TERMINAL" data-screen="Notification" data-summary="Logs in a terminal" data-label="View logs — journalctl in a terminal" data-route="Terminal" data-rules="View logs" data-kind="happy">
+<div class="term"><div class="tt">journalctl --user -u sync-mail.service -e</div><div>Nov 24 12:01:58 host systemd[2140]: Starting sync-mail.service - sync-mail routine...</div><div>Nov 24 12:02:03 host sync-mail[88123]: connecting to imap.example.test…</div><div class="e">Nov 24 12:02:04 host sync-mail[88123]: error: authentication failed</div><div class="e">Nov 24 12:02:04 host systemd[2140]: sync-mail.service: Main process exited, code=exited, status=1/FAILURE</div><div class="e">Nov 24 12:02:04 host systemd[2140]: Failed to start sync-mail.service - sync-mail routine.</div><div>(END)</div></div><p class="note">Fictional log lines.</p>
+</template>
+<template data-state id="PREFS-ROUTINES" data-screen="Preferences" data-summary="Routines tab" data-label="Preferences — Routines tab" data-route="Preferences › Routines" data-rules="Preferences" data-kind="happy">
+<div class="w"><div class="hb"><span style="width:24px"></span><div class="sp"><span class="tab">Pull requests</span><span class="tab">Agents</span><span class="tab on">Routines</span><span class="tab">About</span></div></div><div class="body"><div class="group"><h3>Routines</h3><p>Show your systemd user timers in the menu. Greenlight reads them from systemd and never changes a unit.</p><div class="box"><div class="row"><div class="t">backup-photos<span>Back up the photo library every 15 minutes · next in 11 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">clean-downloads<span>Empty old downloads on Monday and Thursday · next Thu 13:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">nightly-report<span>Build the nightly report · next Wed 08:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">old-mirror<span>Not loaded by systemd</span></div><span class="sw on"></span></div><div class="row"><div class="t">sync-mail<span>Fetch mail every 30 minutes · next in 18 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">systemd-tmpfiles-clean<span>Daily Cleanup of User's Temporary Directories · next in 6 h 5 min</span></div><span class="sw" data-goto="PREFS-DIRTY"></span></div></div></div></div></div><p class="note">old-mirror is stored but no longer loaded: it keeps its row so it can be switched off. Click the systemd-tmpfiles-clean switch.</p>
+</template>
+<template data-state id="PREFS-DIRTY" data-screen="Preferences" data-summary="A switch changed" data-label="Preferences — Routines has unsaved changes" data-route="Preferences › Routines" data-rules="Preferences" data-kind="happy">
+<div class="w"><div class="hb"><span style="width:24px"></span><div class="sp"><span class="tab">Pull requests</span><span class="tab">Agents</span><span class="tab on dot">Routines</span><span class="tab">About</span></div></div><div class="banner"><span class="bt">Unsaved changes in Routines</span><span class="save" data-goto="PREFS-SAVED">Save</span></div><div class="body"><div class="group"><h3>Routines</h3><p>Show your systemd user timers in the menu. Greenlight reads them from systemd and never changes a unit.</p><div class="box"><div class="row"><div class="t">backup-photos<span>Back up the photo library every 15 minutes · next in 11 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">clean-downloads<span>Empty old downloads on Monday and Thursday · next Thu 13:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">nightly-report<span>Build the nightly report · next Wed 08:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">old-mirror<span>Not loaded by systemd</span></div><span class="sw on"></span></div><div class="row"><div class="t">sync-mail<span>Fetch mail every 30 minutes · next in 18 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">systemd-tmpfiles-clean<span>Daily Cleanup of User's Temporary Directories · next in 6 h 5 min</span></div><span class="sw on"></span></div></div></div></div></div><p class="note">Click Save in the banner.</p>
+</template>
+<template data-state id="PREFS-SAVED" data-screen="Preferences" data-summary="Saved, window open" data-label="Preferences — after Save" data-route="Preferences › Routines" data-rules="Preferences" data-kind="happy">
+<div class="w" data-goto="MENU-SAVED"><div class="hb"><span style="width:24px"></span><div class="sp"><span class="tab">Pull requests</span><span class="tab">Agents</span><span class="tab on">Routines</span><span class="tab">About</span></div></div><div class="body"><div class="group"><h3>Routines</h3><p>Show your systemd user timers in the menu. Greenlight reads them from systemd and never changes a unit.</p><div class="box"><div class="row"><div class="t">backup-photos<span>Back up the photo library every 15 minutes · next in 11 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">clean-downloads<span>Empty old downloads on Monday and Thursday · next Thu 13:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">nightly-report<span>Build the nightly report · next Wed 08:00</span></div><span class="sw on"></span></div><div class="row"><div class="t">old-mirror<span>Not loaded by systemd</span></div><span class="sw on"></span></div><div class="row"><div class="t">sync-mail<span>Fetch mail every 30 minutes · next in 18 min</span></div><span class="sw on"></span></div><div class="row"><div class="t">systemd-tmpfiles-clean<span>Daily Cleanup of User's Temporary Directories · next in 6 h 5 min</span></div><span class="sw on"></span></div></div></div><div style="text-align:center;padding:0 0 16px"><span style="background:#3d3d42;color:#fff;border-radius:20px;padding:10px 20px;font-weight:600">Preferences saved</span></div></div></div><p class="note">The window stays open; the banner is gone. Click the window to open the menu.</p>
+</template>
+<template data-state id="MENU-SAVED" data-screen="Menu" data-summary="New routine watched" data-label="Menu — after watching systemd-tmpfiles-clean" data-route="Top bar › Greenlight" data-rules="Menu" data-kind="happy">
+<div class="topbar"><span class="ind"><span class="ic dot">⎇</span>PR 2</span><span>Tue 12:14</span></div><div class="menu"><div class="item">Refresh now</div><div class="sep"></div><div class="item"><div class="field" data-goto="MENU-TYPING">🔍 Open issue or PR: repo #42, owner/repo#42, #42 or URL</div></div><div class="sep"></div><div class="head">acme · 2 pull requests</div><div class="pr"><span class="badge">#142</span> <b>Add a dark theme to the settings page</b><div class="small">web-platform @octocat</div></div><div class="pr"><span class="badge">#139</span> <b>Cache avatar requests</b><div class="small">web-platform @monalisa</div></div><div class="sep"></div><div class="head">Agent quotas</div><div class="q"><b>Claude</b> &nbsp; 5 h ███░░ 38 % · Week █████░ 61 %</div><div class="q"><b>Codex</b> &nbsp; Week █░░░ 16 %</div><div class="small" style="padding:4px 0 8px">Updated 12 min ago</div><div class="sep"></div><div class="head">Routines</div><div class="r"><span class="st ok">✓</span><span class="n">backup-photos</span><span class="s">ran 4 min ago</span><span class="nx">next in 11 min</span><span class="btn" title="Run backup-photos now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View backup-photos logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st nv">–</span><span class="n">clean-downloads</span><span class="s">no run recorded</span><span class="nx">next Thu 13:00</span><span class="btn" title="Run clean-downloads now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View clean-downloads logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">nightly-report</span><span class="s">ran 4 h ago</span><span class="nx">next Wed 08:00</span><span class="btn" title="Run nightly-report now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View nightly-report logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ko">✕</span><span class="n">sync-mail</span><span class="s ko">failed 12 min ago · exit code 1</span><span class="nx">next in 18 min</span><span class="btn" title="Run sync-mail now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View sync-mail logs" data-goto="TERMINAL">▤</span></div><div class="r"><span class="st ok">✓</span><span class="n">systemd-tmpfiles-clean</span><span class="s">ran 17 h ago</span><span class="nx">next in 6 h 5 min</span><span class="btn" title="Run systemd-tmpfiles-clean now" data-goto="MENU-RUNNING">▶</span><span class="btn" title="View systemd-tmpfiles-clean logs" data-goto="TERMINAL">▤</span></div><div class="sep"></div><div class="item link" data-goto="PREFS-ROUTINES">Preferences…</div></div>
+</template>
+<template data-state id="PREFS-EMPTY" data-screen="Preferences" data-summary="No user timer" data-label="Preferences — no systemd user timer" data-route="Preferences › Routines" data-rules="Preferences" data-kind="edge">
+<div class="w"><div class="hb"><span style="width:24px"></span><div class="sp"><span class="tab">Pull requests</span><span class="tab">Agents</span><span class="tab on">Routines</span><span class="tab">About</span></div></div><div class="body"><div class="group"><h3>Routines</h3><p>Show your systemd user timers in the menu. Greenlight reads them from systemd and never changes a unit.</p><div class="box"><div class="row"><div class="t">No systemd user timers<span>Create one with systemctl --user, then reopen Preferences.</span></div></div></div></div></div></div>
+</template>
+<template data-state id="PREFS-ERROR" data-screen="Preferences" data-summary="systemd unreachable" data-label="Preferences — systemd could not be read" data-route="Preferences › Routines" data-rules="Preferences" data-kind="error">
+<div class="w"><div class="hb"><span style="width:24px"></span><div class="sp"><span class="tab">Pull requests</span><span class="tab">Agents</span><span class="tab on">Routines</span><span class="tab">About</span></div></div><div class="body"><div class="group"><h3>Routines</h3><p>Show your systemd user timers in the menu. Greenlight reads them from systemd and never changes a unit.</p><div class="box"><div class="row"><div class="t">Could not read systemd timers<span>The name org.freedesktop.systemd1 was not provided by any .service files</span></div></div><div class="row"><div class="t">nightly-report<span>Stored; not read from systemd</span></div><span class="sw on"></span></div></div></div></div></div>
+</template>
+
+<!-- Viewer: no need to edit below. -->
+<script>
+(() => {
+  const states = [...document.querySelectorAll('template[data-state]')];
+  const screens = [...new Set(states.map((s) => s.dataset.screen))];
+  const ordered = screens.flatMap((sc) => states.filter((s) => s.dataset.screen === sc));
+  const productCss = document.getElementById('product').textContent;
+  const code = document.title.split(' — ')[0];
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let theme = 'dark', flow = false;
+  const hashIndex = () => {
+    let id = location.hash.slice(3);
+    try { id = decodeURIComponent(id); } catch {}
+    return ordered.findIndex((s) => location.hash.startsWith('#/@') && s.id === id);
+  };
+  let index = Math.max(0, hashIndex());
+
+  document.body.className = 'viewer';
+  document.body.insertAdjacentHTML('beforeend', `
+    <aside><div class="head"><h1>${esc(code)} mockup</h1>
+      <p>${ordered.length} states · ← → to browse · click a highlighted element in Flow to follow it</p></div>
+      <nav></nav></aside>
+    <main><header>
+      <button data-act="prev">‹ Previous</button><button data-act="next">Next ›</button>
+      <span class="count"></span>
+      <div class="title"><b></b><span></span></div>
+      <span class="kind"></span>
+      <button data-act="flow" aria-pressed="false">Flow</button>
+      <button data-act="dark" aria-pressed="true">Dark</button><button data-act="light" aria-pressed="false">Light</button>
+    </header><iframe title="state"></iframe></main>`);
+  const nav = document.querySelector('nav'), frame = document.querySelector('iframe');
+
+  for (const sc of screens) {
+    nav.insertAdjacentHTML('beforeend', `<h2>${esc(sc)}</h2>`);
+    for (const s of ordered.filter((x) => x.dataset.screen === sc)) {
+      const i = ordered.indexOf(s);
+      nav.insertAdjacentHTML('beforeend', `<div class="item">
+        <button class="state" data-i="${i}"><span class="id">${esc(s.id)}</span><span class="sum">${esc(s.dataset.summary)}</span></button>
+        <button class="copy" title="Copy state id" data-copy="${esc(s.id)}">⧉</button></div>`);
+    }
+  }
+
+  function render() {
+    const s = ordered[index];
+    history.replaceState(null, '', '#/@' + encodeURIComponent(s.id));
+    nav.querySelectorAll('.state').forEach((b) => b.setAttribute('aria-current', String(+b.dataset.i === index)));
+    nav.querySelector(`[data-i="${index}"]`).scrollIntoView({ block: 'nearest' });
+    document.querySelector('.count').textContent = `${index + 1} / ${ordered.length}`;
+    document.querySelector('.title b').textContent = s.dataset.label || s.id;
+    document.querySelector('.title span').textContent =
+      [s.dataset.screen, s.dataset.route, s.dataset.rules && 'rules: ' + s.dataset.rules].filter(Boolean).join(' · ');
+    const kind = document.querySelector('.kind');
+    kind.textContent = s.dataset.kind || ''; kind.className = 'kind ' + (s.dataset.kind || '');
+    document.querySelector('[data-act=prev]').disabled = index === 0;
+    document.querySelector('[data-act=next]').disabled = index === ordered.length - 1;
+    for (const t of ['dark', 'light']) document.querySelector(`[data-act=${t}]`).setAttribute('aria-pressed', String(theme === t));
+    document.querySelector('[data-act=flow]').setAttribute('aria-pressed', String(flow));
+    frame.srcdoc = `<!DOCTYPE html><html data-theme="${theme}"><head><meta charset="utf-8"><style>${productCss}
+      ${flow ? '[data-goto]{outline:2px dashed #f59e0b;outline-offset:2px}' : ''}[data-goto]{cursor:pointer}</style></head>
+      <body>${s.innerHTML}<script>document.addEventListener('click',(e)=>{const t=e.target.closest('[data-goto]');
+      if(t){e.preventDefault();parent.postMessage({mockupGoto:t.dataset.goto},'*');}});
+      document.addEventListener('keydown',(e)=>{if(/^Arrow/.test(e.key)&&!e.target.closest('input,textarea,select,[contenteditable]')){
+      e.preventDefault();parent.postMessage({mockupKey:e.key},'*');}});<\/script></body></html>`;
+  }
+  const go = (i) => { index = Math.min(ordered.length - 1, Math.max(0, i)); render(); };
+
+  nav.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-copy]');
+    if (c) return navigator.clipboard?.writeText(c.dataset.copy);
+    const b = e.target.closest('.state'); if (b) go(+b.dataset.i);
+  });
+  document.querySelector('header').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-act]')?.dataset.act;
+    if (a === 'prev') go(index - 1); else if (a === 'next') go(index + 1);
+    else if (a === 'flow') { flow = !flow; render(); }
+    else if (a === 'dark' || a === 'light') { theme = a; render(); }
+  });
+  const step = (key) => {
+    if (key === 'ArrowRight' || key === 'ArrowDown') go(index + 1);
+    if (key === 'ArrowLeft' || key === 'ArrowUp') go(index - 1);
+  };
+  addEventListener('keydown', (e) => { if (/^Arrow/.test(e.key)) { e.preventDefault(); step(e.key); } });
+  addEventListener('message', (e) => {
+    if (e.source !== frame.contentWindow || !e.data) return;
+    if (e.data.mockupKey) return step(e.data.mockupKey);
+    const id = e.data.mockupGoto; if (!id) return;
+    const i = ordered.findIndex((s) => s.id === id);
+    if (i < 0) console.warn('mockup: no state', id); else go(i);
+  });
+  addEventListener('hashchange', () => {
+    const i = hashIndex(); if (i >= 0 && i !== index) go(i);
+  });
+  render();
+})();
+</script>
+</body>
+</html>
