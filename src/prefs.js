@@ -944,6 +944,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 }
                 saved.apply();
             }
+            // A pending-removal message is stale once the removal is saved.
+            if (plan.blockedKey === null)
+                updateOwnerStatus();
             window.add_toast(new Adw.Toast({title: plan.message}));
         });
 
