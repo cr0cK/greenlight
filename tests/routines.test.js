@@ -501,6 +501,23 @@ test('a routine watched again after it stopped is a baseline again', () => {
     assert.deepEqual(tracker.observe([failed('a-job', {stateChangeMonotonic: 7000 * SECOND})], watchedOf('a-job')), []);
 });
 
+test('a routine rewatched while another stays watched is a baseline again', () => {
+    const tracker = new FailureTracker();
+    tracker.observe([ok('a-job'), ok('b-job')], watchedOf('a-job', 'b-job'));
+    tracker.observe([ok('b-job')], watchedOf('b-job'));
+    const back = [failed('a-job', {stateChangeMonotonic: 7000 * SECOND}), ok('b-job')];
+    assert.deepEqual(tracker.observe(back, watchedOf('a-job', 'b-job')), []);
+});
+
+test('a run already announced is not announced again after the watch list was emptied', () => {
+    const tracker = new FailureTracker();
+    tracker.observe([calm('a-timer')], watchedOf('a-timer'));
+    assert.equal(tracker.observe([sharing('a-timer', 5000 * SECOND)], watchedOf('a-timer')).length, 1);
+    tracker.observe([], []);
+    tracker.observe([ok('b-timer')], watchedOf('b-timer'));
+    assert.deepEqual(tracker.observe([sharing('b-timer', 5000 * SECOND)], watchedOf('b-timer')), []);
+});
+
 test('after a stale period, a newer failed run notifies and a known one does not', () => {
     const tracker = new FailureTracker();
     const watched = watchedOf('a-job', 'b-job');

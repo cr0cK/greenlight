@@ -345,7 +345,8 @@ export class FailureTracker {
         this._baselined = new Set();
         // The latest run each routine has read, by `<timer unit> <failure key>`.
         this._seen = new Map();
-        // The latest run notified, by failure key: a service two timers share notifies once.
+        // The latest run notified, by failure key: a service two timers share notifies once. One
+        // entry per failing service or timer, kept for the life of the extension.
         this._announced = new Map();
     }
 
@@ -365,8 +366,6 @@ export class FailureTracker {
             if (!watched.includes(id.split(' ')[0]))
                 this._seen.delete(id);
         }
-        if (watched.length === 0)
-            this._announced.clear();
         const due = new Map();
         for (const routine of sortRoutines(routines)) {
             if (routine.stale || !watched.includes(routine.unit))
