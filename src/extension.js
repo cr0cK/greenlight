@@ -9,6 +9,7 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} from './filters.js';
@@ -27,11 +28,16 @@ import {
 import {parseMarkdown} from './markdown.js';
 import {readQuota} from './agents.js';
 import {
+    FailureTracker,
     STATES as ROUTINE_STATES,
     accessibleName as routineAccessibleName,
     canRun,
+    failureNotification,
+    hasFailedRoutine,
+    indicatorName,
     jobResultReason,
     logsAccessibleName,
+    logsFailureTitle,
     nextText,
     normalizeWatched,
     readRoutine,
@@ -358,6 +364,9 @@ export default class GreenlightExtension extends Extension {
         this._routineActions = new Map();
         // The buttons of the rows, by `<timer>|run` and `<timer>|logs`, to give the focus back.
         this._routineButtons = new Map();
+        this._failureTracker = new FailureTracker();
+        // Greenlight's own notification source, created with the first notification.
+        this._notificationSource = null;
         this._loadQuotaCache();
 
         this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
@@ -371,11 +380,26 @@ export default class GreenlightExtension extends Extension {
             style_class: 'system-status-icon',
         });
         this._panelIcon.accessible_name = 'Pull request monitor';
+        // The red dot of a failed routine sits on the top right corner of the icon.
+        this._failureDot = new St.Widget({
+            style: 'background-color: ' + ROUTINE_STATES.failed.color + '; border-radius: 3px; width: 6px; height: 6px; margin-right: 10px;',
+            x_align: Clutter.ActorAlign.END,
+            y_align: Clutter.ActorAlign.START,
+            x_expand: true,
+            y_expand: true,
+            visible: false,
+        });
+        const iconBin = new St.Widget({
+            layout_manager: new Clutter.BinLayout(),
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        iconBin.add_child(this._panelIcon);
+        iconBin.add_child(this._failureDot);
         this._panelLabel = new St.Label({
             text: 'PR',
             y_align: Clutter.ActorAlign.CENTER,
         });
-        panelBox.add_child(this._panelIcon);
+        panelBox.add_child(iconBin);
         panelBox.add_child(this._panelLabel);
         this._indicator.add_child(panelBox);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
@@ -401,7 +425,7 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::agent-quota-threshold', () => this._renderQuotas()),
             this._settings.connect('changed::watched-routines', () => this._syncRoutines()),
         ];
-        this._routineWatcher = new RoutineWatcher(() => this._renderRoutines());
+        this._routineWatcher = new RoutineWatcher(() => this._onRoutinesChanged());
         this._renderMenu();
         this._renderQuotas();
         this._syncRoutines();
@@ -431,6 +455,10 @@ export default class GreenlightExtension extends Extension {
         // Closes the connection to the session bus, and with it the Subscribe() of the routines.
         this._routineWatcher?.destroy();
         this._routineWatcher = null;
+        this._failureTracker = null;
+        // The source goes with its notifications; the next enable makes a new one.
+        this._notificationSource?.destroy();
+        this._notificationSource = null;
         for (const entry of this._processes.values()) {
             if (entry.timeoutId)
                 GLib.Source.remove(entry.timeoutId);
@@ -462,6 +490,7 @@ export default class GreenlightExtension extends Extension {
         this._settings = null;
         this._indicator = null;
         this._panelIcon = null;
+        this._failureDot = null;
         this._panelLabel = null;
         this._refreshSection = null;
         this._quickOpenEntry = null;
@@ -1094,7 +1123,62 @@ export default class GreenlightExtension extends Extension {
     /** Hands the watched timers to the watcher: it connects to systemd only while any is watched. */
     _syncRoutines() {
         this._routineWatcher.setWatched(normalizeWatched(this._settings.get_strv('watched-routines')));
+        this._onRoutinesChanged();
+    }
+
+    /** The watched routines as the menu and the panel read them, sorted by name. */
+    _readRoutines() {
+        const nowReal = GLib.get_real_time();
+        const nowMonotonic = GLib.get_monotonic_time();
+        return sortRoutines([...this._routineWatcher.routines.values()].map(({raw, stale}) =>
+            ({...readRoutine(raw, nowReal, nowMonotonic), stale})));
+    }
+
+    /**
+     * What the watcher changed: new failed runs notify, the dot follows the states, and the menu
+     * renders. Closing the watcher in disable() can call it back: nothing is left to update then.
+     */
+    _onRoutinesChanged() {
+        if (!this._enabled)
+            return;
+        const routines = this._readRoutines();
+        for (const routine of this._failureTracker.observe(routines, this._routineWatcher.watched))
+            this._notifyRoutineFailure(routine);
+        this._failureDot.visible = hasFailedRoutine(routines);
+        this._indicator.accessible_name = indicatorName(routines);
         this._renderRoutines();
+    }
+
+    /** A notification on Greenlight's own source; clicking it runs `onActivate`. */
+    _notify(title, body, onActivate) {
+        if (!this._enabled)
+            return;
+        if (!this._notificationSource) {
+            const source = new MessageTray.Source({
+                title: 'Greenlight',
+                icon: Gio.FileIcon.new(this.dir.get_child('greenlight-pr-symbolic.svg')),
+            });
+            // The source destroys itself with its last notification: the next one makes another.
+            source.connect('destroy', () => {
+                if (this._notificationSource === source)
+                    this._notificationSource = null;
+            });
+            Main.messageTray.add(source);
+            this._notificationSource = source;
+        }
+        const notification = new MessageTray.Notification({source: this._notificationSource, title, body});
+        notification.connect('activated', onActivate);
+        this._notificationSource.addNotification(notification);
+    }
+
+    /** `<name> failed`; clicking opens the logs as View logs does. */
+    _notifyRoutineFailure(routine) {
+        const {title, body} = failureNotification(routine);
+        this._notify(title, body, () => {
+            const error = openLogs(routine.service);
+            if (error !== null)
+                this._notify(logsFailureTitle(routine), error, () => {});
+        });
     }
 
     /**
@@ -1125,10 +1209,7 @@ export default class GreenlightExtension extends Extension {
         }
 
         const now = Date.now();
-        const nowReal = GLib.get_real_time();
-        const nowMonotonic = GLib.get_monotonic_time();
-        const routines = sortRoutines([...watcher.routines.values()].map(({raw, stale}) =>
-            ({...readRoutine(raw, nowReal, nowMonotonic), stale})));
+        const routines = this._readRoutines();
         // The cause of a failed read or of a vanished systemd, or what the first read waits for.
         const notice = watcher.noOwner
             ? 'systemd is not running'

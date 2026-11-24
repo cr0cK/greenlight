@@ -30,6 +30,9 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
 
 - The panel shows a neutral pull request symbol, which never changes with CI status, and
   `PR <n>`, the number of listed pull requests, up to 30. After a failed refresh it shows `PR !`.
+- While a watched routine is failed (RTN), a red dot (`#c01c28`, 6 px) sits on the top right
+  corner of the symbol, and the indicator's accessible name reads `Greenlight, a routine failed`
+  instead of `Greenlight`. The dot never changes the symbol or the `PR` label.
 
 ## What is watched
 

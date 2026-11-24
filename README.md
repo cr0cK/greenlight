@@ -24,7 +24,8 @@ dashboard, and it stores no token.
   windows, each with a pace mark that shows whether you spend faster than the window allows,
   and an alert at your threshold.
 - **Routines.** The systemd user timers you pick, in the menu: how each one's last run ended
-  and when it runs next, with **Run now** and **View logs** buttons.
+  and when it runs next, with **Run now** and **View logs** buttons. A failed run sends a
+  notification and puts a red dot on the panel icon.
 - **Quick open.** <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>, type `api 42`, check the
   preview, and press Enter.
 - **No credentials.** Greenlight reuses `gh` and each agent's own CLI. It never reads, stores,
@@ -169,6 +170,16 @@ yourself. Both buttons take the keyboard focus in order with <kbd>Tab</kbd>, and
 <kbd>Enter</kbd> or <kbd>Space</kbd>.
 
 With more than six routines the rows scroll. The section hides while quick open has text.
+
+**Failures.** Each failed run you watch sends one notification, `nightly-report failed`, with the
+cause and the time of the run (`exit code 1 · 03:12`); clicking it opens the logs as **View logs**
+does, or says why they did not open. A red dot sits on the top right corner of the panel icon,
+and its accessible name reads `Greenlight, a routine failed`, while a watched routine is failed;
+it goes away with the failure (the next run, `systemctl --user reset-failed`, or the routine no
+longer watched), never by opening the menu. Greenlight notifies the failures it sees: a routine
+that is already failed when Greenlight starts or when you start watching it shows the dot but
+does not notify, and a run that fails and is followed by another before Greenlight reads (within a
+second, or 30 seconds without systemd's signals) is not seen.
 
 Greenlight reads systemd's own D-Bus API and never creates, edits, enables, disables, or stops a
 unit; its only write is **Run now**. It listens to systemd only

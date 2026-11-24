@@ -20,6 +20,8 @@ Command(s json) -> s, whose JSON holds a "cmd":
   add               {"timer": {...}}: adds a timer as the fixture does and emits UnitNew
   remove            {"unit": "sync-mail.timer"}: removes it and emits UnitRemoved
   reload            emits Reloading(true), then Reloading(false)
+  run               {"unit": "sync-mail.service", "outcome": "succeeded|failed"}: a run of the service that
+                     nobody asked for, as its timer would start it, with no job
   on-start          {"unit": "sync-mail.service", "outcome": "done|running|succeeded|failed|result|refuse",
                      "result": "dependency", "message": "...", "nextInSec": 600}: what the next
                      StartUnit of that service does. Every outcome answers with a job path, except
@@ -370,6 +372,9 @@ class Mock:
             self.log('remove ' + unit)
             self.emit_subscribed(MANAGER_PATH, SD + 'Manager', 'UnitRemoved',
                                  GLib.Variant('(so)', (unit, escape(unit))))
+        elif name == 'run':
+            # A run of the service that nobody asked for, as the timer would start it.
+            self.run_service(command['unit'], command.get('outcome', 'succeeded'))
         elif name == 'on-start':
             self.start_plans[command['unit']] = command
         elif name == 'end-job':

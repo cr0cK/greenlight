@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    FailureTracker,
     JobWait,
     NO_ANSWER_REASON,
     accessibleName,
@@ -9,10 +10,14 @@ import {
     chooseTerminal,
     clockText,
     failureCause,
+    failureNotification,
+    hasFailedRoutine,
+    indicatorName,
     isSet,
     jobResultReason,
     logsAccessibleName,
     logsCommand,
+    logsFailureTitle,
     logsHint,
     nextRunTime,
     nextText,
@@ -44,6 +49,7 @@ const timer = (values = {}) => ({
     result: 'success',
     activeState: 'active',
     stateChange: NOW - DAY,
+    stateChangeMonotonic: 100 * SECOND,
     ...values,
 });
 const service = (values = {}) => ({
@@ -55,6 +61,7 @@ const service = (values = {}) => ({
     subState: 'dead',
     inactiveExit: NOW - 5 * MINUTE,
     stateChange: NOW - 4 * MINUTE,
+    stateChangeMonotonic: 4000 * SECOND,
     conditionResult: true,
     conditionTimestamp: NOW - 5 * MINUTE,
     ...values,
@@ -420,4 +427,140 @@ test('a dropped wait settles with null, and a result after that changes nothing'
     wait.cancel();
     wait.removed('/job/1', 'done');
     assert.equal(await wait.result, null);
+});
+
+// Failure notifications and the panel dot --------------------------------------------------
+
+const failed = (unit, serviceValues = {}, timerValues = {}) => ({
+    ...read(timerValues, {activeState: 'failed', subState: 'failed', result: 'exit-code', execMainStatus: 1,
+        ...serviceValues}, unit + '.timer'),
+    stale: false,
+});
+const ok = (unit, serviceValues = {}) => ({...read({}, serviceValues, unit + '.timer'), stale: false});
+const watchedOf = (...units) => units.map(unit => unit + '.timer');
+
+test('a failed service is identified by its service and its monotonic state change', () => {
+    const routine = failed('nightly-report', {stateChangeMonotonic: 4100 * SECOND});
+    assert.equal(routine.failure.order, 4100 * SECOND);
+    assert.match(routine.failure.key, /^service:/);
+    assert.equal(ok('nightly-report').failure, null);
+});
+
+test('a timer failure is identified by its timer and the timer\'s own monotonic state change', () => {
+    const routine = read({result: 'trigger-limit-hit', stateChangeMonotonic: 4200 * SECOND}, {});
+    assert.deepEqual(routine.failure, {key: 'timer:nightly-report.timer', order: 4200 * SECOND});
+});
+
+test('a routine already failed when watched is a baseline, and never notifies', () => {
+    const tracker = new FailureTracker();
+    const routines = [failed('a-job')];
+    assert.deepEqual(tracker.observe(routines, watchedOf('a-job')), []);
+    assert.deepEqual(tracker.observe(routines, watchedOf('a-job')), []);
+});
+
+test('a run that turns failed after the baseline notifies once, and a re-read does not repeat it', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job');
+    assert.deepEqual(tracker.observe([ok('a-job')], watched), []);
+    const routines = [failed('a-job', {stateChangeMonotonic: 5000 * SECOND})];
+    assert.deepEqual(tracker.observe(routines, watched).map(routine => routine.name), ['a-job']);
+    assert.deepEqual(tracker.observe(routines, watched), []);
+});
+
+test('a second failed run notifies again, even with no successful read between them', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job');
+    tracker.observe([ok('a-job')], watched);
+    assert.equal(tracker.observe([failed('a-job', {stateChangeMonotonic: 5000 * SECOND})], watched).length, 1);
+    // A direct failed to failed change (systemd cleared and failed again between two reads).
+    assert.equal(tracker.observe([failed('a-job', {stateChangeMonotonic: 6000 * SECOND})], watched).length, 1);
+});
+
+test('the first successful read is the baseline, not the first read attempt', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job');
+    // The reads before were stale: they never reach the tracker as a baseline.
+    assert.deepEqual(tracker.observe([{...failed('a-job'), stale: true}], watched), []);
+    assert.deepEqual(tracker.observe([failed('a-job')], watched), []);
+});
+
+test('a routine that starts being watched later gets its own quiet baseline', () => {
+    const tracker = new FailureTracker();
+    tracker.observe([ok('a-job')], watchedOf('a-job'));
+    const routines = [ok('a-job'), failed('b-job')];
+    assert.deepEqual(tracker.observe(routines, watchedOf('a-job', 'b-job')), []);
+    assert.equal(tracker.observe([ok('a-job'), failed('b-job', {stateChangeMonotonic: 9000 * SECOND})],
+        watchedOf('a-job', 'b-job')).length, 1);
+});
+
+test('a routine watched again after it stopped is a baseline again', () => {
+    const tracker = new FailureTracker();
+    tracker.observe([ok('a-job')], watchedOf('a-job'));
+    tracker.observe([], []);
+    assert.deepEqual(tracker.observe([failed('a-job', {stateChangeMonotonic: 7000 * SECOND})], watchedOf('a-job')), []);
+});
+
+test('after a stale period, a newer failed run notifies and a known one does not', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job', 'b-job');
+    tracker.observe([failed('a-job'), ok('b-job')], watched);
+    const stale = [{...failed('a-job'), stale: true}, {...ok('b-job'), stale: true}];
+    assert.deepEqual(tracker.observe(stale, watched), []);
+    const back = [failed('a-job'), failed('b-job', {stateChangeMonotonic: 8000 * SECOND})];
+    assert.deepEqual(tracker.observe(back, watched).map(routine => routine.name), ['b-job']);
+});
+
+test('two timers on one service share its failed runs and notify once, under the first name', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-timer', 'b-timer');
+    const shared = (unit, order) => {
+        const routine = failed(unit, {stateChangeMonotonic: order});
+        return {...routine, failure: {...routine.failure, key: 'service:shared.service'}};
+    };
+    tracker.observe([{...ok('a-timer'), failure: null}, {...ok('b-timer'), failure: null}], watched);
+    const due = tracker.observe([shared('b-timer', 5000 * SECOND), shared('a-timer', 5000 * SECOND)], watched);
+    assert.deepEqual(due.map(routine => routine.name), ['a-timer']);
+    assert.deepEqual(tracker.observe([shared('b-timer', 5000 * SECOND), shared('a-timer', 5000 * SECOND)], watched), []);
+    assert.equal(tracker.observe([shared('b-timer', 6000 * SECOND), shared('a-timer', 6000 * SECOND)], watched).length, 1);
+});
+
+test('a timer failure belongs to its timer alone', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-timer', 'b-timer');
+    const timerFailure = unit => ({
+        ...read({result: 'trigger-limit-hit', stateChangeMonotonic: 5000 * SECOND}, {}, unit + '.timer'),
+        stale: false,
+    });
+    tracker.observe([ok('a-timer'), ok('b-timer')], watched);
+    const due = tracker.observe([timerFailure('a-timer'), timerFailure('b-timer')], watched);
+    assert.deepEqual(due.map(routine => routine.name), ['a-timer', 'b-timer']);
+});
+
+test('a run that failed and recovered between two reads is never observed', () => {
+    const tracker = new FailureTracker();
+    const watched = watchedOf('a-job');
+    tracker.observe([ok('a-job')], watched);
+    assert.deepEqual(tracker.observe([ok('a-job', {stateChangeMonotonic: 5000 * SECOND})], watched), []);
+});
+
+test('a routine that is not watched any more is ignored', () => {
+    const tracker = new FailureTracker();
+    assert.deepEqual(tracker.observe([failed('a-job')], []), []);
+});
+
+test('the notification names the routine, the cause, and the time of the run', () => {
+    const routine = failed('nightly-report', {stateChange: NOW - 2 * MINUTE});
+    assert.deepEqual(failureNotification(routine), {title: 'nightly-report failed', body: 'exit code 1 · 12:12'});
+    assert.equal(logsFailureTitle(routine), 'Could not open the logs of nightly-report');
+});
+
+test('the dot shows while a routine is failed, stale or not, and the indicator name follows', () => {
+    assert.equal(hasFailedRoutine([]), false);
+    assert.equal(hasFailedRoutine([ok('a-job'), ok('b-job')]), false);
+    assert.equal(indicatorName([ok('a-job')]), 'Greenlight');
+    const routines = [ok('a-job'), failed('b-job')];
+    assert.equal(hasFailedRoutine(routines), true);
+    assert.equal(indicatorName(routines), 'Greenlight, a routine failed');
+    assert.equal(hasFailedRoutine([{...failed('b-job'), stale: true}]), true);
+    assert.equal(hasFailedRoutine([read({}, null)]), false);
 });
