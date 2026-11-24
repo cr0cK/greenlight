@@ -1276,27 +1276,32 @@ export default class GreenlightExtension extends Extension {
             return;
         action.starting = true;
         this._renderRoutines();
-        const outcome = await watcher.start(routine.unit);
-        // The extension was disabled, or the watcher closed, while systemd was answering.
-        if (outcome.closed || this._routineWatcher !== watcher)
+        // The service of the row as it shows, not whatever a read in flight is about to say.
+        const outcome = await watcher.start(routine.service);
+        // The extension was disabled, the watcher closed, or the routine stopped being watched
+        // (and maybe started again, with its own row state) while systemd was answering.
+        const stale = () => this._routineWatcher !== watcher ||
+            this._routineActions.get(routine.unit) !== action;
+        if (outcome.closed || stale())
             return;
-        const current = this._routineAction(routine.unit);
-        current.starting = false;
+        action.starting = false;
         if (outcome.error !== undefined) {
-            current.startNotice = startErrorText(routine.name, outcome.error);
+            action.startNotice = startErrorText(routine.name, outcome.error);
             this._renderRoutines();
             return;
         }
-        current.startNotice = null;
+        // systemd accepted the start: an earlier refusal no longer applies.
+        action.startNotice = null;
         // Without a subscription nothing else announces the start before the next poll.
         watcher.refresh();
         this._renderRoutines();
         const result = await outcome.job;
-        if (this._routineWatcher !== watcher)
+        // A null result is a wait that was dropped: systemd changed owner, or Greenlight stopped.
+        if (result === null || stale())
             return;
         const reason = jobResultReason(result);
         if (reason !== null) {
-            this._routineAction(routine.unit).startNotice = startErrorText(routine.name, reason);
+            action.startNotice = startErrorText(routine.name, reason);
             this._renderRoutines();
         }
     }

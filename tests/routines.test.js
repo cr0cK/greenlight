@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    JobWait,
     NO_ANSWER_REASON,
     accessibleName,
     canRun,
@@ -383,4 +384,40 @@ test('Run now is insensitive while running, stale, or starting', () => {
 
 test('a routine knows the service its timer activates', () => {
     assert.equal(read({unit: 'other.service'}, {}).service, 'other.service');
+});
+
+test('a job result that arrives before the reply waits for the job to be named', async () => {
+    const wait = new JobWait('a.service');
+    wait.removed('/job/7', 'dependency');
+    wait.removed('/job/6', 'done');
+    wait.accept('/job/7');
+    assert.equal(await wait.result, 'dependency');
+});
+
+test('a job result that arrives after the reply settles only for the named job', async () => {
+    const wait = new JobWait('a.service');
+    wait.accept('/job/7');
+    let settled = false;
+    wait.result.then(() => (settled = true));
+    wait.removed('/job/6', 'canceled');
+    await Promise.resolve();
+    assert.equal(settled, false);
+    wait.removed('/job/7', 'failed');
+    assert.equal(await wait.result, 'failed');
+});
+
+test('a job result of an earlier job never settles a later one', async () => {
+    const wait = new JobWait('a.service');
+    wait.removed('/job/3', 'done');
+    wait.accept('/job/4');
+    wait.cancel();
+    assert.equal(await wait.result, null);
+});
+
+test('a dropped wait settles with null, and a result after that changes nothing', async () => {
+    const wait = new JobWait('a.service');
+    wait.accept('/job/1');
+    wait.cancel();
+    wait.removed('/job/1', 'done');
+    assert.equal(await wait.result, null);
 });

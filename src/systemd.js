@@ -8,7 +8,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import {findCli} from './agents.js';
-import {NO_ANSWER_REASON, chooseTerminal, terminalErrorText} from './routines.js';
+import {JobWait, NO_ANSWER_REASON, chooseTerminal, terminalErrorText} from './routines.js';
 
 const BUS_NAME = 'org.freedesktop.systemd1';
 const MANAGER_PATH = '/org/freedesktop/systemd1';
@@ -377,60 +377,54 @@ export class RoutineWatcher {
 
     /** A job ended: it settles the start that asked for it, and a watched unit is read again. */
     _onJobRemoved(jobPath, unit, result) {
-        for (const job of [...this._jobs]) {
-            if (job.service !== unit)
-                continue;
-            if (job.path === null)
-                job.removed.set(jobPath, result);
-            else if (job.path === jobPath)
-                this._settleJob(job, result);
+        for (const job of this._jobs) {
+            if (job.service === unit)
+                job.removed(jobPath, result);
         }
         if (this._isRelevant(unit))
             this._request();
     }
 
-    _settleJob(job, result) {
-        this._jobs.delete(job);
-        job.settle(result);
+    /** Drops the waits for jobs: after another systemd took over, a job path means nothing. */
+    _dropJobs() {
+        for (const job of [...this._jobs])
+            job.cancel();
     }
 
     /**
-     * Starts the service of a watched routine with `StartUnit(service, 'fail')`, which refuses to
-     * replace a job already queued for a conflicting unit. Resolves once systemd answers, with
-     * `{job}` (a promise of the job's result, which has no time limit: a oneshot service's start
-     * job ends when its process exits), `{error, noAnswer}` for a refused call or no reply within
+     * Starts `service`, the service of a watched routine as its row shows it, with
+     * `StartUnit(service, 'fail')`, which refuses to replace a job already queued for a
+     * conflicting unit. Resolves once systemd answers, with `{job}` (a promise of the job's
+     * result, which has no time limit: a oneshot service's start job ends when its process exits;
+     * null when the wait is dropped), `{error, noAnswer}` for a refused call or no reply within
      * 30 seconds, or `{closed: true}` when the watcher closed meanwhile.
      */
-    async start(unit) {
+    async start(service) {
         const session = this._session;
         const connection = this._connection;
-        const service = this._serviceOf.get(unit);
-        if (!session || !connection || this.noOwner || !service)
+        if (!session || !connection || this.noOwner)
             return {error: 'systemd is not available', noAnswer: false};
-        // Results that arrive before the reply are kept by the job's service until its path is known.
-        const job = {service, path: null, removed: new Map(), settle: null};
-        job.result = new Promise(resolve => (job.settle = resolve));
+        // Listens before the call is sent: a result that comes first waits for the reply.
+        const job = new JobWait(service);
         this._jobs.add(job);
+        job.result.then(() => this._jobs.delete(job));
         let path;
         try {
             const reply = await call(connection, MANAGER_PATH, MANAGER, 'StartUnit',
                 new GLib.Variant('(ss)', [service, 'fail']), '(o)', session.cancellable, START_TIMEOUT_MS);
             path = reply.deepUnpack()[0];
         } catch (error) {
-            this._jobs.delete(job);
+            job.cancel();
             if (this._session !== session)
                 return {closed: true};
             const timedOut = error.matches?.(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT) ?? false;
             return {error: timedOut ? NO_ANSWER_REASON : errorMessage(error), noAnswer: timedOut};
         }
         if (this._session !== session) {
-            this._jobs.delete(job);
+            job.cancel();
             return {closed: true};
         }
-        job.path = path;
-        if (job.removed.has(path))
-            this._settleJob(job, job.removed.get(path));
-        job.removed.clear();
+        job.accept(path);
         return {job: job.result};
     }
 
@@ -438,6 +432,7 @@ export class RoutineWatcher {
         if (this._session !== session)
             return;
         this._invalidate();
+        this._dropJobs();
         const epoch = ++this._ownerEpoch;
         if (!present) {
             this.noOwner = true;
@@ -631,6 +626,7 @@ export class RoutineWatcher {
         const connection = this._connection;
         const session = this._session;
         this._invalidate();
+        this._dropJobs();
         this._ownerEpoch++;
         this._stopPolling();
         if (this._throttleId)

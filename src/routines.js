@@ -284,3 +284,39 @@ export const logsAccessibleName = routine => 'View ' + routine.name + ' logs';
 export function canRun(routine, starting) {
     return routine.state !== 'running' && !routine.stale && !starting;
 }
+
+/**
+ * The wait of one Run now for its job to end. systemd's `JobRemoved` can arrive before the reply
+ * of `StartUnit` that names the job, so the results of that service are kept until the reply
+ * says which job is the one. `result` settles with the job's result string, or with null when the
+ * wait is dropped (systemd changed owner, or Greenlight stopped listening).
+ */
+export class JobWait {
+    constructor(service) {
+        this.service = service;
+        this.path = null;
+        this.early = new Map();
+        this.result = new Promise(resolve => (this.settle = resolve));
+    }
+
+    /** A `JobRemoved` of this wait's service. */
+    removed(path, result) {
+        if (this.path === null)
+            this.early.set(path, result);
+        else if (path === this.path)
+            this.settle(result);
+    }
+
+    /** The reply of `StartUnit` named the job. */
+    accept(path) {
+        this.path = path;
+        if (this.early.has(path))
+            this.settle(this.early.get(path));
+        this.early.clear();
+    }
+
+    /** Gives up: the result is null. */
+    cancel() {
+        this.settle(null);
+    }
+}
