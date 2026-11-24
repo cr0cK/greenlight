@@ -170,9 +170,44 @@ shell_eval "$PREFS.activate(global.get_current_time())" >/dev/null
 shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 1600)" >/dev/null
 wait_for "$PREFS.has_focus()"
 sleep 1.5
-gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Screenshot \
-    --method org.gnome.Shell.Screenshot.ScreenshotWindow true false false \
-    "$OUT/preferences.png" >/dev/null
+capture_window() {
+    gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Screenshot \
+        --method org.gnome.Shell.Screenshot.ScreenshotWindow true false false \
+        "$OUT/$1" >/dev/null
+}
+capture_window preferences.png
+
+# Presses keys, given as decimal keyvals, on a virtual keyboard, as a user's hands would: the
+# keys of one call are held together, then released in reverse order.
+press_keys() {
+    shell_eval "const Clutter = imports.gi.Clutter;
+        globalThis.__keyboard ??= Clutter.get_default_backend().get_default_seat()
+            .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const time = () => global.get_current_time() * 1000;
+        for (const key of [$1]) globalThis.__keyboard.notify_keyval(time(), key, Clutter.KeyState.PRESSED);
+        for (const key of [$1].reverse())
+            globalThis.__keyboard.notify_keyval(time(), key, Clutter.KeyState.RELEASED);
+        'ok'" >/dev/null
+    sleep 0.4
+}
+SHIFT_TAB=65505,65056 RIGHT=65363 RETURN=65293
+# The window opens with nothing focused: two Shift+Tab reach the tab switcher, an arrow key moves
+# along it, and Return shows the tab. No product-side hook is involved.
+press_keys $SHIFT_TAB
+press_keys $SHIFT_TAB
+press_keys $RIGHT
+press_keys $RETURN
+# These tabs are short: shrink the window so the captures hold no empty page.
+shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 520)" >/dev/null
+wait_for "$PREFS.get_frame_rect().height === 520"
+sleep 1.5
+capture_window preferences-agents.png
+press_keys $RIGHT
+press_keys $RETURN
+shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 340)" >/dev/null
+wait_for "$PREFS.get_frame_rect().height === 340"
+sleep 1.5
+capture_window preferences-about.png
 
 if grep -E 'JS (ERROR|WARNING)' "$WORK/shell.log"; then
     echo "The shell logged JavaScript errors; check the screenshots." >&2

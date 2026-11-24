@@ -2,6 +2,7 @@
 code: ORD
 status: done
 version: v1.4
+amended: [v1.5]
 created: 2026-11-19
 builds-on: QOP
 tracking: "#47"
@@ -119,7 +120,9 @@ from the saved order. The mockup is
   that took the removed one's place (up, down, then trash), or of the block above when the
   removed one was last, or to the **Add an owner** entry when no block is left.
 - Only the latest of these focus moves applies: a new move, trash, Tab, or click cancels one still
-  pending, and closing the window cancels it too.
+  pending, and closing the window cancels it too. These moves apply only while the **Pull
+  requests** tab is shown: switching to another tab cancels a pending one, and a `gh` answer that
+  lands while another tab is shown moves no focus.
 - When the window opens, the blocks follow the saved order. Configured owners missing from it (an
   owner from before ORD-P3, or one whose order was never saved) follow, in the **kind-then-login order**: personal
   accounts, then organizations, then other owners, each by login. A saved login with no configured
@@ -128,11 +131,12 @@ from the saved order. The mockup is
   owners found by **Discover accounts** get the last ones, relative to the order when the `gh`
   call answers. An owner removed with its trash icon while **Discover accounts** runs is not added
   back by its answer. The move buttons make no `gh` call, so they stay usable while one runs; only the
-  buttons PRM names, and **Save preferences**, wait for it. Removing an owner with its trash icon
+  buttons PRM names, and the banner's **Save**, wait for it. Removing an owner with its trash icon
   never reorders the others.
-- As with every setting, nothing applies before **Save preferences**, which stores the login of
-  every configured owner, enabled or paused, in block order, spelled as the owner block shows it. Closing the window without saving
-  drops the moves.
+- As with every setting, nothing applies before **Save**, which stores the login of
+  every configured owner, enabled or paused, in block order, spelled as the owner block shows it.
+  The window stays open after a save, and the blocks keep their state. Closing the window without
+  saving drops the moves.
 - There is no separate **Menu order** group and no **Order owners by** setting: ORD-P3 removes
   both, which ORD-P2 had added.
 

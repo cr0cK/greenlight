@@ -2,6 +2,7 @@
 code: QTA
 status: done
 version: v1.3
+amended: [v1.5]
 created: 2026-11-12
 builds-on: PRM
 tracking: "#36"
@@ -29,12 +30,12 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
 
 ## Preferences
 
-- A new **Agent quotas** group, after **Quick open** and before **Accounts and organizations**,
+- The **Agent quotas** group, the content of the **Agents** tab of the preferences window,
   holds (state `PREFS-READY`):
   - A **Claude**, a **Codex**, and an **Antigravity** switch (see Availability).
   - **Refresh every**: 15 minutes, 30 minutes, 1 hour (default), 2 hours, or 4 hours.
   - **Notify at**, in percent: 50 to 100 by steps of 5, default 80.
-- Every row applies on **Save preferences**. The timer uses any stored interval from 15 to 240
+- Every row applies on **Save**. The timer uses any stored interval from 15 to 240
   minutes; the preferences show one outside the list as 1 hour, and saving stores 60. **Notify
   at** applies any stored value from 50 to 100, on the grid or not.
 
@@ -49,8 +50,9 @@ QOP's menu height: the section stays in view, and hides while quick open has tex
   switch turns off and stays insensitive, and its subtitle says why and what to do; saving then
   stores it off. A check that fails for another reason (timeout, crash) keeps the saved choice,
   locked, with `Could not check: <cause>. Reopen Preferences to try again.`
-- **Save preferences** during a check keeps the saved choice of a provider still checking, and
-  closes the window like any save. Closing the window cancels the checks still running.
+- **Save** during a check keeps the saved choice of a provider still checking, and the window
+  stays open like after any save. The checks start when the window opens, whichever tab is shown.
+  Closing the window cancels the checks still running.
 - Outside the preferences window, a disabled provider starts no process.
 - In the menu, an enabled provider that turns out unavailable is hidden, never shown as a broken
   row; the next quota refresh tries again. Without any provider left to show, the section is
