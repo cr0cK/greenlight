@@ -1,9 +1,9 @@
 ---
 code: CAG
 status: draft
-version: v1.6
+version: v1.5
 created: 2026-11-24
-builds-on: QTA
+builds-on: QTA, TAB
 tracking: "#61"
 ---
 
@@ -16,10 +16,11 @@ that command's quota exactly as it reads the agent of that type, shows it in the
 built-in agents, and notifies its thresholds. Several custom agents can be added. It builds on
 QTA and TAB, whose rules all still apply: QTA's availability, menu, notification, and CLI rules
 apply to a custom agent as to the built-in agent of its type, with the differences below. It
-amends QTA's **Agent quotas** preferences (a **Custom agents** group on TAB's **Agents** tab), its
-provider order in the menu, its unavailability messages (which name the custom command), and its
-storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup is
-[`mockups/CAG.html`](mockups/CAG.html).
+amends QTA's **Agent quotas** preferences (a **Custom agents** group), its provider order and
+its section that does not scroll, its unavailability messages (which name the custom command),
+its `PATH` rule, and its storage (the `custom-agents` key and the cache keys); QOP's menu height
+(the quota rows scroll past a height); and TAB's list of the **Agents** settings. CAG-P1
+rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
 
 ## Custom agents
 
@@ -28,13 +29,12 @@ storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup i
   command's last path component (`claude-work`, or `codex-team` for `~/bin/codex-team`).
 - A command is either a name, made of letters, digits, `.`, `_`, `+`, and `-`, found as QTA finds
   the built-in CLIs (in `PATH`, then in `~/.local/bin`), or a path that starts with `/` or `~/`
-  (`~/` is the home directory) to an executable file.
-- The user can add any number of custom agents, up to 10. They keep the order they were added
-  in.
-- Two custom agents cannot share a command, compared as typed after trimming; nor a name, so
-  the menu and notifications tell them apart. A custom agent cannot use the command of a
-  built-in agent of the same type (`claude` with **Claude**, `codex` with **Codex**, `agy` with
-  **Antigravity**): that one is the built-in switch.
+  (`~/` is the home directory) to a regular file, or a link to one, that is executable.
+- The user can add up to 10 custom agents. They keep the order they were added in.
+- Two custom agents cannot share a command, compared as typed after trimming, nor a name, so
+  the menu and notifications tell them apart. A custom agent cannot be the built-in agent of its
+  type: a command whose found file, links resolved, is the one the built-in `claude`, `codex`,
+  or `agy` resolves to, for the same type, is refused; that one is the built-in switch.
 - Each custom agent has its own enabled switch, like a built-in provider. A new one is enabled.
 
 ## Preferences
@@ -53,16 +53,20 @@ storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup i
   `Remove <name>`), then the switch. The availability text and the switch follow QTA's
   availability rules for the agent's type: `Checking…` while its check runs, `Uses <path>` when
   available, the unavailability message otherwise (switch off and locked),
-  `Could not check: <cause>. Reopen Preferences to try again.` on a failed check. (PREFS-LIST,
+  `Could not check: <cause>. Reopen Preferences to try again.` on a failed check. Only the
+  switch is ever locked: the trash button stays usable in every state. (PREFS-LIST,
   PREFS-CHECKING, PREFS-UNAVAILABLE)
+- Commands, paths, and messages are shown as plain text, never as markup, so a path holding `&`
+  or `<` reads as typed.
 - **+** adds a new row at the end of the list, which takes the focus: an entry (placeholder
   `claude-work or ~/bin/codex-team`), the subtitle `Type a command, pick its quota type, then
   press Enter`, a **Quota type** drop-down (**Claude**, **Codex**, **Antigravity**; **Claude** by
   default), and a trash button (`Cancel`) that drops the row. Only one new row exists at a time:
   **+** is insensitive while it does. (PREFS-NEW, PREFS-TYPED)
 - Enter in the entry checks the command without running it. An accepted command turns the new
-  row into a custom agent row, enabled, whose availability check starts at once. A refused one
-  keeps the row, marks the entry, and shows the reason under it until the entry changes:
+  row into a custom agent row, enabled, whose availability check starts at once (it runs the
+  command, as QTA's check runs the built-in CLI). A refused one keeps the row, marks the entry,
+  and shows the reason under it until the entry or the type changes:
   - `Enter a command name or a path.` for a command of another form;
   - `<command> not found in PATH or ~/.local/bin` for a name, `<path> is not an executable file`
     for a path; (PREFS-NOT-FOUND)
@@ -70,29 +74,46 @@ storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup i
     `<command> is the built-in <type> agent.`. (PREFS-DUPLICATE)
 - A new row not yet accepted is not a setting: it makes no tab unsaved, a save ignores it, and
   closing the window drops it.
-- A custom agent's trash button removes its row at once; like every change of the tab, it
-  applies on save. (PREFS-REMOVED)
-- Under TAB, the custom agents are settings of the **Agents** tab: the list (commands, types,
-  order) and each switch compare with their baseline as TAB says, so an addition, a removal, or a
-  switch makes **Agents** unsaved, and removing an agent just added brings it back to its
-  baseline. A check that turns a custom agent's switch off is a pending normalization, as for a
-  built-in provider. A save stores the list.
-- Closing the window cancels the custom agents' checks, as QTA's.
+- A custom agent's trash button removes its row at once and cancels its check; like every change
+  of the tab, the removal applies on save. (PREFS-REMOVED, PREFS-REMOVED-SAVED)
+
+## Unsaved changes
+
+- Under TAB, the custom agents are one more setting of the **Agents** tab, the list: commands,
+  types, order, and switches, compared as a whole with its baseline. An addition, a removal, or
+  a switch makes **Agents** unsaved; removing an agent just added, or switching one back, brings
+  it back to its baseline. A save writes `custom-agents` only when the list differs from its
+  baseline or carries a pending normalization, as TAB says for every key.
+- A custom agent added in this window has no saved choice yet. A save while its check runs, or
+  after a check that could not finish, stores it enabled; after a check that finds it
+  unavailable, its switch is off, and a save stores it off.
+- A check that turns off the switch of a custom agent already saved is a pending normalization,
+  as for a built-in provider: it shows no banner, and the next save stores the list with that
+  switch off.
+- Closing the window drops unsaved additions and removals, and cancels every check, as TAB and
+  QTA say.
 
 ## Menu and notifications
 
 - In the **Agent quotas** section, custom agents follow the built-in ones (Claude, Codex,
   Antigravity), in the order of the list. Each one's name takes its own line above its windows,
-  as Antigravity's does. Its windows, labels, slots, colors, pace mark, dimming, causes, and
-  `Updated` line follow QTA for its type. (MENU)
+  as Antigravity's does. Its windows, labels, slots, colors, pace mark, dimming, and causes
+  follow QTA for its type. The section keeps one `Updated` line, from the oldest successful
+  reading shown, built-in and custom providers alike. (MENU)
+- The section's provider lines scroll in their own area once they are taller than 12 window
+  lines; the `Updated` line stays below that area. **Refresh now**, quick open, and
+  **Preferences…** stay in view as QOP says, and the pull request list still gives way first.
 - A custom agent is a provider of its own: its reading, its refresh in flight, its last try, and
-  its notified periods are its own, under the identifier `custom:<command>`. Two custom agents of
-  the same type, or a custom agent and the built-in one of its type, read and notify separately.
+  its notified periods are its own, under the identifier `custom:<type>:<command>`. Two custom
+  agents, or a custom agent and the built-in one of its type, read and notify separately, and
+  an agent removed and added again with another type starts as a new provider.
 - Notifications name it: `claude-work weekly quota at 84 %` / `Resets Mon 10:00`, with QTA's
   window names. (NOTIF)
-- Removing a custom agent, or switching it off, forgets its reading and its marked periods, as
-  switching a built-in provider off does. Adding one, or switching it on, reads it, and its first
-  reading sets QTA's quiet baseline.
+- When a save removes a custom agent or switches it off, the extension cancels its refresh,
+  drops any result that lands after, and forgets its reading and its marked periods, as
+  switching a built-in provider off does. When a save adds one or switches it on, the extension
+  reads it, and its first reading sets QTA's quiet baseline. The other providers keep their
+  readings and their work in flight.
 
 ## Running a custom agent
 
@@ -100,28 +121,39 @@ storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup i
   arguments, the same timeouts, the same parsing, and the same rules: `-p /usage
   --no-session-persistence --output-format json --settings {"disableAllHooks":true}` for
   **Claude**, `app-server` and its three messages for **Codex**, `-p /usage --output-format json`
-  with the no-op `xdg-open` first in `PATH` for **Antigravity**.
-- The command runs from the home directory, with its own directory first in `PATH`, as QTA runs
-  the built-in CLIs. Greenlight passes it no other environment: a wrapper that sets its own
-  configuration directory keeps doing so.
-- A command found when it was added and missing later is unavailable with the not-found message
-  of **Preferences**, in the preferences and in the menu (hidden, as QTA says).
-- QTA's unavailability messages name the custom command where they name the built-in one:
-  `Claude Code is not signed in with a Claude subscription. Run claude-work, then /login.`,
-  `Codex is not signed in. Run codex-team login.`, `This codex-team cannot report rate limits.
-  Update Codex.`, `Codex reports no subscription quota. Sign in with ChatGPT: codex-team login.`,
-  `Antigravity is not signed in. Run agy-alt and sign in.`, and
-  `Antigravity answered /usage in an unknown form. Update agy-alt.`; the others are unchanged.
+  for **Antigravity**.
+- It runs from the home directory with the extension's environment, `PATH` put in this order:
+  the no-op `xdg-open` directory (Antigravity type only), the command's own directory,
+  `~/.local/bin`, then the inherited `PATH`. Greenlight passes it no other variable: a wrapper
+  that sets its own configuration directory keeps doing so, and an Antigravity-type wrapper must
+  not put its own directory before the no-op `xdg-open`.
+- A wrapper is expected to end by `exec`ing its agent with the arguments it received. On a
+  timeout, Greenlight stops the process it started, as QTA says; an agent that a wrapper started
+  without `exec` can outlive it.
+- A command found when it was added and missing later is unavailable: the preferences show the
+  not-found message of **Preferences**, and the menu hides the agent, as QTA hides an
+  unavailable provider.
+- QTA's unavailability messages name the custom command, as the user typed it, where they name
+  the built-in one: `Claude Code is not signed in with a Claude subscription. Run claude-work,
+  then /login.`, `Codex is not signed in. Run ~/bin/codex-team login.`, `This codex-team cannot
+  report rate limits. Update Codex.`, `Codex reports no subscription quota. Sign in with ChatGPT:
+  ~/bin/codex-team login.`, `Antigravity is not signed in. Run agy-alt and sign in.`, and
+  `Antigravity answered /usage in an unknown form. Update agy-alt.` (`codex-team` there is the
+  name); the others are unchanged.
 
 ## Storage
 
-- A new setting, `custom-agents` (JSON, `[]` by default): a list of
-  `{command, type, enabled}`, `type` being `claude`, `codex`, or `agy`, in list order. Malformed
-  JSON reads as no custom agent; an entry with an unknown type, an invalid command, or a
-  duplicate command or name is skipped; entries past the tenth are skipped.
-- `agent-quota-cache` keeps a custom agent's reading and periods under `custom:<command>`, like
-  a built-in provider's; an entry whose agent is no longer listed or enabled is dropped when the
-  extension loads the cache.
+- A new setting, `custom-agents` (`s`, a JSON array, `[]` by default), holds the list in order,
+  each entry `{"command": <string>, "type": "claude" | "codex" | "agy", "enabled": <boolean>}`.
+  Text that is not a JSON array reads as no custom agent. An entry that is not such an object,
+  whose command has none of the forms of **Custom agents**, or whose command or name clashes with
+  an earlier entry, is skipped; after ten kept entries, the rest are skipped. Reading never looks
+  at the files: a command missing on disk stays listed, so it can be removed.
+- `agent-quota-cache` keeps a custom agent's reading under its identifier, like a built-in
+  provider's, and its notified periods as `<identifier>:<slot>:<reset time>`, read from the
+  right: the last two fields are the slot and the reset time, and the rest is the identifier,
+  compared whole. Built-in periods keep their form. When the extension loads the cache, a
+  reading or a period whose provider is not a listed and enabled agent is dropped.
 
 ## Out of scope
 
@@ -130,40 +162,72 @@ storage (the `custom-agents` key); CAG-P1 rewrites those QTA lines. The mockup i
 - Arguments or environment variables entered in the preferences: a command that needs them is a
   wrapper script.
 - Renaming a custom agent, or reordering the list: remove it and add it again.
+- Ending the processes a wrapper starts without `exec`.
 
 ## Plans
 
 ### CAG-P1: custom agents
 
-- **Depends on**: TAB merged, since the group sits on TAB's **Agents** tab and its changes follow
-  TAB's save.
-- **Scope**: the whole spec. The QTA lines CAG amends are rewritten, with `v1.6` in `amended`.
-  README.md describes custom agents.
+- **Depends on**: TAB-P2 merged, since the group sits on TAB's **Agents** tab and its changes
+  follow TAB's unsaved changes and save.
+- **Scope**: the whole spec. The QTA, QOP, and TAB lines CAG amends are rewritten, with `v1.5`
+  in `amended`. README.md describes custom agents.
 - **Acceptance**:
   - Unit tests (`node --test`): the command forms (names, `/` and `~/` paths, refused forms), the
-    name from a path, the clash rules (command, name, built-in), the limit, the storage reader
-    (malformed JSON, unknown type, duplicates, eleventh entry), the custom provider identifier,
-    the messages with a custom command, and the menu order of built-in then custom providers.
-  - In the headless GNOME Shell, with fixture CLIs from `scripts/screenshots/` copied under other
-    names in a scratch `~/.local/bin` (a Claude-type `claude-work`, a Codex-type `codex-team`,
-    and a signed-out Claude-type one): adding each through the **Agents** tab shows `Checking…`,
-    then `Uses <path>` or the signed-out message with the switch locked off; a missing command, a
-    duplicate, and the built-in `claude` with **Claude** are refused with their messages; a save
-    stores `custom-agents`; the menu lists `claude-work` and `codex-team` after the built-in
-    agents, each on its own name line, with their own windows; a threshold crossed by
-    `claude-work` notifies `claude-work … quota at …`; removing it and saving drops its lines and
-    its cache entry. Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
+    name from a path, the clash rules (command, name), the limit, the storage reader (not an
+    array, a non-object entry, an unknown type, a string `"false"` for `enabled`, an invalid
+    entry before the tenth valid one, duplicates, an eleventh entry), the identifier with its
+    type, period keys of a custom agent whose command holds `:` (kept across a reload; removing
+    `/bin/team` keeps the marks of `/bin/team:work`; built-in marks unchanged), the messages
+    with a custom command, the list comparison and its pending normalization, and the menu order
+    of built-in then custom providers.
+  - In the headless GNOME Shell, with a temporary home shared by the shell and the preferences
+    service, and stub CLIs written by the test in that home's `~/.local/bin`, each answering from
+    a file the test rewrites between steps (signed in, signed out, a usage, a delay), not shipped:
+    - adding `claude-work` (Claude), `codex-team` (Codex), and a signed-out `claude-alt` (Claude)
+      through the **Agents** tab, by keyboard only in a narrow window, shows `Checking…`, then
+      `Uses <path>` or the signed-out message with the switch locked off and the trash button
+      still usable; a missing command, a duplicate, `claude` with **Claude**, and a link to the
+      built-in `claude` with **Claude** are refused with their messages; a path holding `&`
+      reads as typed;
+    - a save stores `custom-agents`; an external change of the author followed by an
+      **Agents**-only save keeps it; the menu lists `claude-work` and `codex-team` after the
+      built-in agents, each on its own name line, with their own windows;
+    - raising `claude-work`'s usage across the threshold notifies `claude-work … quota at …`
+      and nothing for `claude-alt` or the built-in `claude`;
+    - removing a row whose check is delayed, then adding it again, shows only the new check's
+      result; removing `claude-work` and saving drops its lines and its cache entries;
+    - on a 1280x600 virtual monitor with the three built-in agents and ten two-window custom
+      agents, one of them dimmed with its cause, the quota lines scroll, and **Refresh now**,
+      quick open, and **Preferences…** stay in view.
+    Screenshots, and no `JS ERROR` or `JS WARNING` in the log.
   - `scripts/screenshots.sh` shows one custom agent in `menu.png` and in
     `preferences-agents.png`.
   - `npm run lint` and `make check` pass.
 - **Technical notes**:
-  - `PROVIDERS` in `src/quotas.js` holds the built-in agents with a fixed `command` and `setting`;
-    a custom agent is a provider built from its entry, `{name, command, type}`, whose reader is
-    its type's (`readClaude`, `readCodex`, `readAgy` in `src/agents.js`, which already take the
-    found path). `readQuota`, the quota state, the cache, and the menu loop over the built-in and
-    the custom providers instead of `PROVIDERS` alone.
-  - `findCli` takes a name; a path is expanded (`~/`) and checked with `GLib.file_test`
-    (`IS_EXECUTABLE`, not `IS_DIR`).
+  - `PROVIDERS` in `src/quotas.js` holds the built-in agents with a fixed `command` and
+    `setting`; a custom agent is a provider built from its entry, `{id, name, command, type}`,
+    whose reader is its type's (`readClaude`, `readCodex`, `readAgy` in `src/agents.js`, which
+    already take the found path), and whose slots, labels, and messages are its type's.
+    `readQuota`, `readQuotaCache` (`validWindow`, `validPeriod`), the quota state, the cache,
+    and the menu take the built-in and the custom providers instead of `PROVIDERS` alone.
+  - `forgetPeriods` matches by `startsWith(provider + ':')` and `validPeriod` splits on `:` into
+    exactly three fields: both parse from the right instead, and compare the identifier whole.
+  - `findCli` takes a name; a path is expanded (`~/`) and checked with two `GLib.file_test`
+    calls, `IS_REGULAR` and `IS_EXECUTABLE`, since flags combined in one call are ORed. The
+    built-in clash compares the files' `unix::device` and `unix::inode` from
+    `Gio.File.query_info`, which follows links.
+  - `spawn` in `src/agents.js` already puts `leadingDirs`, the command's directory,
+    `~/.local/bin`, then `PATH`, in that order.
+  - Each custom row is an `Adw.ActionRow` (`use-markup` false, `subtitle-selectable` off) with a
+    suffix box holding the trash `Gtk.Button` and a `Gtk.Switch`, so only the switch is made
+    insensitive. The new row is an `Adw.ActionRow` whose prefix is a `Gtk.Entry` and whose
+    suffixes are a `Gtk.DropDown` and the trash button. Each row's check has its own
+    cancellable, cancelled on removal; a result for a row no longer listed is dropped.
+  - The extension follows `changed::custom-agents` and reconciles: providers removed, switched
+    off, or whose type changed are cancelled and forgotten; unchanged ones keep their state.
+  - The quota rows' scroll area is an `St.ScrollView` around the providers' box only, capped at
+    12 window lines, as the pull request list's is.
   - The messages that name a command become functions of it in `src/quotas.js`, so the built-in
     texts stay as QTA lists them.
   - The schema gains `custom-agents` (`s`, default `'[]'`).
