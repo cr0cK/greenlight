@@ -83,7 +83,7 @@ export function failureCause(service) {
  * `activeState`, and `stateChange` (all times in microseconds), and `service` is null when
  * systemd does not load it, else has `result`, `execMainCode`, `execMainStatus`,
  * `execMainStart`, `activeState`, `subState`, `inactiveExit`, `stateChange`, `conditionResult`,
- * and `conditionTimestamp`. Returns `{name, unit, description, state, time, cause, nextAt}`:
+ * and `conditionTimestamp`. Returns `{name, unit, service, description, state, time, cause, nextAt}`:
  * the state is the first of State's list that applies, `time` its time in microseconds, `cause`
  * the failure's text (failed only), and `nextAt` the next run in microseconds, null when not
  * scheduled.
@@ -93,6 +93,8 @@ export function readRoutine(raw, nowRealUs, nowMonotonicUs) {
     const routine = {
         name: routineName(unit),
         unit,
+        // The service the timer activates: what Run now starts and View logs reads.
+        service: timer.unit,
         description: description ?? '',
         state: 'unknown',
         time: null,
@@ -210,4 +212,75 @@ export function sameWatched(first, second) {
     const names = new Set(first);
     const others = new Set(second);
     return names.size === others.size && [...names].every(name => others.has(name));
+}
+
+// Run now and View logs ----------------------------------------------------------------------
+
+// The terminals View logs tries, in order, with what goes between the terminal and its command.
+const TERMINALS = [
+    {command: 'xdg-terminal-exec', separator: []},
+    {command: 'ptyxis', separator: ['--']},
+    {command: 'kgx', separator: ['--']},
+    {command: 'gnome-terminal', separator: ['--']},
+];
+
+/**
+ * The command of View logs. The variables are part of it because ptyxis and gnome-terminal run
+ * it in an already-running server that ignores the caller's environment: `SYSTEMD_PAGER=less`
+ * (honored only with `SYSTEMD_PAGERSECURE=0`) overrides an inherited pager such as `cat`, and
+ * `SYSTEMD_LESS` without `F` keeps `less` open when the logs fit one screen.
+ */
+export function logsCommand(service) {
+    return ['env', 'SYSTEMD_PAGERSECURE=0', 'SYSTEMD_PAGER=less', 'SYSTEMD_LESS=RSXMK',
+        'journalctl', '--user', '-u', service, '-e'];
+}
+
+/** The command a user types for the same logs, which the error lines of View logs name. */
+export function logsHint(service) {
+    return 'journalctl --user -u ' + service + ' -e';
+}
+
+/**
+ * The argument array that starts the first terminal `find` locates (`find(command)` gives its
+ * path or null): the path found, then the terminal's own separator, then the logs command.
+ * Null when no terminal is found.
+ */
+export function chooseTerminal(service, find) {
+    for (const {command, separator} of TERMINALS) {
+        const path = find(command);
+        if (path)
+            return [path, ...separator, ...logsCommand(service)];
+    }
+    return null;
+}
+
+/** The line under a row, or the body of a notification, when the logs did not open. */
+export function terminalErrorText(service, error = null) {
+    return (error === null ? 'No terminal found' : 'Could not open a terminal: ' + error) +
+        '. Run: ' + logsHint(service);
+}
+
+/** The line under a row after a start that did not happen. */
+export function startErrorText(name, reason) {
+    return 'Could not start ' + name + ': ' + reason;
+}
+
+/**
+ * What a job result adds to the row, or null: `done` is a start, and `failed` shows in the row's
+ * own Failed state, so neither needs a line. Any other result (`dependency`, `canceled`,
+ * `timeout`, `skipped`, `assert`, ...) reads `job <result>`.
+ */
+export function jobResultReason(result) {
+    return result === 'done' || result === 'failed' ? null : 'job ' + result;
+}
+
+export const NO_ANSWER_REASON = 'no answer from systemd';
+
+/** The accessible names of the two buttons of a row. */
+export const runAccessibleName = routine => 'Run ' + routine.name + ' now';
+export const logsAccessibleName = routine => 'View ' + routine.name + ' logs';
+
+/** Whether Run now can be pressed: not while running, stale, or already starting. */
+export function canRun(routine, starting) {
+    return routine.state !== 'running' && !routine.stale && !starting;
 }

@@ -2,14 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    NO_ANSWER_REASON,
     accessibleName,
+    canRun,
+    chooseTerminal,
     clockText,
     failureCause,
     isSet,
+    jobResultReason,
+    logsAccessibleName,
+    logsCommand,
+    logsHint,
     nextRunTime,
     nextText,
     normalizeWatched,
     readRoutine,
+    runAccessibleName,
+    startErrorText,
+    terminalErrorText,
     routineName,
     sameWatched,
     sortRoutines,
@@ -280,4 +290,97 @@ test('two lists of timers are the same set whatever their order', () => {
     assert.equal(sameWatched(['a.timer', 'b.timer'], ['b.timer', 'a.timer']), true);
     assert.equal(sameWatched(['a.timer'], ['a.timer', 'b.timer']), false);
     assert.equal(sameWatched([], []), true);
+});
+
+// Run now and View logs
+
+const JOURNAL = ['env', 'SYSTEMD_PAGERSECURE=0', 'SYSTEMD_PAGER=less', 'SYSTEMD_LESS=RSXMK',
+    'journalctl', '--user', '-u', 'nightly-report.service', '-e'];
+const TERMINAL_ORDER = ['xdg-terminal-exec', 'ptyxis', 'kgx', 'gnome-terminal'];
+// A lookup as findCli does it: the directories of PATH first, then ~/.local/bin.
+const lookup = ({path = [], local = []}) => command =>
+    path.includes(command) ? '/usr/bin/' + command
+        : local.includes(command) ? '/home/user/.local/bin/' + command : null;
+
+test('the logs command pages at the end and stays open, whatever the inherited pager', () => {
+    assert.deepEqual(logsCommand('nightly-report.service'), JOURNAL);
+    assert.equal(logsHint('nightly-report.service'), 'journalctl --user -u nightly-report.service -e');
+});
+
+test('the terminal is the first of the four found, with its own separator', () => {
+    const service = 'nightly-report.service';
+    assert.deepEqual(chooseTerminal(service, lookup({path: TERMINAL_ORDER})),
+        ['/usr/bin/xdg-terminal-exec', ...JOURNAL]);
+    assert.deepEqual(chooseTerminal(service, lookup({path: TERMINAL_ORDER.slice(1)})),
+        ['/usr/bin/ptyxis', '--', ...JOURNAL]);
+    assert.deepEqual(chooseTerminal(service, lookup({path: TERMINAL_ORDER.slice(2)})),
+        ['/usr/bin/kgx', '--', ...JOURNAL]);
+    assert.deepEqual(chooseTerminal(service, lookup({path: TERMINAL_ORDER.slice(3)})),
+        ['/usr/bin/gnome-terminal', '--', ...JOURNAL]);
+});
+
+test('each candidate missing in turn leaves the next one', () => {
+    for (let missing = 0; missing < TERMINAL_ORDER.length - 1; missing++) {
+        const present = TERMINAL_ORDER.filter((_command, index) => index !== missing);
+        assert.equal(chooseTerminal('a.service', lookup({path: present}))[0], '/usr/bin/' + present[0]);
+    }
+});
+
+test('a terminal only in ~/.local/bin is found, after the ones in PATH', () => {
+    assert.equal(chooseTerminal('a.service', lookup({local: ['ptyxis']}))[0],
+        '/home/user/.local/bin/ptyxis');
+    assert.equal(chooseTerminal('a.service', lookup({path: ['gnome-terminal'], local: ['kgx']}))[0],
+        '/home/user/.local/bin/kgx');
+    assert.equal(chooseTerminal('a.service', lookup({path: ['kgx'], local: ['kgx']}))[0], '/usr/bin/kgx');
+});
+
+test('no terminal found gives no command', () => {
+    assert.equal(chooseTerminal('a.service', lookup({})), null);
+});
+
+test('the terminal never gets a shell string: one item per argument', () => {
+    const [, ...rest] = chooseTerminal('odd name; rm.service', lookup({path: ['xdg-terminal-exec']}));
+    assert.ok(rest.includes('odd name; rm.service'));
+    assert.equal(rest.filter(item => item.includes(' ')).length, 1);
+});
+
+test('the terminal errors name the command to run instead', () => {
+    assert.equal(terminalErrorText('nightly-report.service'),
+        'No terminal found. Run: journalctl --user -u nightly-report.service -e');
+    assert.equal(terminalErrorText('nightly-report.service', 'Failed to execute child process'),
+        'Could not open a terminal: Failed to execute child process. Run: journalctl --user -u nightly-report.service -e');
+});
+
+test('a start that did not happen reads Could not start with its reason', () => {
+    assert.equal(startErrorText('nightly-report', 'Unit is masked.'), 'Could not start nightly-report: Unit is masked.');
+    assert.equal(startErrorText('nightly-report', NO_ANSWER_REASON),
+        'Could not start nightly-report: no answer from systemd');
+    assert.equal(startErrorText('nightly-report', jobResultReason('dependency')),
+        'Could not start nightly-report: job dependency');
+});
+
+test('only a job result other than done and failed adds a line', () => {
+    assert.equal(jobResultReason('done'), null);
+    assert.equal(jobResultReason('failed'), null);
+    for (const result of ['dependency', 'canceled', 'timeout', 'skipped', 'assert', 'invalid', 'collected'])
+        assert.equal(jobResultReason(result), 'job ' + result);
+});
+
+test('the buttons are named after the routine', () => {
+    const routine = read({}, {});
+    assert.equal(runAccessibleName(routine), 'Run nightly-report now');
+    assert.equal(logsAccessibleName(routine), 'View nightly-report logs');
+});
+
+test('Run now is insensitive while running, stale, or starting', () => {
+    const idle = read({}, {});
+    assert.equal(canRun(idle, false), true);
+    assert.equal(canRun(idle, true), false);
+    assert.equal(canRun({...idle, stale: true}, false), false);
+    assert.equal(canRun(read({}, {activeState: 'active', subState: 'running'}), false), false);
+    assert.equal(canRun(read({}, {activeState: 'failed'}), false), true);
+});
+
+test('a routine knows the service its timer activates', () => {
+    assert.equal(read({unit: 'other.service'}, {}).service, 'other.service');
 });
