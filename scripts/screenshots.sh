@@ -27,8 +27,7 @@ if [[ ${1:-} != --inside ]]; then
     # GNOME Shell starts ibus-daemon from PATH, and outside the desktop session it can outlive
     # the bus and grow without bound: a no-op stands in for it.
     mkdir -p "$WORK/bin"
-    printf '#!/bin/sh\nexit 0\n' >"$WORK/bin/ibus-daemon"
-    chmod 755 "$WORK/bin/ibus-daemon"
+    ln -sfn "$(type -P true)" "$WORK/bin/ibus-daemon"
     export PATH=$WORK/bin:$ROOT/scripts/screenshots:$PATH GTK_A11Y=none
     # The display name stays short: the Wayland socket path must fit in 108 bytes.
     export WAYLAND_DISPLAY=greenlight-shot
