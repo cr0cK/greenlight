@@ -22,7 +22,8 @@ dashboard, and it stores no token.
   back to the agent, as soon as it is ready.
 - **Agent quota gauges.** Your Claude, Codex, and Antigravity (Gemini) 5-hour and weekly
   windows, each with a pace mark that shows whether you spend faster than the window allows,
-  and an alert at your threshold.
+  and an alert at your threshold. Add your own agent commands, such as a wrapper on another
+  subscription, to read their quota too.
 - **Routines.** The systemd user timers you pick, in the menu: how each one's last run ended
   and when it runs next, with **Run now** and **View logs** buttons. A failed run sends a
   notification and puts a red dot on the panel icon.
@@ -78,7 +79,10 @@ Open **Preferences** from the menu. It has four tabs, **Pull requests**, **Agent
 2. In each owner's block, choose **All**, **All except…**, or **Only…** repositories.
 3. Move each owner's block with its up and down buttons: the menu lists the owners in that order.
 4. On **Agents**, turn on the agents you use. Each switch checks its CLI first. If the CLI is
-   missing, signed out, or not on a subscription, the switch stays off and says what to do.
+   missing, signed out, or not on a subscription, the switch stays off and says what to do. To
+   read another command's quota, such as a wrapper that runs Claude Code on another
+   subscription, add it under **Custom agents** with **+**: type its name or path, pick the
+   quota type of the agent it runs, and press Enter.
 5. On **Routines**, turn on the systemd user timers you want in the menu. Nothing is watched by
    default.
 6. Once something changed, a banner at the top of every tab names the tabs with unsaved changes.
@@ -92,7 +96,7 @@ Until you configure owners, Greenlight watches every repository `gh` can see.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/preferences-agents.png" alt="Greenlight preferences, Agents tab: the Claude, Codex, and Antigravity switches, refresh interval, and notification threshold" width="32%">
+  <img src="docs/screenshots/preferences-agents.png" alt="Greenlight preferences, Agents tab: the Claude, Codex, and Antigravity switches, refresh interval, notification threshold, and a custom agent" width="32%">
   <img src="docs/screenshots/preferences-routines.png" alt="Greenlight preferences, Routines tab: one switch per systemd user timer, with its description and next run" width="32%">
   <img src="docs/screenshots/preferences-about.png" alt="Greenlight preferences, About tab: the installed version and the source code link" width="32%">
 </p>
@@ -147,6 +151,25 @@ Greenlight asks the agents' own CLIs, which it looks for in `PATH` and then in `
 - `claude -p /usage` uses no tokens and saves no session.
 - `codex app-server` reads the Codex rate limits.
 - `agy -p /usage` reads the Gemini models only. A signed-out `agy` never opens a browser.
+
+### Custom agents
+
+A custom agent is a command that runs Claude Code, Codex, or Antigravity under another name, such
+as a wrapper that keeps its own sign-in on another subscription. Under **Preferences** >
+**Agents** > **Custom agents**, click **+**, type a command name (found in `PATH`, then in
+`~/.local/bin`) or a path (`/…` or `~/…`) to an executable file, and pick the **Quota type** of the
+agent it runs. Greenlight then reads its quota exactly as it reads that agent's, with the same
+arguments, shows it after the built-in agents under the command's name, and notifies at your
+threshold as `claude-work weekly quota at 84 %`.
+
+- Up to 5 custom agents, in the order you added them. Each has its own switch and a trash button.
+- The command receives the arguments of its type (`-p /usage …` for Claude and Antigravity,
+  `app-server` for Codex), so pick the type of the agent it runs. A wrapper should end by running
+  its agent with `exec` and the arguments it received.
+- Enter checks the command before adding it: a command or name already listed, a built-in agent's
+  name, a missing file, or a link to the built-in CLI of the same type is refused with its reason.
+- Greenlight passes the command no argument or variable of its own: a wrapper that needs some is
+  a script.
 
 ### Routines
 

@@ -9,6 +9,7 @@ import {
     codexMessages,
     failed,
     isAgyAuthError,
+    isPathCommand,
     missingCliMessage,
     parseAgyRun,
     parseClaudeRun,
@@ -24,19 +25,50 @@ function localBin() {
     return GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin']);
 }
 
+function isExecutableFile(path) {
+    // Two calls: the flags of one call are ORed, so a directory would pass.
+    return GLib.file_test(path, GLib.FileTest.IS_REGULAR) &&
+        GLib.file_test(path, GLib.FileTest.IS_EXECUTABLE);
+}
+
 /**
  * Finds an agent CLI. GNOME Shell does not inherit the login shell's PATH, which usually lacks
- * ~/.local/bin, where both CLIs install.
+ * ~/.local/bin, where both CLIs install. A name is looked up there; a path (`/…` or `~/…`) must be
+ * a regular file, or a link to one, that is executable. Returns the path, or null.
  */
 export function findCli(command) {
+    if (isPathCommand(command)) {
+        const path = command.startsWith('~/')
+            ? GLib.build_filenamev([GLib.get_home_dir(), command.slice(2)])
+            : command;
+        return isExecutableFile(path) ? path : null;
+    }
     const inPath = GLib.find_program_in_path(command);
     if (inPath)
         return inPath;
     const local = GLib.build_filenamev([localBin(), command]);
-    return GLib.file_test(local, GLib.FileTest.IS_EXECUTABLE) &&
-        !GLib.file_test(local, GLib.FileTest.IS_DIR)
-        ? local
-        : null;
+    return isExecutableFile(local) ? local : null;
+}
+
+function fileIdentity(path) {
+    const info = Gio.File.new_for_path(path).query_info('unix::device,unix::inode',
+        Gio.FileQueryInfoFlags.NONE, null);
+    return info.get_attribute_uint32('unix::device') + ':' + info.get_attribute_uint64('unix::inode');
+}
+
+/**
+ * Whether the file `path` is the one the built-in CLI of `type` resolves to, links followed: a
+ * custom agent cannot be the built-in agent of its type. False when that CLI is not found.
+ */
+export function isBuiltinCli(path, type) {
+    const builtin = findCli(PROVIDERS[type].command);
+    if (!builtin)
+        return false;
+    try {
+        return fileIdentity(path) === fileIdentity(builtin);
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -67,7 +99,7 @@ function startTimeout(seconds, callback) {
     };
 }
 
-function readClaude(path, cancellable) {
+function readClaude(path, command, cancellable) {
     let process;
     try {
         process = spawn(path, CLAUDE_ARGS,
@@ -104,7 +136,7 @@ function readClaude(path, cancellable) {
                         stdout: stdout ?? '',
                         exitCode: exited ? subprocess.get_exit_status() : null,
                         signal: exited ? null : subprocess.get_term_sig(),
-                    }, Date.now() / 1000));
+                    }, Date.now() / 1000, command));
                 }
             } catch (error) {
                 if (cancellable.is_cancelled())
@@ -167,7 +199,7 @@ function readResponse(stream, id, cancellable) {
     });
 }
 
-async function readCodex(path, version, cancellable) {
+async function readCodex(path, command, version, cancellable) {
     let process;
     try {
         process = spawn(path, ['app-server'], Gio.SubprocessFlags.STDIN_PIPE |
@@ -203,7 +235,7 @@ async function readCodex(path, version, cancellable) {
         const initialized = await readResponse(stdout, 1, reading);
         if (initialized.error)
             return failed(String(initialized.error.message ?? 'could not start'));
-        return parseCodexResponse(await readResponse(stdout, 2, reading));
+        return parseCodexResponse(await readResponse(stdout, 2, reading), command);
     } catch (error) {
         if (cancellable.is_cancelled())
             throw error;
@@ -327,7 +359,7 @@ function waitForExit(process, cancellable) {
     });
 }
 
-async function readAgy(path, cancellable) {
+async function readAgy(path, command, cancellable) {
     let process;
     try {
         process = spawn(path, AGY_ARGS, Gio.SubprocessFlags.STDIN_PIPE |
@@ -371,7 +403,7 @@ async function readAgy(path, cancellable) {
         if (cancellable.is_cancelled())
             throw new Error('cancelled');
         if (isSignedOut)
-            return unavailable(MESSAGES.agyNotSignedIn);
+            return unavailable(MESSAGES.agyNotSignedIn(command));
         if (timedOut)
             return failed('timed out');
         const stdoutText = await answer;
@@ -382,7 +414,7 @@ async function readAgy(path, cancellable) {
             stdout: stdoutText,
             exitCode: wasExited ? process.get_exit_status() : null,
             signal: wasExited ? null : process.get_term_sig(),
-        });
+        }, command);
     } finally {
         clearTimeout();
         cancellable.disconnect(cancelledId);
@@ -403,16 +435,16 @@ async function readAgy(path, cancellable) {
 }
 
 /**
- * Reads one provider's quota through its own CLI. Resolves to `{status: 'ok', windows}`,
- * `{status: 'unavailable', message}`, or `{status: 'failed', message}`; rejects only when
- * `cancellable` is cancelled.
+ * Reads one provider's quota through its own CLI, found from its command; a custom agent is read
+ * as its type. Resolves to `{status: 'ok', windows}`, `{status: 'unavailable', message}`, or
+ * `{status: 'failed', message}`; rejects only when `cancellable` is cancelled.
  */
 export function readQuota(provider, {version, cancellable}) {
-    const command = PROVIDERS[provider].command;
+    const {command, type} = provider;
     const path = findCli(command);
     if (!path)
         return Promise.resolve(unavailable(missingCliMessage(command)));
-    if (provider === 'claude')
-        return readClaude(path, cancellable);
-    return provider === 'agy' ? readAgy(path, cancellable) : readCodex(path, version, cancellable);
+    if (type === 'claude')
+        return readClaude(path, command, cancellable);
+    return type === 'agy' ? readAgy(path, command, cancellable) : readCodex(path, command, version, cancellable);
 }

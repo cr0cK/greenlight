@@ -21,14 +21,20 @@ export const CLAUDE_ARGS = [
     '--settings', '{"disableAllHooks":true}',
 ];
 
+/**
+ * The built-in agents, by identifier. A provider is `{id, type, name, command, slots}`; the
+ * built-in ones also have the `setting` that switches them, and a custom agent (see
+ * customagents.js) is a provider of the same shape whose `type` names the built-in one it is read
+ * as. The identifier of a built-in provider is its type.
+ */
 export const PROVIDERS = {
-    claude: {name: 'Claude', command: 'claude', setting: 'claude-quota-enabled',
-        slots: ['session', 'week']},
-    codex: {name: 'Codex', command: 'codex', setting: 'codex-quota-enabled',
-        slots: ['primary', 'secondary']},
+    claude: {id: 'claude', type: 'claude', name: 'Claude', command: 'claude',
+        setting: 'claude-quota-enabled', slots: ['session', 'week']},
+    codex: {id: 'codex', type: 'codex', name: 'Codex', command: 'codex',
+        setting: 'codex-quota-enabled', slots: ['primary', 'secondary']},
     // Antigravity's name takes its own line above its windows in the menu.
-    agy: {name: 'Antigravity', command: 'agy', setting: 'agy-quota-enabled',
-        slots: ['gemini-5h', 'gemini-weekly'], nameOnOwnLine: true},
+    agy: {id: 'agy', type: 'agy', name: 'Antigravity', command: 'agy',
+        setting: 'agy-quota-enabled', slots: ['gemini-5h', 'gemini-weekly'], nameOnOwnLine: true},
 };
 
 /** Arguments for agy: `/usage` answers without an agent turn, so it costs no tokens. */
@@ -50,14 +56,27 @@ export function isAgyAuthError(text) {
 /** The Gemini buckets of agy's `/usage`, by id, with the length of their window. */
 const AGY_BUCKETS = {'gemini-5h': SESSION, 'gemini-weekly': WEEK};
 
+/** The last path component of a command: `codex-team` for `~/bin/codex-team`. */
+export function commandName(command) {
+    return command.slice(command.lastIndexOf('/') + 1);
+}
+
+/**
+ * The unavailability messages. Those that name a command are functions of the command as the
+ * user typed it, which is the built-in CLI's name by default; `codexTooOld` takes its name.
+ */
 export const MESSAGES = {
-    claudeNotSubscribed: 'Claude Code is not signed in with a Claude subscription. Run claude, then /login.',
+    claudeNotSubscribed: (command = 'claude') =>
+        'Claude Code is not signed in with a Claude subscription. Run ' + command + ', then /login.',
     claudeUnknown: 'Claude Code answered /usage in an unknown form. Update Claude Code.',
-    codexNotSignedIn: 'Codex is not signed in. Run codex login.',
-    codexTooOld: 'This codex cannot report rate limits. Update Codex.',
-    codexNoQuota: 'Codex reports no subscription quota. Sign in with ChatGPT: codex login.',
-    agyNotSignedIn: 'Antigravity is not signed in. Run agy and sign in.',
-    agyUnknown: 'Antigravity answered /usage in an unknown form. Update agy.',
+    codexNotSignedIn: (command = 'codex') => 'Codex is not signed in. Run ' + command + ' login.',
+    codexTooOld: (command = 'codex') =>
+        'This ' + commandName(command) + ' cannot report rate limits. Update Codex.',
+    codexNoQuota: (command = 'codex') =>
+        'Codex reports no subscription quota. Sign in with ChatGPT: ' + command + ' login.',
+    agyNotSignedIn: (command = 'agy') => 'Antigravity is not signed in. Run ' + command + ' and sign in.',
+    agyUnknown: (command = 'agy') =>
+        'Antigravity answered /usage in an unknown form. Update ' + command + '.',
     agyNoQuota: 'Antigravity reports no Gemini quota for this account.',
 };
 
@@ -75,8 +94,16 @@ export function failed(message) {
     return {status: 'failed', message};
 }
 
+/** Whether a command is a path (`/…` or `~/…`) rather than a name to look up. */
+export function isPathCommand(command) {
+    return command.startsWith('/') || command.startsWith('~/');
+}
+
+/** Why a command cannot be found: a name is looked up, a path must be an executable file. */
 export function missingCliMessage(command) {
-    return command + ' not found in PATH or ~/.local/bin';
+    return isPathCommand(command)
+        ? command + ' is not an executable file'
+        : command + ' not found in PATH or ~/.local/bin';
 }
 
 /** Labels a window by its length: `5 h`, `Week`, `30 d`, or `Quota` without a length. */
@@ -192,7 +219,7 @@ function firstLine(text) {
  * `Current session` and `Current week (all models)` lines count; per-model lines and the advice
  * are ignored.
  */
-export function parseClaudeRun({stdout, exitCode, signal}, now) {
+export function parseClaudeRun({stdout, exitCode, signal}, now, command = 'claude') {
     let answer = null;
     try {
         answer = JSON.parse(stdout);
@@ -215,7 +242,7 @@ export function parseClaudeRun({stdout, exitCode, signal}, now) {
     const text = typeof answer.result === 'string' ? answer.result.trim() : '';
     // Signed out or on an API key, /usage prints the session costs instead.
     if (!text.startsWith(SUBSCRIPTION_LINE))
-        return unavailable(MESSAGES.claudeNotSubscribed);
+        return unavailable(MESSAGES.claudeNotSubscribed(command));
 
     const found = new Map();
     const patterns = [
@@ -256,15 +283,15 @@ function codexWindow(slot, raw) {
 }
 
 /** Reads the `account/rateLimits/read` response (the message with id 2). */
-export function parseCodexResponse(message) {
+export function parseCodexResponse(message, command = 'codex') {
     if (!message || typeof message !== 'object')
         return failed('answered with something that is not JSON');
     if (message.error) {
         const text = String(message.error.message ?? '');
         if (/authenticat|sign in|log ?in/i.test(text))
-            return unavailable(MESSAGES.codexNotSignedIn);
+            return unavailable(MESSAGES.codexNotSignedIn(command));
         if (message.error.code === -32601 || /method not found|unknown (variant|method)/i.test(text))
-            return unavailable(MESSAGES.codexTooOld);
+            return unavailable(MESSAGES.codexTooOld(command));
         return failed(text || 'reported an error');
     }
 
@@ -277,7 +304,7 @@ export function parseCodexResponse(message) {
     const windows = PROVIDERS.codex.slots
         .map(slot => codexWindow(slot, bucket?.[slot]))
         .filter(Boolean);
-    return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.codexNoQuota);
+    return windows.length > 0 ? {status: 'ok', windows} : unavailable(MESSAGES.codexNoQuota(command));
 }
 
 /**
@@ -303,7 +330,7 @@ function parseIsoTime(text) {
  * are the `gemini-5h` and `gemini-weekly` buckets of any group; the sign-in line on stderr is
  * the runner's business, not this parser's.
  */
-export function parseAgyRun({stdout, exitCode, signal}) {
+export function parseAgyRun({stdout, exitCode, signal}, command = 'agy') {
     let answer = null;
     try {
         answer = JSON.parse(stdout);
@@ -315,7 +342,7 @@ export function parseAgyRun({stdout, exitCode, signal}) {
         const error = typeof answer.error === 'string' ? answer.error : '';
         const response = typeof answer.response === 'string' ? firstLine(answer.response) : '';
         if (isAgyAuthError(error) || isAgyAuthError(response))
-            return unavailable(MESSAGES.agyNotSignedIn);
+            return unavailable(MESSAGES.agyNotSignedIn(command));
         return failed(firstLine(error) || response || answer.status);
     }
     if (signal)
@@ -324,7 +351,7 @@ export function parseAgyRun({stdout, exitCode, signal}) {
         return failed('exited with code ' + exitCode);
     const groups = answer?.command?.data?.groups;
     if (!isAnswer || answer.status !== 'SUCCESS' || !Array.isArray(groups))
-        return unavailable(MESSAGES.agyUnknown);
+        return unavailable(MESSAGES.agyUnknown(command));
 
     const found = new Map();
     for (const group of groups) {
@@ -380,23 +407,36 @@ export function formatAge(seconds) {
     return Math.floor(seconds / DAY) + ' d ago';
 }
 
-/** `Claude weekly quota at 82 %`, `Codex 5-hour quota at 90 %`. */
+/** `Claude weekly quota at 82 %`, `Codex 5-hour quota at 90 %`, `claude-work weekly quota at 84 %`. */
 export function notificationTitle(provider, window) {
     const units = {h: 'hour', d: 'day', min: 'minute'};
     const match = /^(\d+) (h|d|min)$/.exec(window.label);
     const name = window.label === 'Week'
         ? 'weekly '
         : match ? match[1] + '-' + units[match[2]] + ' ' : '';
-    return PROVIDERS[provider].name + ' ' + name + 'quota at ' + Math.round(window.usedPercent) + ' %';
+    return provider.name + ' ' + name + 'quota at ' + Math.round(window.usedPercent) + ' %';
 }
 
 function periodKey(provider, window) {
     return provider + ':' + window.slot + ':' + window.resetsAt;
 }
 
+/**
+ * Splits a period key from the right: the last two fields are the slot and the reset time, and
+ * the rest is the provider's identifier, which holds `:` itself for a custom agent.
+ */
+function splitPeriod(key) {
+    const fields = key.split(':');
+    if (fields.length < 3)
+        return null;
+    const resetsAt = fields.pop();
+    const slot = fields.pop();
+    return {provider: fields.join(':'), slot, resetsAt};
+}
+
 /** A provider that turns unavailable or off forgets the periods it marked as notified. */
 export function forgetPeriods(notified, provider) {
-    return notified.filter(key => !key.startsWith(provider + ':'));
+    return notified.filter(key => splitPeriod(key)?.provider !== provider);
 }
 
 /**
@@ -407,7 +447,7 @@ export function forgetPeriods(notified, provider) {
  */
 export function trackPeriods({provider, windows, notified, threshold, baseline, now}) {
     const marks = new Set(notified.filter(key => {
-        const resetsAt = Number(key.split(':').pop());
+        const resetsAt = Number(splitPeriod(key)?.resetsAt);
         return Number.isFinite(resetsAt) && resetsAt > now;
     }));
     const alerts = [];
@@ -430,37 +470,41 @@ function isNumberOrNull(value) {
 
 function validWindow(provider, window) {
     return window && typeof window === 'object' &&
-        PROVIDERS[provider].slots.includes(window.slot) && typeof window.label === 'string' &&
+        provider.slots.includes(window.slot) && typeof window.label === 'string' &&
         Number.isFinite(window.usedPercent) && isNumberOrNull(window.durationSeconds) &&
         isNumberOrNull(window.resetsAt);
 }
 
-function validPeriod(key) {
-    const [provider, slot, resetsAt, ...rest] = key.split(':');
-    return rest.length === 0 && PROVIDERS[provider]?.slots.includes(slot) && /^\d+$/.test(resetsAt);
-}
-
 /**
- * Reads `agent-quota-cache`, dropping anything malformed. A reading whose windows have no known
- * slot, such as one written before windows had slots, is dropped with the periods it marked, so
- * the provider's next reading sets a quiet baseline.
+ * Reads `agent-quota-cache`, dropping anything malformed. `providers` lists the agents that are
+ * listed and enabled; a reading or a period of any other is dropped too. A reading whose windows
+ * have no known slot, such as one written before windows had slots, is dropped with the periods
+ * it marked, so the provider's next reading sets a quiet baseline. The readings come back by
+ * identifier.
  */
-export function readQuotaCache(text) {
+export function readQuotaCache(text, providers) {
     let cache;
     try {
         cache = JSON.parse(text);
     } catch {
         cache = null;
     }
-    const providers = {};
-    for (const provider of Object.keys(PROVIDERS)) {
-        const entry = cache?.providers?.[provider];
+    const readings = {};
+    for (const provider of providers) {
+        const entry = cache?.providers && Object.hasOwn(cache.providers, provider.id)
+            ? cache.providers[provider.id]
+            : null;
         if (entry && Array.isArray(entry.windows) && entry.windows.length > 0 &&
             Number.isFinite(entry.readAt) && entry.windows.every(window => validWindow(provider, window)))
-            providers[provider] = {windows: entry.windows, readAt: entry.readAt};
+            readings[provider.id] = {windows: entry.windows, readAt: entry.readAt};
     }
+    const validPeriod = key => {
+        const period = splitPeriod(key);
+        const provider = period && providers.find(candidate => candidate.id === period.provider);
+        return Boolean(provider?.slots.includes(period.slot) && /^\d+$/.test(period.resetsAt));
+    };
     const notified = Array.isArray(cache?.notified)
         ? cache.notified.filter(key => typeof key === 'string' && validPeriod(key))
         : [];
-    return {providers, notified};
+    return {providers: readings, notified};
 }

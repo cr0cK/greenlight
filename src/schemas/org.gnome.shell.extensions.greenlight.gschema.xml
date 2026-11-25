@@ -52,6 +52,11 @@
       <summary>Show the Antigravity quota</summary>
       <description>Reads the Antigravity Gemini quota through agy -p /usage.</description>
     </key>
+    <key name="custom-agents" type="s">
+      <default>'[]'</default>
+      <summary>Custom agents</summary>
+      <description>JSON list, in order, of the user's own agent commands whose quota is read as Claude, Codex, or Antigravity: each is {"command": a name or a path, "type": "claude", "codex", or "agy", "enabled": a boolean}.</description>
+    </key>
     <key name="agent-quota-interval" type="i">
       <default>60</default>
       <summary>Agent quota refresh interval</summary>

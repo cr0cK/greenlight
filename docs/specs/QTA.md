@@ -22,9 +22,10 @@ while quick open has text. The mockup is
 
 ## Scope
 
-- Three providers: Claude (Claude Code on a Claude subscription), Codex (ChatGPT sign-in), and
-  Antigravity (the `agy` CLI, signed in with Google), for its Gemini models only. All are off by
-  default. Other agents, Antigravity's Claude and GPT quota, API-key billing, per-model windows,
+- Three built-in providers: Claude (Claude Code on a Claude subscription), Codex (ChatGPT
+  sign-in), and Antigravity (the `agy` CLI, signed in with Google), for its Gemini models only.
+  All are off by default. CAG adds the user's own commands, up to five, each read as one of these
+  three types and shown after them. Other agents, Antigravity's Claude and GPT quota, API-key billing, per-model windows,
   and a panel indicator are out of scope.
 - Greenlight never reads, stores, or sends a credential. Each provider asks its own CLI, the way
   pull requests ask `gh`.
@@ -36,6 +37,8 @@ while quick open has text. The mockup is
   - A **Claude**, a **Codex**, and an **Antigravity** switch (see Availability).
   - **Refresh every**: 15 minutes, 30 minutes, 1 hour (default), 2 hours, or 4 hours.
   - **Notify at**, in percent: 50 to 100 by steps of 5, default 80.
+- A **Custom agents** group (CAG) follows it on the **Agents** tab; its agents follow the rules
+  below as the built-in agent of their type does, with CAG's differences.
 - Every row applies on **Save**. The timer uses any stored interval from 15 to 240
   minutes; the preferences show one outside the list as 1 hour, and the next save, of any tab,
   stores 60, without the window showing it as an unsaved change. **Notify at** applies any
@@ -82,8 +85,9 @@ while quick open has text. The mockup is
   duration is labelled by its length (`1 d`, `30 d`, `90 min`), and a window without a duration reads
   `Quota`. A window is identified by its slot, not its label: `session` or `week` for Claude's
   lines, `primary` or `secondary` for Codex's windows, `gemini-5h` or `gemini-weekly` for Antigravity's.
-  Providers follow the order Claude, Codex, Antigravity, and lines follow that slot order,
-  whatever order the CLI answers in:
+  Providers follow the order Claude, Codex, Antigravity, then the custom agents in the order of
+  their list (CAG), each with its name on its own line; lines follow that slot order, whatever
+  order the CLI answers in:
 
   ```text
   Claude  5 h   ███░░|░░░  38 %  resets in 2 h 10 min
@@ -97,8 +101,10 @@ while quick open has text. The mockup is
   Antigravity's name takes its own line above its windows; Claude's and Codex's sit in the name
   column.
 - Every row of the section (its heading, the provider names, the quota lines, the causes, and
-  the `Updated` line) has 3 px of padding above and below, less than the menu's other items, so
-  on a short screen the pull request list keeps its room.
+  the `Updated` line) has 1 px of padding above and below, less than the menu's other items, so
+  that the section, with the three built-in providers and five custom agents (CAG), fits a
+  1280x800 screen with **Refresh now**, quick open, and **Preferences…**, and on a shorter one
+  the pull request list keeps its room.
 - Percentages show rounded to the nearest whole number; the bar colors and notifications use
   that rounded value.
 
@@ -125,7 +131,8 @@ while quick open has text. The mockup is
 - A window notifies once per period, when a reading of that period is at or above **Notify at**
   and the period has not notified yet. A period is identified by provider, window slot, and
   reset time. The notification names the provider, the window, the percentage, and the reset
-  time: `Claude weekly quota at 82 %` / `Resets Sat 09:00`. The window's name comes from its
+  time: `Claude weekly quota at 82 %` / `Resets Sat 09:00`, a custom agent by its name
+  (`claude-work weekly quota at 84 %`, CAG). The window's name comes from its
   label: `weekly` for `Week`, and `<N>-day`, `<N>-hour`, or `<N>-minute` for `N d`, `N h`, or
   `N min` (`5-hour`, `90-minute`); a `Quota` window is not named (`Codex quota at 90 %`).
 - The first reading after a provider is switched on, or after an unavailable answer, sets a
@@ -141,8 +148,9 @@ while quick open has text. The mockup is
 
 - GNOME Shell does not inherit the login shell's `PATH`, which usually lacks `~/.local/bin`,
   where the CLIs install. Greenlight looks for `claude`, `codex`, and `agy` in `PATH`, then in
-  `~/.local/bin`, and runs them with their own directory first in `PATH` (after the no-op
-  `xdg-open` directory for `agy`).
+  `~/.local/bin`, and runs them with `PATH` in this order: the no-op `xdg-open` directory (for
+  `agy` only), the command's own directory, `~/.local/bin`, then the inherited `PATH`. A custom
+  agent's command is a name found the same way, or a path (CAG), and runs the same way.
 
 ## Claude
 
@@ -246,7 +254,8 @@ while quick open has text. The mockup is
   `Codex reports no subscription quota. Sign in with ChatGPT: codex login.`,
   `agy not found in PATH or ~/.local/bin`, `Antigravity is not signed in. Run agy and sign in.`,
   `Antigravity answered /usage in an unknown form. Update agy.`,
-  `Antigravity reports no Gemini quota for this account.`
+  `Antigravity reports no Gemini quota for this account.` For a custom agent, the messages that
+  name a command name it as the user typed it (CAG).
 - Transient causes, once per provider under its last dimmed line, as `<Provider>: <cause> ·
   last reading <age>`, the cause being `timed out`, `exited with code N`, `killed by signal N`,
   `could not start: <reason>`, or the CLI's own error message. A process ended at the timeout
@@ -260,7 +269,9 @@ while quick open has text. The mockup is
   (booleans, false),
   `agent-quota-interval` (minutes, 60), `agent-quota-threshold` (percent, 80), and
   `agent-quota-cache` (JSON: each provider's last normalized reading, its time, and the periods
-  already notified, pruned once their reset has passed).
+  already notified, pruned once their reset has passed), and `custom-agents` (CAG: the custom
+  agents, a JSON list). The cache keeps a custom agent's reading under its identifier
+  `custom:<type>:<command>`, and its periods as `<identifier>:<slot>:<reset time>`.
 - Parsing the answers, window labels, pace, period tracking, and messages live in a pure
   `src/quotas.js` covered by `node --test`; the extension only finds and runs the CLIs.
 

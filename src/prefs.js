@@ -1,4 +1,5 @@
 import Adw from 'gi://Adw';
+import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
@@ -21,8 +22,21 @@ import {
     moveOwnerRow,
     readOwnerOrder,
 } from './order.js';
-import {readQuota} from './agents.js';
-import {PROVIDERS} from './quotas.js';
+import {findCli, isBuiltinCli, readQuota} from './agents.js';
+import {
+    AGENT_TYPES,
+    MAX_CUSTOM_AGENTS,
+    TYPE_LABELS,
+    builtinMessage,
+    canAddAgent,
+    checkCommand,
+    customProvider,
+    displayPath,
+    notFoundMessage,
+    readCustomAgents,
+    sameCustomAgents,
+} from './customagents.js';
+import {PROVIDERS, commandName} from './quotas.js';
 import {normalizeWatched, readRoutine, routineName, sortRoutines, timerSubtitle} from './routines.js';
 import {planSave} from './save.js';
 import {errorMessage, readAllTimers} from './systemd.js';
@@ -266,9 +280,307 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         });
         quotaGroup.add(thresholdRow);
 
+        // The custom agents: one row each, then at most one new row being typed. Each agent has its
+        // own availability check, and its own cancellable so that removing the row ends it.
+        const customGroup = new Adw.PreferencesGroup({
+            title: 'Custom agents',
+            description: 'Another command that runs Claude Code, Codex, or Antigravity, such as a ' +
+                'wrapper on another subscription. Greenlight reads its quota the way it reads that ' +
+                'agent\'s. Greenlight runs it as it runs that agent, so pick the type of the agent it runs.',
+        });
+        const addAgentButton = new Gtk.Button({
+            icon_name: 'list-add-symbolic',
+            valign: Gtk.Align.CENTER,
+            tooltip_text: 'Add a custom agent',
+        });
+        addAgentButton.add_css_class('flat');
+        addAgentButton.update_property([Gtk.AccessibleProperty.LABEL], ['Add a custom agent']);
+        customGroup.set_header_suffix(addAgentButton);
+
+        // `{command, type, row, subtitle, switchRow, trashButton, cancellable}` in list order.
+        const agents = [];
+        let newAgentRow = null;
+        // The rows hold no setting of their own: the Tab key goes straight to their buttons.
+        const emptyAgentsRow = new Adw.ActionRow({use_markup: false, focusable: false});
+        emptyAgentsRow.set_title('No custom agent. Add one with +.');
+        customGroup.add(emptyAgentsRow);
+        let agentFocusId = 0;
+        let agentTickId = 0;
+        const cancelAgentFocus = () => {
+            if (agentFocusId)
+                GLib.Source.remove(agentFocusId);
+            if (agentTickId)
+                window.remove_tick_callback(agentTickId);
+            agentFocusId = 0;
+            agentTickId = 0;
+        };
+        /** Focuses what `resolve` returns, then scrolls it into view once the layout is done. */
+        const focusAgentWidget = resolve => {
+            cancelAgentFocus();
+            // A widget removed in this tick can refuse the focus, hence the idle source.
+            agentFocusId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                agentFocusId = 0;
+                const target = resolve();
+                if (!target)
+                    return GLib.SOURCE_REMOVE;
+                target.grab_focus();
+                let frames = 0;
+                agentTickId = window.add_tick_callback(() => {
+                    if (++frames < 3)
+                        return GLib.SOURCE_CONTINUE;
+                    agentTickId = 0;
+                    scrollIntoView(target);
+                    return GLib.SOURCE_REMOVE;
+                });
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+        const updateAgentGroup = () => {
+            emptyAgentsRow.set_visible(agents.length === 0 && !newAgentRow);
+            const full = !canAddAgent(agents);
+            addAgentButton.set_sensitive(!newAgentRow && !full);
+            addAgentButton.set_tooltip_text(full
+                ? MAX_CUSTOM_AGENTS + ' custom agents at most'
+                : 'Add a custom agent');
+        };
+        const setAgentSubtitle = (agent, availability) =>
+            agent.row.set_subtitle(TYPE_LABELS[agent.type] + ' quota · ' + availability);
+
+        /** Runs an agent's own check: it runs the command as the quota is read from it. */
+        const checkAgent = agent => {
+            agent.cancellable?.cancel();
+            const cancellable = new Gio.Cancellable();
+            agent.cancellable = cancellable;
+            agent.switchRow.set_sensitive(false);
+            setAgentSubtitle(agent, 'Checking…');
+            // The path the check runs, found now: the label shows that one, whatever happens after.
+            const path = findCli(agent.command);
+            readQuota(customProvider(agent), {version: this.metadata['version-name'] ?? '0', cancellable})
+                .then(result => {
+                    // The row was removed or the window closed while the check ran.
+                    if (cancellable.is_cancelled() || !agents.includes(agent))
+                        return;
+                    if (result.status === 'ok') {
+                        agent.switchRow.set_sensitive(true);
+                        setAgentSubtitle(agent, 'Uses ' + displayPath(path ?? agent.command, GLib.get_home_dir()));
+                    } else if (result.status === 'unavailable') {
+                        // A saved agent's adjustment is a pending normalization, as for a built-in
+                        // provider; an agent added in this window, even one removed and added
+                        // again, just shows its switch off, which is a change.
+                        const saved = agent.saved && baseline.customAgents.find(entry =>
+                            entry.command === agent.command && entry.type === agent.type);
+                        if (saved?.enabled) {
+                            saved.enabled = false;
+                            pending.add('custom-agents');
+                        }
+                        agent.switchRow.set_active(false);
+                        setAgentSubtitle(agent, result.message);
+                    } else {
+                        // Not proven either way: keep the choice, locked.
+                        setAgentSubtitle(agent, 'Could not check: ' + result.message +
+                            '. Reopen Preferences to try again.');
+                    }
+                    refreshUnsaved();
+                })
+                .catch(() => {
+                    // Cancelled when the row goes or the window closes.
+                });
+        };
+
+        const removeAgent = agent => {
+            agent.cancellable?.cancel();
+            agents.splice(agents.indexOf(agent), 1);
+            customGroup.remove(agent.row);
+            updateAgentGroup();
+            refreshUnsaved();
+            focusAgentWidget(() => newAgentRow ? newAgentRow.entry : addAgentButton);
+        };
+
+        const createAgentRow = (entry, checkNow) => {
+            const name = commandName(entry.command);
+            const row = new Adw.ActionRow({use_markup: false, subtitle_selectable: false});
+            row.set_title(name);
+            const trashButton = new Gtk.Button({
+                icon_name: 'user-trash-symbolic',
+                valign: Gtk.Align.CENTER,
+                tooltip_text: 'Remove ' + name,
+            });
+            trashButton.add_css_class('flat');
+            trashButton.update_property([Gtk.AccessibleProperty.LABEL], ['Remove ' + name]);
+            // The switch is the only widget locked by a check: the trash button stays usable.
+            const switchRow = new Gtk.Switch({valign: Gtk.Align.CENTER, active: entry.enabled});
+            switchRow.update_property([Gtk.AccessibleProperty.LABEL], ['Show the ' + name + ' quota']);
+            const suffixes = new Gtk.Box({spacing: 6, valign: Gtk.Align.CENTER});
+            suffixes.append(trashButton);
+            suffixes.append(switchRow);
+            row.add_suffix(suffixes);
+            const agent = {
+                command: entry.command,
+                type: entry.type,
+                row,
+                switchRow,
+                trashButton,
+                cancellable: null,
+                // Whether the agent is in the baseline: one listed when the window opened, or
+                // added before the last save.
+                saved: false,
+            };
+            switchRow.connect('notify::active', refreshUnsaved);
+            trashButton.connect('clicked', () => removeAgent(agent));
+            agents.push(agent);
+            customGroup.add(row);
+            if (checkNow)
+                checkAgent(agent);
+            return agent;
+        };
+
+        /** The new row being typed: a command, its quota type, and a way out. */
+        const createNewAgentRow = () => {
+            const defaultSubtitle = 'Type a command, pick its quota type, then press Enter';
+            const row = new Adw.ActionRow({use_markup: false, focusable: false});
+            // The entry, with its hint or the reason of a refusal under it: plain text, never markup.
+            const entry = new Gtk.Entry({
+                placeholder_text: 'claude-work or ~/bin/codex-team',
+                width_chars: 18,
+                hexpand: true,
+            });
+            const hint = new Gtk.Label({
+                label: defaultSubtitle,
+                wrap: true,
+                xalign: 0,
+                use_markup: false,
+                selectable: false,
+            });
+            hint.add_css_class('caption');
+            hint.add_css_class('dim-label');
+            const prefix = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 4, hexpand: true});
+            prefix.set_valign(Gtk.Align.CENTER);
+            prefix.append(entry);
+            prefix.append(hint);
+            entry.update_property([Gtk.AccessibleProperty.LABEL], ['Command']);
+            const typeList = new Gtk.DropDown({
+                model: Gtk.StringList.new(AGENT_TYPES.map(type => TYPE_LABELS[type])),
+                valign: Gtk.Align.CENTER,
+            });
+            typeList.update_property([Gtk.AccessibleProperty.LABEL], ['Quota type']);
+            const cancelButton = new Gtk.Button({
+                icon_name: 'user-trash-symbolic',
+                valign: Gtk.Align.CENTER,
+                tooltip_text: 'Cancel',
+            });
+            cancelButton.add_css_class('flat');
+            cancelButton.update_property([Gtk.AccessibleProperty.LABEL], ['Cancel']);
+            row.add_prefix(prefix);
+            row.set_hexpand(true);
+            row.add_suffix(typeList);
+            row.add_suffix(cancelButton);
+            const newRow = {row, entry, typeList, hint, defaultSubtitle};
+            const setHint = (text, isError) => {
+                hint.set_label(text);
+                for (const widget of [entry, hint]) {
+                    if (isError)
+                        widget.add_css_class('error');
+                    else
+                        widget.remove_css_class('error');
+                }
+                if (isError)
+                    hint.remove_css_class('dim-label');
+                else
+                    hint.add_css_class('dim-label');
+            };
+            newRow.setHint = setHint;
+            // The reason of a refusal stays until the entry or the type changes.
+            const clearReason = () => setHint(defaultSubtitle, false);
+            entry.connect('changed', clearReason);
+            typeList.connect('notify::selected', clearReason);
+
+            const drop = () => {
+                customGroup.remove(row);
+                newAgentRow = null;
+                updateAgentGroup();
+                focusAgentWidget(() => addAgentButton);
+            };
+            const refuse = reason => setHint(reason, true);
+            // Enter checks the command without running it: the form and the clashes first, then
+            // the disk.
+            const accept = () => {
+                const type = AGENT_TYPES[typeList.get_selected()];
+                const checked = checkCommand(agents, entry.get_text());
+                if (!checked.ok) {
+                    refuse(checked.reason);
+                    return;
+                }
+                const path = findCli(checked.command);
+                if (!path) {
+                    refuse(notFoundMessage(checked.command));
+                    return;
+                }
+                if (isBuiltinCli(path, type)) {
+                    refuse(builtinMessage(checked.command, type));
+                    return;
+                }
+                customGroup.remove(row);
+                newAgentRow = null;
+                const agent = createAgentRow({command: checked.command, type, enabled: true}, true);
+                updateAgentGroup();
+                refreshUnsaved();
+                // At the limit the focus rests on the new row, never on a button that a held Enter
+                // would press.
+                focusAgentWidget(() => addAgentButton.get_sensitive() ? addAgentButton : agent.row);
+            };
+            entry.connect('activate', accept);
+            cancelButton.connect('clicked', drop);
+
+            // Enter and Escape on the closed drop-down accept and drop the row; while its list is
+            // open they only pick a type and close the list, so they are left to it. The entry
+            // sees Escape first, so that it never reaches the window and closes it.
+            const popover = (function findPopover(widget) {
+                for (let child = widget.get_first_child(); child; child = child.get_next_sibling()) {
+                    if (child instanceof Gtk.Popover)
+                        return child;
+                    const found = findPopover(child);
+                    if (found)
+                        return found;
+                }
+                return null;
+            })(typeList);
+            const onKey = (widget, onEnter, onEscape) => {
+                const keys = new Gtk.EventControllerKey({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+                keys.connect('key-pressed', (_controller, keyval) => {
+                    if (widget === typeList && popover?.get_visible())
+                        return false;
+                    if (keyval === Gdk.KEY_Escape) {
+                        onEscape();
+                        return true;
+                    }
+                    if (onEnter && (keyval === Gdk.KEY_Return || keyval === Gdk.KEY_KP_Enter)) {
+                        onEnter();
+                        return true;
+                    }
+                    return false;
+                });
+                widget.add_controller(keys);
+            };
+            onKey(entry, null, drop);
+            onKey(typeList, accept, drop);
+            return newRow;
+        };
+
+        addAgentButton.connect('clicked', () => {
+            if (newAgentRow || !canAddAgent(agents))
+                return;
+            newAgentRow = createNewAgentRow();
+            customGroup.add(newAgentRow.row);
+            updateAgentGroup();
+            focusAgentWidget(() => newAgentRow?.entry);
+        });
+        for (const entry of readCustomAgents(settings.get_string('custom-agents')))
+            createAgentRow(entry, true).saved = true;
+        updateAgentGroup();
+
         const quotaCancellable = new Gio.Cancellable();
         for (const [provider, row] of Object.entries(quotaRows)) {
-            readQuota(provider, {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
+            readQuota(PROVIDERS[provider], {version: this.metadata['version-name'] ?? '0', cancellable: quotaCancellable})
                 .then(result => {
                     // The window closed while the check ran.
                     if (quotaCancellable.is_cancelled())
@@ -1038,11 +1350,20 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 saved.apply();
                 // What was saved is the new baseline, and no normalization is left to write.
                 baseline = shown;
+                // The agents are saved once the stored list is the one shown, whether this save wrote
+                // it or found it so; a list changed elsewhere meanwhile leaves them unsaved.
+                if (sameCustomAgents(readCustomAgents(saved.get_string('custom-agents')), shown.customAgents)) {
+                    for (const agent of agents)
+                        agent.saved = true;
+                }
                 pending.clear();
                 refreshUnsaved();
                 // A pending-removal message is stale once the removal is saved; others stay.
                 if (ownerStatus.get_subtitle() === removalMessage)
                     updateOwnerStatus();
+                // A new row not yet added is no setting: the save leaves it as it is.
+                if (plan.writes.length > 0 && newAgentRow && newAgentRow.entry.get_text() !== '')
+                    newAgentRow.setHint('Not added yet: press Enter to add it', false);
             }
             window.add_toast(new Adw.Toast({title: plan.message}));
         });
@@ -1079,6 +1400,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         page.add(quickOpenGroup);
         page.add(ownersGroup);
         agentsPage.add(quotaGroup);
+        agentsPage.add(customGroup);
         // The pages go through add(): the shell needs a visible page once this method returns.
         window.add(page);
         window.add(agentsPage);
@@ -1101,6 +1423,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             ownerOrder: [...owners.values()].map(owner => owner.login),
             switches: Object.fromEntries(Object.entries(quotaRows)
                 .map(([provider, row]) => [PROVIDERS[provider].setting, row.get_active()])),
+            customAgents: agents.map(({command, type, switchRow}) =>
+                ({command, type, enabled: switchRow.get_active()})),
             quotaInterval: QUOTA_INTERVALS[quotaIntervalRow.get_selected()],
             threshold: thresholdValue(thresholdRow.get_text(), Math.round(thresholdRow.get_value())),
             // A read that is running, or that failed, changes nothing: the stored timers stand.
@@ -1149,6 +1473,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             taskGeneration++;
             cancellable.cancel();
             quotaCancellable.cancel();
+            for (const agent of agents)
+                agent.cancellable?.cancel();
+            cancelAgentFocus();
             routinesCancellable.cancel();
             cancelPendingFocus();
             return false;

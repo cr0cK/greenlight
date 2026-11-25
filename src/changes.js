@@ -2,6 +2,7 @@
 // baselines, which tabs they belong to, and which keys a save writes. Pure: it imports nothing
 // from gi://, so node --test covers it. The shortcut arrives already classified (GTK parses it).
 
+import {sameCustomAgents, writeCustomAgents} from './customagents.js';
 import {ownerFiltersToSave, sameOwnerFilters} from './filters.js';
 import {normalizeWatched, sameWatched} from './routines.js';
 
@@ -63,10 +64,11 @@ const sameLogins = (first, second) =>
 
 /**
  * Compares the values the window shows with their baselines. Both have the same shape:
- * `{author, refreshInterval, shortcut, owners, ownerOrder, switches, quotaInterval, threshold,
- * routines}`, where `owners` lists the owners as `owner-filters` stores them, `ownerOrder` the
- * logins in block order, `switches` maps each provider's setting key to its switch, and
- * `routines` lists the timer units switched on, in any order. `pending` holds the
+ * `{author, refreshInterval, shortcut, owners, ownerOrder, switches, customAgents, quotaInterval,
+ * threshold, routines}`, where `owners` lists the owners as `owner-filters` stores them,
+ * `ownerOrder` the logins in block order, `switches` maps each built-in provider's setting key to
+ * its switch, `customAgents` lists the custom agents as `custom-agents` stores them (one list,
+ * compared as a whole), and `routines` lists the timer units switched on, in any order. `pending` holds the
  * keys of the pending normalizations, written whether or not they changed. `storedOwners` is what
  * `owner-filters` holds now: owners that match it are not written again.
  *
@@ -93,6 +95,8 @@ export function planChanges(shown, baseline, pending, storedOwners) {
         shown.shortcut.kind === 'valid' ? [shown.shortcut.accelerator] : []);
     for (const [key, active] of Object.entries(shown.switches))
         add(AGENTS_TAB, key, active !== baseline.switches[key], active);
+    add(AGENTS_TAB, 'custom-agents', !sameCustomAgents(shown.customAgents, baseline.customAgents),
+        writeCustomAgents(shown.customAgents));
     add(AGENTS_TAB, 'agent-quota-interval', shown.quotaInterval !== baseline.quotaInterval, shown.quotaInterval);
     add(AGENTS_TAB, 'agent-quota-threshold', shown.threshold !== baseline.threshold, shown.threshold);
     add(ROUTINES_TAB, 'watched-routines', !sameWatched(shown.routines, baseline.routines),
