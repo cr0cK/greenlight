@@ -281,6 +281,10 @@ export class RoutineWatcher {
             return;
         }
         // The list changed: a read in flight answers for the old one.
+        for (const unit of [...this.failures.keys()]) {
+            if (!units.includes(unit))
+                this.failures.delete(unit);
+        }
         for (const unit of [...this.routines.keys()]) {
             if (!units.includes(unit))
                 this.routines.delete(unit);

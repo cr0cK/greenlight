@@ -34,7 +34,7 @@ import {
     canRun,
     failureNotification,
     hasFailedRoutine,
-    headingFailureLines,
+    headingLines,
     indicatorName,
     jobResultReason,
     logsAccessibleName,
@@ -1241,20 +1241,7 @@ export default class GreenlightExtension extends Extension {
 
         const now = Date.now();
         const routines = this._readRoutines();
-        // The cause of a failed read or of a vanished systemd, or what the first read waits for.
-        const headingFailures = headingFailureLines(watcher.failures,
-            new Set(routines.map(routine => routine.unit)));
-        const notice = watcher.noOwner
-            ? 'systemd is not running'
-            : watcher.error
-                ? 'Could not read systemd: ' + watcher.error
-                : !watcher.firstRead
-                    ? 'Reading systemd…'
-                    : routines.length === 0 && headingFailures.length === 0
-                        ? 'No watched routine is loaded by systemd.' : null;
-        // A failure of the read as a whole stands in for every line of a routine's own.
-        const wholeFailure = watcher.noOwner || watcher.error;
-        for (const text of [notice, ...(wholeFailure ? [] : headingFailures)].filter(Boolean)) {
+        for (const text of headingLines(watcher, new Set(routines.map(routine => routine.unit)))) {
             const item = this._createQuotaRow();
             const label = createDimLabel(text, {style: 'max-width: 34em; font-size: smaller;'});
             wrapLabel(label);
