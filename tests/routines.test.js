@@ -27,7 +27,10 @@ import {
     readRoutine,
     runAccessibleName,
     startErrorText,
+    TERMINAL_WATCH_MS,
     terminalErrorText,
+    terminalExitText,
+    withinTerminalWatch,
     routineName,
     sameWatched,
     sortRoutines,
@@ -680,4 +683,26 @@ test('heading lines: reading, nothing loaded, and nothing to say', () => {
 test('heading lines: a routine that is no longer watched shows no line', () => {
     const state = {...baseState, watched: ['b.timer'], failures: new Map([['a.timer', 'Access denied']])};
     assert.deepEqual(headingLines(state, new Set(['b.timer'])), []);
+});
+
+test('a terminal that exits non-zero or is killed names its status or signal and the command to run', () => {
+    assert.equal(terminalExitText('nightly-report.service', '/usr/bin/xdg-terminal-exec', {status: 1}),
+        'xdg-terminal-exec exited with status 1. Run: journalctl --user -u nightly-report.service -e');
+    assert.equal(terminalExitText('nightly-report.service', '/home/u/.local/bin/ptyxis', {signal: 9}),
+        'ptyxis was killed by signal 9. Run: journalctl --user -u nightly-report.service -e');
+});
+
+test('a clean exit of the terminal notifies nothing', () => {
+    assert.equal(terminalExitText('a.service', '/usr/bin/kgx', {status: 0}), null);
+    assert.equal(terminalExitText('a.service', '/usr/bin/kgx'), null);
+});
+
+test('the terminal is watched for 5 seconds', () => {
+    assert.equal(TERMINAL_WATCH_MS, 5000);
+});
+
+test('an exit learned after the 5 seconds does not count', () => {
+    assert.equal(withinTerminalWatch(0), true);
+    assert.equal(withinTerminalWatch(5000), true);
+    assert.equal(withinTerminalWatch(5001), false);
 });

@@ -189,7 +189,8 @@ happen says why in a dimmed line under the row (`Could not start nightly-report:
 until the next successful start or the menu closes. **View logs** closes the menu and opens the
 first terminal it finds, among `xdg-terminal-exec`, `ptyxis`, `kgx`, and `gnome-terminal`, in
 `PATH` or `~/.local/bin`; without one, a line under the row gives the `journalctl` command to run
-yourself. Both buttons take the keyboard focus in order with <kbd>Tab</kbd>, and act on
+yourself. When that terminal command exits with a failure or a signal within 5 seconds, a
+notification names the status and the command to run. Both buttons take the keyboard focus in order with <kbd>Tab</kbd>, and act on
 <kbd>Enter</kbd> or <kbd>Space</kbd>.
 
 With more than six routines the rows scroll. The section hides while quick open has text.

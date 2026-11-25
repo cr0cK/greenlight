@@ -8,7 +8,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import {findCli} from './agents.js';
-import {JobWait, NO_ANSWER_REASON, chooseTerminal, terminalErrorText} from './routines.js';
+import {JobWait, NO_ANSWER_REASON, TERMINAL_WATCH_MS, chooseTerminal, terminalErrorText, terminalExitText, withinTerminalWatch} from './routines.js';
 
 const BUS_NAME = 'org.freedesktop.systemd1';
 const MANAGER_PATH = '/org/freedesktop/systemd1';
@@ -187,23 +187,68 @@ export async function readTimers(connection, patterns, cancellable, hooks = null
 
 /**
  * Opens a terminal on the journal of a routine's service, as View logs and a failure notification
- * do. Starts the first terminal found with an argument array, never a shell string, and does not
- * wait for it. Returns null once it started, else the text that says why not, with the command to
- * run instead.
+ * do. Starts the first terminal found with an argument array, never a shell string. Returns null
+ * once it started, else the text that says why not, with the command to run instead.
+ *
+ * The started process is watched for `TERMINAL_WATCH_MS`: when it exits non-zero or is killed by
+ * a signal in that time, `onFailure(text)` runs. Nothing ever kills it, and `cancellable`
+ * (cancelled when the extension is disabled) ends the watch and its timer.
  */
-export function openLogs(service) {
+export function openLogs(service, cancellable = null, onFailure = null) {
     const argv = chooseTerminal(service, findCli);
     if (argv === null)
         return terminalErrorText(service);
+    const started = GLib.get_monotonic_time();
+    let process;
     try {
         const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.NONE});
         launcher.set_cwd(GLib.get_home_dir());
-        // The terminal outlives Greenlight: GLib reaps it when it exits, and nothing here stops it.
-        launcher.spawnv(argv);
+        process = launcher.spawnv(argv);
     } catch (error) {
         return terminalErrorText(service, errorMessage(error));
     }
+    if (onFailure)
+        watchTerminal(process, service, argv[0], cancellable, onFailure, started);
     return null;
+}
+
+// Ending the watch never touches the process: GLib reaps it when it exits.
+function watchTerminal(process, service, terminal, parent, onFailure, started) {
+    if (parent?.is_cancelled())
+        return;
+    const watch = new Gio.Cancellable();
+    let timeoutId = 0;
+    let parentId = 0;
+    const end = () => {
+        if (timeoutId)
+            GLib.Source.remove(timeoutId);
+        timeoutId = 0;
+        if (parentId)
+            parent.disconnect(parentId);
+        parentId = 0;
+    };
+    if (parent)
+        parentId = parent.connect(() => watch.cancel());
+    timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, TERMINAL_WATCH_MS, () => {
+        timeoutId = 0;
+        watch.cancel();
+        return GLib.SOURCE_REMOVE;
+    });
+    process.wait_async(watch, (source, result) => {
+        end();
+        try {
+            source.wait_finish(result);
+        } catch {
+            return;
+        }
+        if (!withinTerminalWatch((GLib.get_monotonic_time() - started) / 1000))
+            return;
+        const text = terminalExitText(service, terminal, source.get_if_signaled()
+            ? {signal: source.get_term_sig()}
+            : {status: source.get_exit_status()});
+        if (text !== null)
+            onFailure(text);
+    });
 }
 
 /**
