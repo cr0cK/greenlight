@@ -59,9 +59,11 @@ rewritten by RTN-P3. The mockup is [`mockups/RTN.html`](mockups/RTN.html).
     `ExecMainStartTimestamp`, and `ExecMainExitTimestamp`; its `Unit` interface: `ActiveState`,
     `SubState`, `InactiveExitTimestamp`, `StateChangeTimestamp`,
     `StateChangeTimestampMonotonic`, `ConditionResult`, and `ConditionTimestamp`.
-- A `GetUnit` that fails for the service while the manager answers marks that routine
-  **Service not loaded**: its row reads `service not loaded`, with no button, and it never counts
-  as failed.
+- Only systemd's `org.freedesktop.systemd1.NoSuchUnit` answer to the service's `GetUnit` marks
+  that routine **Service not loaded**: its row reads `service not loaded`, with no button, and it
+  never counts as failed. Any other error systemd or the bus returns to that `GetUnit` (a
+  timeout, access denied, another bus error) is a failed read of that routine, as **Updates**
+  says. A lost connection fails the read as a whole.
 
 ### Next run
 
@@ -171,12 +173,16 @@ A routine's state is the first of these that applies, from its timer and its ser
   routine whose timer is no longer loaded is left out; when none is left, a dimmed line reads
   `No watched routine is loaded by systemd.`
 - Until the first read answers, a dimmed line under the heading reads `Reading systemd…`. When
-  the first read fails, it reads `Could not read systemd: <cause>`.
-- Height: the routine rows and the lines attached to them (start and terminal errors) sit in a
-  scroll area as tall as six single-line rows at most; with more, it scrolls on its own, and
+  the first read fails as a whole, it reads `Could not read systemd: <cause>`.
+- Height: the routine rows and the lines attached to them (read, start, and terminal errors) sit
+  in a scroll area as tall as six single-line rows at most; with more, it scrolls on its own, and
   moving keyboard focus to a row scrolls it into view. The heading and the section-level lines
-  (`Reading systemd…`, read errors) stay outside it. Beyond that, on a short screen, the pull request
-  list gives way, as QOP's menu height says. **Preferences…** stays in view.
+  (`Reading systemd…`, read errors) stay outside it. Beyond that, on a short screen, the pull
+  request list gives way first, as QOP's menu height says; then the scroll area shrinks too, but
+  never below min(rows, 3) single-line rows. **Preferences…** stays in view whenever the screen
+  holds the menu with that floor. On a shorter screen (under about 570 px with the three quota
+  providers and no line under the heading; more with CAG's custom agents or heading lines), GNOME Shell's menu height limit cuts the menu, as
+  QOP's menu height says.
 - Each row holds, from left to right: a status icon, the name, the status text, the next run,
   and two icon buttons, **Run now** and **View logs**. (MENU-ROUTINES)
   - **Succeeded**: a green check (`#26a269`) and `ran <age>`.
@@ -191,9 +197,22 @@ A routine's state is the first of these that applies, from its timer and its ser
     ages do (`now`, `12 min`, `5 h`, `3 d`, then a date), followed by ` ago`, except a date.
 - Times use the local time zone and 24-hour `HH:MM`. They are computed when the section renders:
   on each read and each time the menu opens.
-- A stale row (its last read failed, or systemd lost its bus name) is dimmed, its **Run now** is
-  insensitive, and a dimmed line under the heading reads `Could not read systemd: <cause>`, or
-  `systemd is not running` after the name lost its owner. (MENU-READ-ERROR)
+- A stale row (its last read failed, or systemd lost its bus name) is dimmed, and its **Run now**
+  is insensitive. (MENU-READ-ERROR)
+  - A routine whose own read failed shows a dimmed line under its row,
+    `Could not read <name>: <cause>`, with the cause of that routine's failure, until a read of
+    it succeeds. Each routine shows its own cause, so two routines that fail differently show two
+    causes.
+  - A watched routine with no state read yet, whose read fails, has no row: a dimmed line under
+    the heading reads `Could not read <name>: <cause>`, one per such routine, sorted by name.
+    That line goes once a read of the routine succeeds, or the routine stops being watched.
+  - A failure of the read as a whole (a lost connection, or a manager call that concerns every
+    routine) shows one line under the heading, `Could not read systemd: <cause>`, in place of
+    every `Could not read <name>` line, under the heading or under a row.
+  - After the name lost its owner, the line under the heading reads `systemd is not running`, in
+    place of every `Could not read <name>` line the same way.
+  - A `Could not read <name>` line replaced so shows again only after a new failed read of that
+    routine. Start and terminal lines follow their own rules.
 - Keyboard: a row is a static item (it takes no focus and a click on it opens nothing); its two
   buttons take the focus in order with Tab and act on Enter or Space. A read updates the rows in
   place: a focused button keeps the focus while its row and action still exist.
@@ -214,7 +233,10 @@ A routine's state is the first of these that applies, from its timer and its ser
   start job of a oneshot service ends only when its process exits, so the wait for it has no
   limit and shows nothing.
 - A dimmed line under the row reports a start that did not happen, until the next successful
-  start or the menu closes: `Could not start <name>: <D-Bus error message>` for a refused call,
+  start or the menu closes. A start is successful when systemd accepts the call (its reply
+  returns a job): the old line goes then, and a job result that later reports a start that did
+  not happen brings a new line. The line reads `Could not start <name>: <D-Bus error message>`
+  for a refused call,
   `Could not start <name>: no answer from systemd` for no reply within 30 seconds, and
   `Could not start <name>: job <result>` for any job result other than `done` and `failed`
   (`dependency`, `canceled`, `timeout`, `skipped`, `assert`, and the others). A result of `failed` shows no line: the row's **Failed** state says it.
@@ -239,6 +261,19 @@ A routine's state is the first of these that applies, from its timer and its ser
   `Could not open a terminal: <error>. Run: journalctl --user -u <service> -e`, and the menu
   stays open; from a notification, a notification `Could not open the logs of <name>` carries the
   same text.
+- That line has its own place beside the start line, and lasts until the next **View logs** of the
+  row starts a terminal, or the menu closes.
+- When the process Greenlight started (the terminal command found, such as a wrapper like
+  `xdg-terminal-exec` with no usable terminal) exits with a non-zero status or is killed by a
+  signal, and Greenlight learns it within 5 seconds of starting it, a notification
+  `Could not open the logs of <name>` shows, whether **View logs** or a notification started it.
+  What that process starts in turn (a terminal server, the `journalctl` inside it) is not
+  watched. It reads `<terminal> exited with status <n>. Run: journalctl --user -u <service> -e`,
+  or `<terminal> was killed by signal <n>. Run: journalctl --user -u <service> -e`, `<terminal>`
+  being the command found. A menu that started it has already closed. Greenlight watches for no
+  exit after those 5 seconds, never kills the terminal, and stops watching when the extension is
+  disabled.
+- Clicking a `Could not open the logs of <name>` notification only dismisses it.
 
 ## Failure notifications
 
@@ -247,8 +282,8 @@ A routine's state is the first of these that applies, from its timer and its ser
 - A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`,
   and a timer failure by the timer's unit name and its own `StateChangeTimestampMonotonic`, so a re-read does not notify it twice,
   and a later failed run notifies again. Two watched timers that activate the same service share
-  its failed runs: such a run notifies once, under the first name by sort order. A timer failure
-  belongs to its timer alone and notifies under its name.
+  its failed runs: such a run notifies once, under a name chosen as the rules below say. A timer
+  failure belongs to its timer alone and notifies under its name.
 - Greenlight reads states, not events: a run that fails and is followed by another run before
   Greenlight reads (with D-Bus signals, within the same second; with the polling fallback of
   RTN-P1, within 30 seconds) is not observed and does not notify.
@@ -257,6 +292,16 @@ A routine's state is the first of these that applies, from its timer and its ser
   when earlier reads failed. After a stale period, a failed run whose identity is newer than the
   last one read notifies; one already known does not. A restart of the extension or
   the session sets a new baseline; nothing is stored.
+- Each routine keeps the identities of the runs it has read, and Greenlight keeps the identities
+  it has notified until the extension restarts. A run shared by two watched timers notifies once,
+  under the first name by sort order among the timers whose read first shows it after their
+  baseline; a timer stale at that read, which sees the run later, does not notify it again. A timer
+  that starts being watched on a service already watched gets its own quiet baseline. A run
+  already notified does not notify again, even when the watched list empties and fills again.
+- Each observed failed run gets its own notification, on Greenlight's one notification source.
+  GNOME Shell keeps ten notifications per source, so a burst of more than ten in one read drops
+  the oldest; their runs stay known and do not notify again. The dot and the menu still show
+  every failure.
 - Clicking the notification opens the logs, as **View logs** does.
 - A failed read never notifies.
 
