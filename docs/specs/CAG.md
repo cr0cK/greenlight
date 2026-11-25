@@ -81,7 +81,7 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   row into a custom agent row, enabled, whose availability check starts at once (it runs the
   command, as QTA's check runs the built-in CLI). A refused one keeps the row, marks the entry
   and the hint as errors, and shows the reason in place of the hint until the entry or the type
-  changes; the hint, the reason, and every text of the new row are plain text, never markup. The first rule that fails,
+  changes, or a save writes a setting (see below); the hint, the reason, and every text of the new row are plain text, never markup. The first rule that fails,
   in this order, gives the reason:
   1. `Enter a command name or a path.` for a command of another form;
   2. `A path cannot hold ":".`;
@@ -94,8 +94,9 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
      `<type>` being the label of the **Quota type** drop-down (`Claude`, `Codex`, or
      `Antigravity`).
 - A new row not yet accepted is not a setting: it makes no tab unsaved and closing the window
-  drops it. A save leaves it as it is and writes the rest; when its entry holds text, its
-  hint then reads `Not added yet: press Enter to add it`.
+  drops it. A save leaves it as it is and writes the rest; when that save writes a setting and
+  the entry holds text, its hint then reads `Not added yet: press Enter to add it`, no longer
+  marked as an error.
 - A custom agent's trash button removes its row at once and cancels its check; like every change
   of the tab, the removal applies on save. (PREFS-REMOVED, PREFS-REMOVED-SAVED)
 
@@ -123,8 +124,9 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   follow QTA for its type. The section keeps one `Updated` line, from the oldest successful
   reading shown, built-in and custom providers alike. (MENU)
 - Every row of the **Agent quotas** section, custom agents' included, has QTA's 1 px of padding
-  above and below, so the section with the three built-in agents and five custom ones fits a
-  1280x800 screen with **Refresh now**, quick open, and **Preferences…** in view. Rows outside
+  above and below, so the section with the three built-in agents and five two-window custom
+  ones, one of them dimmed with its cause, fits a 1280x800 screen with **Refresh now**, quick
+  open, and **Preferences…** in view. Rows outside
   the section, such as RTN's routines, keep their own padding.
 - A custom agent is a provider of its own: its reading, its refresh in flight, its last try, and
   its notified periods are its own, under the identifier `custom:<type>:<command>`. Two custom

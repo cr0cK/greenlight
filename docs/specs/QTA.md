@@ -255,7 +255,8 @@ while quick open has text. The mockup is
   `agy not found in PATH or ~/.local/bin`, `Antigravity is not signed in. Run agy and sign in.`,
   `Antigravity answered /usage in an unknown form. Update agy.`,
   `Antigravity reports no Gemini quota for this account.` For a custom agent, the messages that
-  name a command name it as the user typed it (CAG).
+  name a command name it as the user typed it, except `This <name> cannot report rate limits`,
+  which names it by its name (CAG).
 - Transient causes, once per provider under its last dimmed line, as `<Provider>: <cause> ·
   last reading <age>`, the cause being `timed out`, `exited with code N`, `killed by signal N`,
   `could not start: <reason>`, or the CLI's own error message. A process ended at the timeout
