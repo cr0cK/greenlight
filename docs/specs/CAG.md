@@ -1,6 +1,6 @@
 ---
 code: CAG
-status: active
+status: done
 version: v1.5
 created: 2026-11-24
 builds-on: QTA, TAB
