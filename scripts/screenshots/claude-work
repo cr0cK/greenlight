@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stand-in for a wrapper that runs Claude Code on another subscription: it hands the call to the
+# claude stand-in, which serves other fictional numbers under this profile. A real wrapper ends by
+# exec'ing its agent with the arguments it received, as this one does.
+exec env CLAUDE_STUB_PROFILE=work claude "$@"

@@ -5,6 +5,7 @@ It answers only `claude -p /usage ... --output-format json`, the call Greenlight
 """
 import datetime
 import json
+import os
 import sys
 
 if sys.argv[1:3] != ['-p', '/usage']:
@@ -18,11 +19,14 @@ def reset(delta, with_date):
     return (moment.strftime('%b %d, ').replace(' 0', ' ') if with_date else '') + clock + ' (UTC)'
 
 
+# The `work` profile is the claude-work wrapper's: another subscription, other numbers.
+SESSION, WEEK = (52, 24) if os.environ.get('CLAUDE_STUB_PROFILE') == 'work' else (38, 61)
+
 result = '\n'.join([
     'You are currently using your subscription to power your Claude Code usage',
     '',
-    'Current session: 38% used · resets ' + reset(datetime.timedelta(hours=2, minutes=10), False),
-    'Current week (all models): 61% used · resets ' + reset(datetime.timedelta(days=1, hours=19), True),
+    'Current session: ' + str(SESSION) + '% used · resets ' + reset(datetime.timedelta(hours=2, minutes=10), False),
+    'Current week (all models): ' + str(WEEK) + '% used · resets ' + reset(datetime.timedelta(days=1, hours=19), True),
     'Current week (Fable): 9% used · resets ' + reset(datetime.timedelta(days=1, hours=19), True),
 ])
 print(json.dumps({'type': 'result', 'is_error': False, 'num_turns': 0, 'total_cost_usd': 0,

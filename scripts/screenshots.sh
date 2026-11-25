@@ -30,6 +30,11 @@ if [[ ${1:-} != --inside ]]; then
     mkdir -p "$WORK/bin"
     ln -sfn "$(type -P true)" "$WORK/bin/ibus-daemon"
     export PATH=$WORK/bin:$ROOT/scripts/screenshots:$PATH GTK_A11Y=none
+    # The custom agent of the captures is a path under ~/.local/bin, which the preferences show
+    # with the home directory as `~`: a scratch home keeps the user's own out of it.
+    export HOME=$WORK/home
+    mkdir -p "$HOME/.local/bin"
+    ln -s "$ROOT/scripts/screenshots/claude-work" "$HOME/.local/bin/claude-work"
     # The display name stays short: the Wayland socket path must fit in 108 bytes.
     export WAYLAND_DISPLAY=greenlight-shot
     exec dbus-run-session -- "$0" --inside
@@ -83,6 +88,8 @@ gs $EXT owner-order "['acme', 'octo-org', 'octocat']"
 gs $EXT claude-quota-enabled true
 gs $EXT codex-quota-enabled true
 gs $EXT agy-quota-enabled true
+# claude-work stands for a wrapper that runs Claude Code on another subscription.
+gs $EXT custom-agents '[{"command":"~/.local/bin/claude-work","type":"claude","enabled":true}]'
 # old-mirror is not loaded by systemd: the menu leaves it out, and the preferences keep its row.
 gs $EXT watched-routines "['backup-photos.timer', 'clean-downloads.timer', 'nightly-report.timer', 'old-mirror.timer', 'sync-mail.timer']"
 gs $EXT owner-filters '[{"login":"acme","kind":"organization","enabled":true,"repositories":["acme/api-gateway","acme/web-client","acme/web-platform"]},{"login":"octo-org","kind":"organization","enabled":true,"repositories":null},{"login":"octocat","kind":"user","enabled":true,"repositories":null,"excludedRepositories":["octocat/hello-world"]}]'
@@ -152,7 +159,7 @@ crop_menus() {
 wait_for "Main.extensionManager.lookup('$UUID')?.state === 1"
 STATE="Main.extensionManager.lookup('$UUID').stateObj"
 wait_for "${STATE}._loading === false && ${STATE}._prs.length === 5"
-wait_for "!!${STATE}._quotaState.claude?.windows && !!${STATE}._quotaState.codex?.windows && !!${STATE}._quotaState.agy?.windows"
+wait_for "!!${STATE}._quotaState.claude?.windows && !!${STATE}._quotaState.codex?.windows && !!${STATE}._quotaState.agy?.windows && !!${STATE}._quotaState['custom:claude:~/.local/bin/claude-work']?.windows"
 wait_for "${STATE}._routineWatcher.firstRead === true && ${STATE}._routineRows.box.get_children().length === 4"
 
 shell_eval "${STATE}._indicator.menu.open()" >/dev/null
@@ -212,8 +219,8 @@ press_keys $SHIFT_TAB
 press_keys $RIGHT
 press_keys $RETURN
 # These tabs are short: shrink the window so the captures hold no empty page.
-shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 520)" >/dev/null
-wait_for "$PREFS.get_frame_rect().height === 520"
+shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 800)" >/dev/null
+wait_for "$PREFS.get_frame_rect().height === 800"
 sleep 1.5
 capture_window preferences-agents.png
 press_keys $RIGHT
