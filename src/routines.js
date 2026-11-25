@@ -271,6 +271,23 @@ export function terminalErrorText(service, error = null) {
         '. Run: ' + logsHint(service);
 }
 
+/**
+ * The body of the notification for a terminal process that ended badly within the watch:
+ * `<terminal> exited with status <n>` or `<terminal> was killed by signal <n>`, then the command
+ * to run instead. `terminal` is the path found; only its file name shows. Null for a clean exit.
+ */
+export function terminalExitText(service, terminal, {signal = 0, status = 0} = {}) {
+    const name = terminal.split('/').pop();
+    if (signal > 0)
+        return name + ' was killed by signal ' + signal + '. Run: ' + logsHint(service);
+    if (status !== 0)
+        return name + ' exited with status ' + status + '. Run: ' + logsHint(service);
+    return null;
+}
+
+/** How long a started terminal process is watched for an exit, in milliseconds. */
+export const TERMINAL_WATCH_MS = 5000;
+
 /** The line under a row after a start that did not happen. */
 export function startErrorText(name, reason) {
     return 'Could not start ' + name + ': ' + reason;

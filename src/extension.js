@@ -373,6 +373,7 @@ export default class GreenlightExtension extends Extension {
         this._failureTracker = new FailureTracker();
         // Greenlight's own notification source, created with the first notification.
         this._notificationSource = null;
+        this._logsCancellable = null;
         this._loadQuotaCache();
 
         this._indicator = new PanelMenu.Button(0.0, 'Greenlight', false);
@@ -463,6 +464,8 @@ export default class GreenlightExtension extends Extension {
         this._routineWatcher?.destroy();
         this._routineWatcher = null;
         this._failureTracker = null;
+        this._logsCancellable?.cancel();
+        this._logsCancellable = null;
         // The source goes with its notifications; the next enable makes a new one.
         this._notificationSource?.destroy();
         this._notificationSource = null;
@@ -1202,11 +1205,18 @@ export default class GreenlightExtension extends Extension {
         this._notificationSource.addNotification(notification);
     }
 
+    /** Opens the logs; a terminal process that exits badly within 5 seconds notifies. */
+    _openLogs(routine) {
+        this._logsCancellable ??= new Gio.Cancellable();
+        return openLogs(routine.service, this._logsCancellable,
+            text => this._notify(logsFailureTitle(routine), text, () => {}));
+    }
+
     /** `<name> failed`; clicking opens the logs as View logs does. */
     _notifyRoutineFailure(routine) {
         const {title, body} = failureNotification(routine);
         this._notify(title, body, () => {
-            const error = openLogs(routine.service);
+            const error = this._openLogs(routine);
             if (error !== null)
                 this._notify(logsFailureTitle(routine), error, () => {});
         });
@@ -1419,7 +1429,7 @@ export default class GreenlightExtension extends Extension {
 
     /** View logs: a terminal on the journal of the service, and the menu closes. */
     _viewRoutineLogs(routine) {
-        const error = openLogs(routine.service);
+        const error = this._openLogs(routine);
         const action = this._routineAction(routine.unit);
         action.logsNotice = error;
         if (error === null)
