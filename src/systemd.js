@@ -691,6 +691,10 @@ export class RoutineWatcher {
     _close() {
         const connection = this._connection;
         const session = this._session;
+        // The callbacks check their session against this one: with it cleared, nothing that
+        // fires while the watch and the connection come down (the name watcher's vanished
+        // callback included) reaches _onOwner() and _onChange() halfway through the teardown.
+        this._session = null;
         this._invalidate();
         this._dropJobs();
         this._ownerEpoch++;
