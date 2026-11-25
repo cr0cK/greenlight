@@ -108,8 +108,10 @@ of v1.2 on quick open and previews, as the product stands.
 - Only the pull request list and the routine rows scroll. **Refresh now**, quick open, its
   suggestions and preview, the agent quotas section while shown (QTA), the **Routines** section
   while shown (RTN), and **Preferences…** stay in view, and the menu never exceeds the screen
-  height: on a short screen, the list gives way. The routine rows sit in a scroll area of their
-  own, as tall as six single-line rows at most (RTN).
+  height: on a short screen, the list gives way first. The routine rows sit in a scroll area of
+  their own, as tall as six single-line rows at most, which then shrinks down to min(rows, 3)
+  rows and no further (RTN). On a screen too short for the menu with that floor, or for the agent
+  quotas section (CAG), GNOME Shell's menu height limit cuts the menu, **Preferences…** included.
 - Moving keyboard focus to a pull request scrolls it into view.
 
 ## Keyboard shortcut

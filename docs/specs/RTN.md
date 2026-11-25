@@ -61,8 +61,9 @@ rewritten by RTN-P3. The mockup is [`mockups/RTN.html`](mockups/RTN.html).
     `StateChangeTimestampMonotonic`, `ConditionResult`, and `ConditionTimestamp`.
 - Only systemd's `org.freedesktop.systemd1.NoSuchUnit` answer to the service's `GetUnit` marks
   that routine **Service not loaded**: its row reads `service not loaded`, with no button, and it
-  never counts as failed. Any other `GetUnit` failure (a timeout, a closed connection, access
-  denied, another bus error) is a failed read of that routine, as **Updates** says.
+  never counts as failed. Any other error systemd or the bus returns to that `GetUnit` (a
+  timeout, access denied, another bus error) is a failed read of that routine, as **Updates**
+  says. A lost connection fails the read as a whole.
 
 ### Next run
 
@@ -172,7 +173,7 @@ A routine's state is the first of these that applies, from its timer and its ser
   routine whose timer is no longer loaded is left out; when none is left, a dimmed line reads
   `No watched routine is loaded by systemd.`
 - Until the first read answers, a dimmed line under the heading reads `Reading systemd…`. When
-  the first read fails, it reads `Could not read systemd: <cause>`.
+  the first read fails as a whole, it reads `Could not read systemd: <cause>`.
 - Height: the routine rows and the lines attached to them (read, start, and terminal errors) sit
   in a scroll area as tall as six single-line rows at most; with more, it scrolls on its own, and
   moving keyboard focus to a row scrolls it into view. The heading and the section-level lines
@@ -180,8 +181,8 @@ A routine's state is the first of these that applies, from its timer and its ser
   request list gives way first, as QOP's menu height says; then the scroll area shrinks too, but
   never below min(rows, 3) single-line rows. **Preferences…** stays in view whenever the screen
   holds the menu with that floor. On a shorter screen (under about 570 px with the three quota
-  providers), GNOME Shell's menu height limit cuts the menu, as for any menu taller than the
-  screen.
+  providers, more with CAG's custom agents), GNOME Shell's menu height limit cuts the menu, as
+  QOP's menu height says.
 - Each row holds, from left to right: a status icon, the name, the status text, the next run,
   and two icon buttons, **Run now** and **View logs**. (MENU-ROUTINES)
   - **Succeeded**: a green check (`#26a269`) and `ran <age>`.
@@ -202,10 +203,14 @@ A routine's state is the first of these that applies, from its timer and its ser
     `Could not read <name>: <cause>`, with the cause of that routine's failure, until a read of
     it succeeds. Each routine shows its own cause, so two routines that fail differently show two
     causes.
-  - A failure that no row can carry (the first read, a read of the watched list as a whole, or a
-    routine with no state read yet) shows under the heading as `Could not read systemd: <cause>`.
+  - A watched routine with no state read yet, whose read fails, has no row: a dimmed line under
+    the heading reads `Could not read <name>: <cause>`, one per such routine, sorted by name.
+  - A failure of the read as a whole (a lost connection, or a manager call that concerns every
+    routine) shows one line under the heading, `Could not read systemd: <cause>`, and the rows
+    get no read line of their own.
   - After the name lost its owner, the line under the heading reads `systemd is not running`, and
-    the rows get no line of their own.
+    the read lines of the rows go away; a read line shows again only after a new failed read of
+    that routine. Start and terminal lines follow their own rules.
 - Keyboard: a row is a static item (it takes no focus and a click on it opens nothing); its two
   buttons take the focus in order with Tab and act on Enter or Space. A read updates the rows in
   place: a focused button keeps the focus while its row and action still exist.
@@ -256,15 +261,17 @@ A routine's state is the first of these that applies, from its timer and its ser
   same text.
 - That line has its own place beside the start line, and lasts until the next **View logs** of the
   row starts a terminal, or the menu closes.
-- A terminal that starts, then exits with a non-zero status or is killed by a signal within 5
-  seconds of starting (a wrapper such as `xdg-terminal-exec` with no usable terminal), shows a
-  notification `Could not open the logs of <name>`, whether **View logs** or a notification
-  started it. It reads `<terminal> exited with status <n>. Run: journalctl --user -u <service> -e`,
+- When the process Greenlight started (the terminal command found, such as a wrapper like
+  `xdg-terminal-exec` with no usable terminal) exits with a non-zero status or is killed by a
+  signal, and Greenlight learns it within 5 seconds of starting it, a notification
+  `Could not open the logs of <name>` shows, whether **View logs** or a notification started it.
+  What that process starts in turn (a terminal server, the `journalctl` inside it) is not
+  watched. It reads `<terminal> exited with status <n>. Run: journalctl --user -u <service> -e`,
   or `<terminal> was killed by signal <n>. Run: journalctl --user -u <service> -e`, `<terminal>`
   being the command found. A menu that started it has already closed. Greenlight watches for no
   exit after those 5 seconds, never kills the terminal, and stops watching when the extension is
   disabled.
-- A `Could not open the logs of <name>` notification does nothing when clicked.
+- Clicking a `Could not open the logs of <name>` notification only dismisses it.
 
 ## Failure notifications
 
@@ -285,7 +292,8 @@ A routine's state is the first of these that applies, from its timer and its ser
   the session sets a new baseline; nothing is stored.
 - Each routine keeps the identities of the runs it has read, and Greenlight keeps the identities
   it has notified until the extension restarts. A run shared by two watched timers notifies once,
-  under the first name by sort order among the timers that read it after their baseline. A timer
+  under the first name by sort order among the timers whose read first shows it after their
+  baseline; a timer stale at that read, which sees the run later, does not notify it again. A timer
   that starts being watched on a service already watched gets its own quiet baseline. A run
   already notified does not notify again, even when the watched list empties and fills again.
 - Each observed failed run gets its own notification, on Greenlight's one notification source.
