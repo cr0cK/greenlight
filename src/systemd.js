@@ -221,8 +221,9 @@ export async function readAllTimers(cancellable) {
 
 /**
  * Keeps the watched routines up to date. `onChange` runs after every change of what it holds:
- * `routines` (unit to `{raw, stale}`), `firstRead`, `error` (the cause of the last failed read),
- * and `noOwner` (systemd's bus name has no owner). The connection to the session bus, the
+ * `routines` (unit to `{raw, stale}`), `firstRead`, `error` (the cause of a failed read as a
+ * whole), `failures` (unit to the cause of its own failed read), and `noOwner` (systemd's bus
+ * name has no owner). The connection to the session bus, the
  * `Subscribe()`, and every listener exist only while at least one routine is watched.
  */
 export class RoutineWatcher {
@@ -239,6 +240,7 @@ export class RoutineWatcher {
         this.routines = new Map();
         this.firstRead = false;
         this.error = null;
+        this.failures = new Map();
         this.noOwner = false;
         this._connection = null;
         this._session = null;
@@ -279,6 +281,10 @@ export class RoutineWatcher {
             return;
         }
         // The list changed: a read in flight answers for the old one.
+        for (const unit of [...this.failures.keys()]) {
+            if (!units.includes(unit))
+                this.failures.delete(unit);
+        }
         for (const unit of [...this.routines.keys()]) {
             if (!units.includes(unit))
                 this.routines.delete(unit);
@@ -338,6 +344,7 @@ export class RoutineWatcher {
             // Not closed by Greenlight: nothing more can be read.
             this._invalidate();
             this._markStale();
+            this.failures.clear();
             this.error = error ? errorMessage(error) : 'The session bus closed';
             this.firstRead = true;
             this._onChange();
@@ -449,6 +456,7 @@ export class RoutineWatcher {
             this.noOwner = true;
             this._stopPolling();
             this._markStale();
+            this.failures.clear();
             this._onChange();
             return;
         }
@@ -566,6 +574,7 @@ export class RoutineWatcher {
         this.firstRead = true;
         if (failure !== null) {
             this._markStale();
+            this.failures.clear();
             this.error = failure;
         } else {
             this._apply(results, patterns);
@@ -579,6 +588,7 @@ export class RoutineWatcher {
     /** Takes a read's results: a timer that is gone leaves, one that failed to read turns stale. */
     _apply(results, patterns) {
         this.error = null;
+        this.failures.clear();
         const answered = new Set();
         for (const result of results) {
             if (!patterns.includes(result.unit))
@@ -588,7 +598,7 @@ export class RoutineWatcher {
                 const previous = this.routines.get(result.unit);
                 if (previous)
                     previous.stale = true;
-                this.error ??= result.error;
+                this.failures.set(result.unit, result.error);
                 // The unit may recover: it keeps the listeners it had, and those the read added.
             } else {
                 this.routines.set(result.unit, {raw: result.raw, stale: false});

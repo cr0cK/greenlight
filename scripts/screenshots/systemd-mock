@@ -14,6 +14,9 @@ Command(s json) -> s, whose JSON holds a "cmd":
                      "props": {"Result": ["s", "success"]}}: changes properties of the unit and
                      emits PropertiesChanged on its path
   refuse-subscribe  {"value": true}: Subscribe() answers with an error
+  fail-get-unit     {"unit": "sync-mail.service", "error": "org.freedesktop.DBus.Error.AccessDenied",
+                     "message": "Access denied"}: GetUnit of that unit answers with that error;
+                     without "error", it answers normally again
   hold              {"method": "ListUnitsByPatterns"}: keeps the replies of that method
   release           answers the held replies
   drop-name / take-name  releases and takes back org.freedesktop.systemd1
@@ -108,6 +111,7 @@ class Mock:
         self.registered = {}
         self.subscribers = set()
         self.refuse_subscribe = False
+        self.get_unit_errors = {}  # unit name -> (D-Bus error name, message) for GetUnit
         self.held_methods = set()
         self.held = []
         self.job = 0
@@ -249,7 +253,9 @@ class Mock:
             invocation.return_value(GLib.Variant('(a(ssssssouso))', (rows,)))
         elif method == 'GetUnit':
             name = parameters.unpack()[0]
-            if name in self.units and (name in self.timers or 'Service' in self.units[name]):
+            if name in self.get_unit_errors:
+                invocation.return_dbus_error(*self.get_unit_errors[name])
+            elif name in self.units and (name in self.timers or 'Service' in self.units[name]):
                 invocation.return_value(GLib.Variant('(o)', (escape(name),)))
             else:
                 invocation.return_dbus_error(SD + 'NoSuchUnit', 'Unit %s not loaded.' % name)
@@ -350,6 +356,11 @@ class Mock:
                                  GLib.Variant('(sa{sv}as)', (SD + interface, changed, [])))
         elif name == 'refuse-subscribe':
             self.refuse_subscribe = bool(command['value'])
+        elif name == 'fail-get-unit':
+            if command.get('error'):
+                self.get_unit_errors[command['unit']] = (command['error'], command.get('message', ''))
+            else:
+                self.get_unit_errors.pop(command['unit'], None)
         elif name == 'hold':
             self.held_methods.add(command['method'])
         elif name == 'release':

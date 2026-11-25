@@ -34,12 +34,14 @@ import {
     canRun,
     failureNotification,
     hasFailedRoutine,
+    headingLines,
     indicatorName,
     jobResultReason,
     logsAccessibleName,
     logsFailureTitle,
     nextText,
     normalizeWatched,
+    readFailureText,
     readRoutine,
     runAccessibleName,
     sortRoutines,
@@ -1239,17 +1241,9 @@ export default class GreenlightExtension extends Extension {
 
         const now = Date.now();
         const routines = this._readRoutines();
-        // The cause of a failed read or of a vanished systemd, or what the first read waits for.
-        const notice = watcher.noOwner
-            ? 'systemd is not running'
-            : watcher.error
-                ? 'Could not read systemd: ' + watcher.error
-                : !watcher.firstRead
-                    ? 'Reading systemd…'
-                    : routines.length === 0 ? 'No watched routine is loaded by systemd.' : null;
-        if (notice) {
+        for (const text of headingLines(watcher, new Set(routines.map(routine => routine.unit)))) {
             const item = this._createQuotaRow();
-            const label = createDimLabel(notice, {style: 'max-width: 34em; font-size: smaller;'});
+            const label = createDimLabel(text, {style: 'max-width: 34em; font-size: smaller;'});
             wrapLabel(label);
             item.add_child(label);
             this._routineNotices.addMenuItem(item);
@@ -1257,7 +1251,9 @@ export default class GreenlightExtension extends Extension {
         for (const routine of routines) {
             this._routineRows.addMenuItem(this._createRoutineItem(routine, now));
             const action = this._routineActions.get(routine.unit);
-            for (const line of [action?.startNotice, action?.logsNotice].filter(Boolean))
+            const failure = watcher.failures.get(routine.unit);
+            const readNotice = failure === undefined ? null : readFailureText(routine.unit, failure);
+            for (const line of [readNotice, action?.startNotice, action?.logsNotice].filter(Boolean))
                 this._routineRows.addMenuItem(this._createRoutineLine(line, routine.stale));
         }
         this._sizeRoutineRows(routines.length);

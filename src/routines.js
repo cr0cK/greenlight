@@ -276,6 +276,34 @@ export function startErrorText(name, reason) {
     return 'Could not start ' + name + ': ' + reason;
 }
 
+/** The dimmed line of a routine whose own read failed: under its row, or under the heading. */
+export function readFailureText(unit, cause) {
+    return 'Could not read ' + routineName(unit) + ': ' + cause;
+}
+
+/**
+ * The dimmed lines under the Routines heading, in order. `state` holds the watcher's `noOwner`,
+ * `error` (a failed read as a whole), `firstRead`, `failures` (unit to the cause of its own failed
+ * read), and `watched`; `loaded` is the set of units that have a row. A failure of the read as a
+ * whole, or a vanished bus name, is the only line and stands in for every routine's own; else the
+ * routines with no row and a failed read each get one line, sorted by name.
+ */
+export function headingLines(state, loaded) {
+    if (state.noOwner)
+        return ['systemd is not running'];
+    if (state.error)
+        return ['Could not read systemd: ' + state.error];
+    if (!state.firstRead)
+        return ['Reading systemd…'];
+    const failed = sortRoutines([...state.failures.keys()]
+        .filter(unit => state.watched.includes(unit) && !loaded.has(unit))
+        .map(unit => ({name: routineName(unit), unit})))
+        .map(({unit}) => readFailureText(unit, state.failures.get(unit)));
+    if (failed.length === 0 && loaded.size === 0)
+        return ['No watched routine is loaded by systemd.'];
+    return failed;
+}
+
 /**
  * What a job result adds to the row, or null: `done` is a start, and `failed` shows in the row's
  * own Failed state, so neither needs a line. Any other result (`dependency`, `canceled`,

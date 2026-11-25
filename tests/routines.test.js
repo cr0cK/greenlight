@@ -12,6 +12,7 @@ import {
     failureCause,
     failureNotification,
     hasFailedRoutine,
+    headingLines,
     indicatorName,
     isSet,
     jobResultReason,
@@ -22,6 +23,7 @@ import {
     nextRunTime,
     nextText,
     normalizeWatched,
+    readFailureText,
     readRoutine,
     runAccessibleName,
     startErrorText,
@@ -630,4 +632,52 @@ test('the dot shows while a routine is failed, stale or not, and the indicator n
     assert.equal(indicatorName(routines), 'Greenlight, a routine failed');
     assert.equal(hasFailedRoutine([{...failed('b-job'), stale: true}]), true);
     assert.equal(hasFailedRoutine([read({}, null)]), false);
+});
+
+test('a routine whose read failed gets its own line, named without the timer suffix', () => {
+    assert.equal(readFailureText('sync-mail.timer', 'Timeout was reached'),
+        'Could not read sync-mail: Timeout was reached');
+    assert.equal(readFailureText('sync-mail.timer', 'Access denied'),
+        'Could not read sync-mail: Access denied');
+});
+
+const baseState = {noOwner: false, error: null, firstRead: true, failures: new Map(), watched: []};
+
+test('heading lines: routines with no row and a failed read, one each, sorted by name', () => {
+    const state = {
+        ...baseState,
+        watched: ['zeta.timer', 'alpha.timer', 'has-row.timer'],
+        failures: new Map([
+            ['zeta.timer', 'Timeout was reached'],
+            ['alpha.timer', 'Access denied'],
+            ['has-row.timer', 'Timeout was reached'],
+        ]),
+    };
+    assert.deepEqual(headingLines(state, new Set(['has-row.timer'])), [
+        'Could not read alpha: Access denied',
+        'Could not read zeta: Timeout was reached',
+    ]);
+});
+
+test('heading lines: a failure of the whole read or a lost bus name replaces every routine line', () => {
+    const failures = new Map([['a.timer', 'Access denied']]);
+    const state = {...baseState, watched: ['a.timer'], failures};
+    assert.deepEqual(headingLines({...state, error: 'Timeout was reached'}, new Set()),
+        ['Could not read systemd: Timeout was reached']);
+    assert.deepEqual(headingLines({...state, noOwner: true}, new Set(['b.timer'])),
+        ['systemd is not running']);
+    assert.deepEqual(headingLines({...state, noOwner: true, error: 'x'}, new Set()),
+        ['systemd is not running']);
+});
+
+test('heading lines: reading, nothing loaded, and nothing to say', () => {
+    assert.deepEqual(headingLines({...baseState, firstRead: false}, new Set()), ['Reading systemd…']);
+    assert.deepEqual(headingLines({...baseState, watched: ['a.timer']}, new Set()),
+        ['No watched routine is loaded by systemd.']);
+    assert.deepEqual(headingLines({...baseState, watched: ['a.timer']}, new Set(['a.timer'])), []);
+});
+
+test('heading lines: a routine that is no longer watched shows no line', () => {
+    const state = {...baseState, watched: ['b.timer'], failures: new Map([['a.timer', 'Access denied']])};
+    assert.deepEqual(headingLines(state, new Set(['b.timer'])), []);
 });
