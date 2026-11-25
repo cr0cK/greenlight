@@ -352,6 +352,8 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             agent.cancellable = cancellable;
             agent.switchRow.set_sensitive(false);
             setAgentSubtitle(agent, 'Checking…');
+            // The path the check runs, found now: the label shows that one, whatever happens after.
+            const path = findCli(agent.command);
             readQuota(customProvider(agent), {version: this.metadata['version-name'] ?? '0', cancellable})
                 .then(result => {
                     // The row was removed or the window closed while the check ran.
@@ -359,9 +361,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         return;
                     if (result.status === 'ok') {
                         agent.switchRow.set_sensitive(true);
-                        // The command may have vanished since the check ran: the row still settles.
-                        setAgentSubtitle(agent, 'Uses ' +
-                            displayPath(findCli(agent.command) ?? agent.command, GLib.get_home_dir()));
+                        setAgentSubtitle(agent, 'Uses ' + displayPath(path ?? agent.command, GLib.get_home_dir()));
                     } else if (result.status === 'unavailable') {
                         // A saved agent's adjustment is a pending normalization, as for a built-in
                         // provider; an agent added in this window, even one removed and added
@@ -397,7 +397,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
         const createAgentRow = (entry, checkNow) => {
             const name = commandName(entry.command);
-            const row = new Adw.ActionRow({use_markup: false, subtitle_selectable: false, focusable: false});
+            const row = new Adw.ActionRow({use_markup: false, subtitle_selectable: false});
             row.set_title(name);
             const trashButton = new Gtk.Button({
                 icon_name: 'user-trash-symbolic',
@@ -523,7 +523,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 const agent = createAgentRow({command: checked.command, type, enabled: true}, true);
                 updateAgentGroup();
                 refreshUnsaved();
-                focusAgentWidget(() => addAgentButton.get_sensitive() ? addAgentButton : agent.trashButton);
+                // At the limit the focus rests on the new row, never on a button that a held Enter
+                // would press.
+                focusAgentWidget(() => addAgentButton.get_sensitive() ? addAgentButton : agent.row);
             };
             entry.connect('activate', accept);
             cancelButton.connect('clicked', drop);
@@ -1347,15 +1349,18 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 saved.apply();
                 // What was saved is the new baseline, and no normalization is left to write.
                 baseline = shown;
-                for (const agent of agents)
-                    agent.saved = true;
+                // The agents are saved once the save wrote the list, not when it left it alone.
+                if (plan.writes.some(({key}) => key === 'custom-agents')) {
+                    for (const agent of agents)
+                        agent.saved = true;
+                }
                 pending.clear();
                 refreshUnsaved();
                 // A pending-removal message is stale once the removal is saved; others stay.
                 if (ownerStatus.get_subtitle() === removalMessage)
                     updateOwnerStatus();
                 // A new row not yet added is no setting: the save leaves it as it is.
-                if (newAgentRow && newAgentRow.entry.get_text() !== '')
+                if (plan.writes.length > 0 && newAgentRow && newAgentRow.entry.get_text() !== '')
                     newAgentRow.setHint('Not added yet: press Enter to add it', false);
             }
             window.add_toast(new Adw.Toast({title: plan.message}));
