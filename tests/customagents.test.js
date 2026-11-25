@@ -42,6 +42,9 @@ test('a command is a name or a path, and its name is its last component', () => 
     // A path may hold characters a name cannot, and is shown as typed.
     assert.equal(parseCommand('/opt/a&b <c>/run').kind, 'path');
     assert.equal(parseCommand('/opt/a&b <c>/run').name, 'run');
+    // A NUL would end the path at launch, so `/opt/claude\0-work` would run `/opt/claude`.
+    assert.equal(parseCommand('/opt/agents/claude\0-work').kind, 'invalid');
+    assert.deepEqual(readCustomAgents(JSON.stringify([agent('/opt/agents/claude\u0000-work')])), []);
     for (const text of ['', '   ', 'claude work', 'bin/claude-work', './claude-work', '~claude', '~', 'a:b', '/', '~/', '/bin/'])
         assert.equal(parseCommand(text).kind, 'invalid', JSON.stringify(text));
 });

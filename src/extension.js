@@ -824,6 +824,9 @@ export default class GreenlightExtension extends Extension {
         this._quotaNotified = cache.notified;
         for (const [id, reading] of Object.entries(cache.providers))
             this._quotaState[id] = {status: 'ok', ...reading};
+        // What was dropped stays dropped: an agent switched on again while the extension was off
+        // starts a quiet baseline, not from an old reading and its marks.
+        this._saveQuotaCache();
     }
 
     _saveQuotaCache() {

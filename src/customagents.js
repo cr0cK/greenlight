@@ -21,6 +21,9 @@ const NAME_FORM = /^[A-Za-z0-9._+-]+$/;
  */
 export function parseCommand(text) {
     const command = String(text).trim();
+    // A NUL ends a path where the command is launched: it is no form of a command.
+    if (command.includes('\0'))
+        return {kind: 'invalid', command, name: ''};
     if (isPathCommand(command)) {
         const name = commandName(command);
         if (name === '')

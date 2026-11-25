@@ -28,6 +28,7 @@ import {
     MAX_CUSTOM_AGENTS,
     TYPE_LABELS,
     builtinMessage,
+    canAddAgent,
     checkCommand,
     customProvider,
     displayPath,
@@ -335,7 +336,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         };
         const updateAgentGroup = () => {
             emptyAgentsRow.set_visible(agents.length === 0 && !newAgentRow);
-            const full = agents.length >= MAX_CUSTOM_AGENTS;
+            const full = !canAddAgent(agents);
             addAgentButton.set_sensitive(!newAgentRow && !full);
             addAgentButton.set_tooltip_text(full
                 ? MAX_CUSTOM_AGENTS + ' custom agents at most'
@@ -358,11 +359,14 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                         return;
                     if (result.status === 'ok') {
                         agent.switchRow.set_sensitive(true);
-                        setAgentSubtitle(agent, 'Uses ' + displayPath(findCli(agent.command), GLib.get_home_dir()));
+                        // The command may have vanished since the check ran: the row still settles.
+                        setAgentSubtitle(agent, 'Uses ' +
+                            displayPath(findCli(agent.command) ?? agent.command, GLib.get_home_dir()));
                     } else if (result.status === 'unavailable') {
                         // A saved agent's adjustment is a pending normalization, as for a built-in
-                        // provider; an agent added in this window just shows its switch off.
-                        const saved = baseline.customAgents.find(entry =>
+                        // provider; an agent added in this window, even one removed and added
+                        // again, just shows its switch off, which is a change.
+                        const saved = agent.saved && baseline.customAgents.find(entry =>
                             entry.command === agent.command && entry.type === agent.type);
                         if (saved?.enabled) {
                             saved.enabled = false;
@@ -416,6 +420,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 switchRow,
                 trashButton,
                 cancellable: null,
+                // Whether the agent is in the baseline: one listed when the window opened, or
+                // added before the last save.
+                saved: false,
             };
             switchRow.connect('notify::active', refreshUnsaved);
             trashButton.connect('clicked', () => removeAgent(agent));
@@ -557,7 +564,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         };
 
         addAgentButton.connect('clicked', () => {
-            if (newAgentRow || agents.length >= MAX_CUSTOM_AGENTS)
+            if (newAgentRow || !canAddAgent(agents))
                 return;
             newAgentRow = createNewAgentRow();
             customGroup.add(newAgentRow.row);
@@ -565,7 +572,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             focusAgentWidget(() => newAgentRow?.entry);
         });
         for (const entry of readCustomAgents(settings.get_string('custom-agents')))
-            createAgentRow(entry, true);
+            createAgentRow(entry, true).saved = true;
         updateAgentGroup();
 
         const quotaCancellable = new Gio.Cancellable();
@@ -1340,15 +1347,17 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 saved.apply();
                 // What was saved is the new baseline, and no normalization is left to write.
                 baseline = shown;
+                for (const agent of agents)
+                    agent.saved = true;
                 pending.clear();
                 refreshUnsaved();
                 // A pending-removal message is stale once the removal is saved; others stay.
                 if (ownerStatus.get_subtitle() === removalMessage)
                     updateOwnerStatus();
+                // A new row not yet added is no setting: the save leaves it as it is.
+                if (newAgentRow && newAgentRow.entry.get_text() !== '')
+                    newAgentRow.setHint('Not added yet: press Enter to add it', false);
             }
-            // A new row not yet added is no setting: the save leaves it as it is.
-            if (newAgentRow && newAgentRow.entry.get_text() !== '')
-                newAgentRow.setHint('Not added yet: press Enter to add it', false);
             window.add_toast(new Adw.Toast({title: plan.message}));
         });
 
