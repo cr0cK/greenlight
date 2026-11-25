@@ -34,6 +34,7 @@ import {
     displayPath,
     notFoundMessage,
     readCustomAgents,
+    sameCustomAgents,
 } from './customagents.js';
 import {PROVIDERS, commandName} from './quotas.js';
 import {normalizeWatched, readRoutine, routineName, sortRoutines, timerSubtitle} from './routines.js';
@@ -1349,8 +1350,9 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 saved.apply();
                 // What was saved is the new baseline, and no normalization is left to write.
                 baseline = shown;
-                // The agents are saved once the save wrote the list, not when it left it alone.
-                if (plan.writes.some(({key}) => key === 'custom-agents')) {
+                // The agents are saved once the stored list is the one shown, whether this save wrote
+                // it or found it so; a list changed elsewhere meanwhile leaves them unsaved.
+                if (sameCustomAgents(readCustomAgents(saved.get_string('custom-agents')), shown.customAgents)) {
                     for (const agent of agents)
                         agent.saved = true;
                 }
