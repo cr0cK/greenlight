@@ -17,7 +17,8 @@ built-in agents, and notifies its thresholds. Several custom agents can be added
 QTA and TAB, whose rules all still apply: QTA's availability, menu, notification, and CLI rules
 apply to a custom agent as to the built-in agent of its type, with the differences below. It
 amends QTA's **Agent quotas** preferences (a **Custom agents** group), its provider order, its
-unavailability messages (which name the custom command), its `PATH` rule, and its storage (the
+unavailability messages (which name the custom command), its menu row padding, its `PATH`
+rule, and its storage (the
 `custom-agents` key and the cache keys); and TAB's list of the **Agents** settings. CAG-P1
 rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
 
@@ -49,20 +50,21 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   `Add a custom agent`). With 5 custom agents, it is insensitive and its tooltip reads
   `5 custom agents at most`. (PREFS-FULL)
 - Without any custom agent, the group shows one row: `No custom agent. Add one with +.`
-  (PREFS-EMPTY)
+  That row is hidden while a new row exists. (PREFS-EMPTY)
 - The group lists the custom agents, one row each: the title is the name, the subtitle
   `<type> quota · <availability>`, a trash button (`user-trash-symbolic`, accessible name
   `Remove <name>`), then the switch. The availability text and the switch follow QTA's
   availability rules for the agent's type: `Checking…` while its check runs, `Uses <path>` when
-  available, the unavailability message otherwise (switch off and locked),
+  available (the found file, with the home directory shown as `~`: `Uses
+  ~/.local/bin/claude-work`; a path outside the home in full), the unavailability message otherwise (switch off and locked),
   `Could not check: <cause>. Reopen Preferences to try again.` on a failed check. Only the
   switch is ever locked: the trash button stays usable in every state. (PREFS-LIST,
   PREFS-CHECKING, PREFS-UNAVAILABLE)
 - Commands, paths, and messages are shown as plain text, never as markup, so a path holding `&`
   or `<` reads as typed.
 - **+** adds a new row at the end of the list, which takes the focus: an entry (placeholder
-  `claude-work or ~/bin/codex-team`), the subtitle `Type a command, pick its quota type, then
-  press Enter`, a **Quota type** drop-down (**Claude**, **Codex**, **Antigravity**; **Claude** by
+  `claude-work or ~/bin/codex-team`) with a hint under it, `Type a command, pick its quota type,
+  then press Enter`, a **Quota type** drop-down (**Claude**, **Codex**, **Antigravity**; **Claude** by
   default), and a trash button (`Cancel`) that drops the row. Only one new row exists at a time:
   **+** is insensitive while it does. (PREFS-NEW, PREFS-TYPED)
 - The group description also says what the type means for the command:
@@ -72,11 +74,14 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   closed drop-down accepts; Escape in the entry or on the closed drop-down drops the new row and
   goes no further, so it never closes the window. While the drop-down's list is open, Enter only
   picks the type and Escape only closes the list. After a row is dropped or removed, the focus
-  goes to **+**, or to the new row's entry while one exists (**+** is then insensitive).
+  goes to **+**, or to the new row's entry while one exists (**+** is then insensitive). After
+  Enter accepts a new row, the focus goes to **+**, or, with 5 custom agents (**+** then
+  insensitive), to the new agent's row.
 - Enter checks the command without running it. An accepted command turns the new
   row into a custom agent row, enabled, whose availability check starts at once (it runs the
-  command, as QTA's check runs the built-in CLI). A refused one keeps the row, marks the entry,
-  and shows the reason under it until the entry or the type changes. The first rule that fails,
+  command, as QTA's check runs the built-in CLI). A refused one keeps the row, marks the entry
+  and the hint as errors, and shows the reason in place of the hint until the entry or the type
+  changes, or a save writes a setting (see below); the hint, the reason, and every text of the new row are plain text, never markup. The first rule that fails,
   in this order, gives the reason:
   1. `Enter a command name or a path.` for a command of another form;
   2. `A path cannot hold ":".`;
@@ -85,10 +90,13 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   4. `<command> is already listed.`, then `<name> is already listed.`; (PREFS-DUPLICATE)
   5. `<command> not found in PATH or ~/.local/bin` for a name, `<path> is not an executable
      file` for a path; (PREFS-NOT-FOUND)
-  6. `<command> is the built-in <type> agent.` for a command whose file is the built-in's.
+  6. `<command> is the built-in <type> agent.` for a command whose file is the built-in's,
+     `<type>` being the label of the **Quota type** drop-down (`Claude`, `Codex`, or
+     `Antigravity`).
 - A new row not yet accepted is not a setting: it makes no tab unsaved and closing the window
-  drops it. A save leaves it as it is and writes the rest; when its entry holds text, its
-  subtitle then reads `Not added yet: press Enter to add it`.
+  drops it. A save leaves it as it is and writes the rest; when that save writes a setting and
+  the entry holds text, its hint then reads `Not added yet: press Enter to add it`, no longer
+  marked as an error.
 - A custom agent's trash button removes its row at once and cancels its check; like every change
   of the tab, the removal applies on save. (PREFS-REMOVED, PREFS-REMOVED-SAVED)
 
@@ -115,6 +123,11 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   as Antigravity's does. Its windows, labels, slots, colors, pace mark, dimming, and causes
   follow QTA for its type. The section keeps one `Updated` line, from the oldest successful
   reading shown, built-in and custom providers alike. (MENU)
+- Every row of the **Agent quotas** section, custom agents' included, has QTA's 1 px of padding
+  above and below, so the section with the three built-in agents and five two-window custom
+  ones, one of them dimmed with its cause, fits a 1280x800 screen with **Refresh now**, quick
+  open, and **Preferences…** in view. Rows outside
+  the section, such as RTN's routines, keep their own padding.
 - A custom agent is a provider of its own: its reading, its refresh in flight, its last try, and
   its notified periods are its own, under the identifier `custom:<type>:<command>`. Two custom
   agents, or a custom agent and the built-in one of its type, read and notify separately, and
@@ -151,7 +164,8 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
   report rate limits. Update Codex.`, `Codex reports no subscription quota. Sign in with ChatGPT:
   ~/bin/codex-team login.`, `Antigravity is not signed in. Run agy-alt and sign in.`, and
   `Antigravity answered /usage in an unknown form. Update agy-alt.` (`codex-team` there is the
-  name); the others are unchanged.
+  name; every other message names the command as typed, a path included: `Update
+  ~/bin/agy-alt.`); the others are unchanged.
 
 ## Storage
 
@@ -260,8 +274,9 @@ rewrites those lines. The mockup is [`mockups/CAG.html`](mockups/CAG.html).
     `~/.local/bin`, then `PATH`, in that order.
   - Each custom row is an `Adw.ActionRow` (`use-markup` false, `subtitle-selectable` off) with a
     suffix box holding the trash `Gtk.Button` and a `Gtk.Switch`, so only the switch is made
-    insensitive. The new row is an `Adw.ActionRow` whose prefix is a `Gtk.Entry` and whose
-    suffixes are a `Gtk.DropDown` and the trash button. Each row's check has its own
+    insensitive. The new row is an `Adw.ActionRow` whose prefix is a vertical box holding the
+    `Gtk.Entry` and the hint label under it, and whose suffixes are a `Gtk.DropDown` and the
+    trash button. Each row's check has its own
     cancellable, cancelled on removal; a result for a row no longer listed is dropped.
   - The extension follows `changed::custom-agents` and reconciles: providers removed, switched
     off, or whose type changed are cancelled and forgotten; unchanged ones keep their state.
