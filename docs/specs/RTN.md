@@ -181,7 +181,7 @@ A routine's state is the first of these that applies, from its timer and its ser
   request list gives way first, as QOP's menu height says; then the scroll area shrinks too, but
   never below min(rows, 3) single-line rows. **Preferences…** stays in view whenever the screen
   holds the menu with that floor. On a shorter screen (under about 570 px with the three quota
-  providers, more with CAG's custom agents), GNOME Shell's menu height limit cuts the menu, as
+  providers and no line under the heading; more with CAG's custom agents or heading lines), GNOME Shell's menu height limit cuts the menu, as
   QOP's menu height says.
 - Each row holds, from left to right: a status icon, the name, the status text, the next run,
   and two icon buttons, **Run now** and **View logs**. (MENU-ROUTINES)
@@ -205,12 +205,14 @@ A routine's state is the first of these that applies, from its timer and its ser
     causes.
   - A watched routine with no state read yet, whose read fails, has no row: a dimmed line under
     the heading reads `Could not read <name>: <cause>`, one per such routine, sorted by name.
+    That line goes once a read of the routine succeeds, or the routine stops being watched.
   - A failure of the read as a whole (a lost connection, or a manager call that concerns every
-    routine) shows one line under the heading, `Could not read systemd: <cause>`, and the rows
-    get no read line of their own.
-  - After the name lost its owner, the line under the heading reads `systemd is not running`, and
-    the read lines of the rows go away; a read line shows again only after a new failed read of
-    that routine. Start and terminal lines follow their own rules.
+    routine) shows one line under the heading, `Could not read systemd: <cause>`, in place of
+    every `Could not read <name>` line, under the heading or under a row.
+  - After the name lost its owner, the line under the heading reads `systemd is not running`, in
+    place of every `Could not read <name>` line the same way.
+  - A `Could not read <name>` line replaced so shows again only after a new failed read of that
+    routine. Start and terminal lines follow their own rules.
 - Keyboard: a row is a static item (it takes no focus and a click on it opens nothing); its two
   buttons take the focus in order with Tab and act on Enter or Space. A read updates the rows in
   place: a focused button keeps the focus while its row and action still exist.
@@ -280,8 +282,8 @@ A routine's state is the first of these that applies, from its timer and its ser
 - A failed run is identified by its service and the service's `StateChangeTimestampMonotonic`,
   and a timer failure by the timer's unit name and its own `StateChangeTimestampMonotonic`, so a re-read does not notify it twice,
   and a later failed run notifies again. Two watched timers that activate the same service share
-  its failed runs: such a run notifies once, under the first name by sort order. A timer failure
-  belongs to its timer alone and notifies under its name.
+  its failed runs: such a run notifies once, under a name chosen as the rules below say. A timer
+  failure belongs to its timer alone and notifies under its name.
 - Greenlight reads states, not events: a run that fails and is followed by another run before
   Greenlight reads (with D-Bus signals, within the same second; with the polling fallback of
   RTN-P1, within 30 seconds) is not observed and does not notify.
