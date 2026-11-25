@@ -2,7 +2,7 @@
 code: TAB
 status: active
 version: v1.5
-amended: [v1.6]
+amended: [v1.5, v1.6]
 created: 2026-11-24
 builds-on: PRM
 tracking: "#57"
@@ -49,8 +49,9 @@ is [`mockups/TAB.html`](mockups/TAB.html).
   **Accounts and organizations**, then one block per owner. Their rows, texts, and behavior are
   unchanged. (PREFS-PR)
 - **Agents** holds QTA's **Agent quotas** group: the **Claude**, **Codex**, and **Antigravity**
-  switches, **Refresh every**, and **Notify at**, with their availability checks, which still
-  start when the window opens, whatever tab is shown. (PREFS-AGENTS)
+  switches, **Refresh every**, and **Notify at**, then CAG's **Custom agents** group, with their
+  availability checks, which still start when the window opens, whatever tab is shown.
+  (PREFS-AGENTS)
 - **Routines** holds RTN's **Routines** group: one switch per systemd user timer, read when the
   window opens. (PREFS-ROUTINES)
 - **About** holds ABT's **Version** and **Source code** rows. It has no setting. (PREFS-ABOUT)
@@ -135,7 +136,8 @@ is [`mockups/TAB.html`](mockups/TAB.html).
     owner added by **Add** or **Discover accounts**, a removed one, a paused or resumed one, a
     mode or a repository switch that changes the stored scope, and a move are changes. A filter
     text, an open or closed list, and a scroll position are not settings.
-- The settings of **Agents** are the three switches, **Refresh every**, and **Notify at**.
+- The settings of **Agents** are the three switches, **Refresh every**, **Notify at**, and the
+  custom agents (CAG): one list setting, compared as a whole with its baseline.
 - The setting of **Routines** is the set of watched timers (RTN): its baseline is the stored
   `watched-routines`, and it has unsaved changes when the set of switches on differs from it,
   whatever the order. A read of systemd that is still running or that failed changes nothing: the

@@ -19,6 +19,7 @@ new `src/*.js` modules on its own.
 | `src/preview.js` | GraphQL queries and check-rollup classification (pure) |
 | `src/github.js` | gh failure explanations and the owner reachability query (pure) |
 | `src/quotas.js` | Agent quota parsing, labels, pace, and notification periods (pure) |
+| `src/customagents.js` | Custom agent commands: forms, clash rules, `custom-agents` storage, identifiers, comparison (pure) |
 | `src/agents.js` | Finds and runs the claude, codex, and agy CLIs for quotas; shared by extension and prefs |
 | `src/changes.js` | Unsaved changes of the preferences: tabs with changes and keys a save writes (pure) |
 | `src/save.js` | The save batch of the preferences window: values that differ, locked keys refuse it (pure) |

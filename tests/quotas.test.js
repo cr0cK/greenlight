@@ -3,6 +3,7 @@ import {test} from 'node:test';
 
 import {
     MESSAGES,
+    PROVIDERS,
     codexMessages,
     formatAge,
     forgetPeriods,
@@ -18,6 +19,8 @@ import {
     trackPeriods,
     windowLabel,
 } from '../src/quotas.js';
+
+const ALL = Object.values(PROVIDERS);
 
 // Local times in formatReset follow the runner's zone; pin it.
 process.env.TZ = 'UTC';
@@ -100,7 +103,7 @@ test('reads the subscription windows of claude /usage', () => {
 test('tells an unusable claude from a transient failure', () => {
     // Signed out, or on an API key: /usage prints the session costs.
     assert.deepEqual(parseClaudeUsage(claudeAnswer('Total cost:            $0.0000\nUsage: 0 input'), NOW),
-        {status: 'unavailable', message: MESSAGES.claudeNotSubscribed});
+        {status: 'unavailable', message: MESSAGES.claudeNotSubscribed()});
     assert.deepEqual(parseClaudeUsage(claudeAnswer(SUBSCRIPTION + 'Something new: 40%'), NOW),
         {status: 'unavailable', message: MESSAGES.claudeUnknown});
     assert.deepEqual(parseClaudeUsage(claudeAnswer('API Error: 529 Overloaded\nretry', {is_error: true}), NOW),
@@ -160,7 +163,7 @@ test('reads the codex bucket and its windows', () => {
     assert.deepEqual(parseCodexResponse({id: 2, result: {
         rateLimits: bucket({usedPercent: 92, windowDurationMins: 300, resetsAt: 1}),
         rateLimitsByLimitId: {review: bucket({usedPercent: 92, windowDurationMins: 300, resetsAt: 1})},
-    }}), {status: 'unavailable', message: MESSAGES.codexNoQuota});
+    }}), {status: 'unavailable', message: MESSAGES.codexNoQuota()});
 
     // Without the map, the legacy single bucket; a window without a length reads Quota.
     const legacy = parseCodexResponse({id: 2, result: {
@@ -173,14 +176,14 @@ test('reads the codex bucket and its windows', () => {
 test('tells an unusable codex from a transient failure', () => {
     assert.deepEqual(parseCodexResponse({id: 2, error: {code: -32600,
         message: 'codex account authentication required to read rate limits'}}),
-    {status: 'unavailable', message: MESSAGES.codexNotSignedIn});
+    {status: 'unavailable', message: MESSAGES.codexNotSignedIn()});
     assert.deepEqual(parseCodexResponse({id: 2, error: {code: -32601, message: 'Method not found'}}),
-        {status: 'unavailable', message: MESSAGES.codexTooOld});
+        {status: 'unavailable', message: MESSAGES.codexTooOld()});
     assert.deepEqual(parseCodexResponse({id: 2, error: {code: -32600,
         message: 'Invalid request: unknown variant `account/rateLimits/read`'}}),
-    {status: 'unavailable', message: MESSAGES.codexTooOld});
+    {status: 'unavailable', message: MESSAGES.codexTooOld()});
     assert.deepEqual(parseCodexResponse({id: 2, result: {rateLimits: {primary: null, secondary: null}}}),
-        {status: 'unavailable', message: MESSAGES.codexNoQuota});
+        {status: 'unavailable', message: MESSAGES.codexNoQuota()});
     assert.deepEqual(parseCodexResponse({id: 2, error: {code: -32603, message: 'upstream timeout'}}),
         {status: 'failed', message: 'upstream timeout'});
 });
@@ -243,7 +246,7 @@ test('shows only the agy buckets that carry a fraction', () => {
 });
 
 test('tells an unusable agy from a transient failure', () => {
-    const unknown = {status: 'unavailable', message: MESSAGES.agyUnknown};
+    const unknown = {status: 'unavailable', message: MESSAGES.agyUnknown()};
     const noQuota = {status: 'unavailable', message: MESSAGES.agyNoQuota};
     // No Gemini Models group, or groups without a Gemini window.
     assert.deepEqual(parseAgy(agyAnswer([OTHER])), noQuota);
@@ -298,7 +301,7 @@ test('recognizes an agy authentication error by its failure phrase', () => {
 
 test('reads an agy error answer: authentication errors are unavailable, others transient', () => {
     const error = (extra, exit = {exitCode: 1}) => parseAgy(JSON.stringify({status: 'ERROR', ...extra}), exit);
-    const signedOut = {status: 'unavailable', message: MESSAGES.agyNotSignedIn};
+    const signedOut = {status: 'unavailable', message: MESSAGES.agyNotSignedIn()};
     assert.deepEqual(error({response: '', error: 'authentication failed or timed out'}), signedOut);
     assert.deepEqual(error({response: 'Not signed in\nsee logs'}), signedOut);
     assert.deepEqual(error({response: 'fine', error: 'Unauthorized'}), signedOut);
@@ -335,12 +338,12 @@ test('formats resets and ages', () => {
 });
 
 test('names the window in notifications', () => {
-    assert.equal(notificationTitle('claude', {label: 'Week', usedPercent: 82.4}), 'Claude weekly quota at 82 %');
-    assert.equal(notificationTitle('codex', {label: '5 h', usedPercent: 90}), 'Codex 5-hour quota at 90 %');
-    assert.equal(notificationTitle('codex', {label: '30 d', usedPercent: 85}), 'Codex 30-day quota at 85 %');
-    assert.equal(notificationTitle('codex', {label: 'Quota', usedPercent: 85}), 'Codex quota at 85 %');
-    assert.equal(notificationTitle('codex', {label: '90 min', usedPercent: 85}), 'Codex 90-minute quota at 85 %');
-    assert.equal(notificationTitle('codex', {label: '1 d', usedPercent: 85}), 'Codex 1-day quota at 85 %');
+    assert.equal(notificationTitle(PROVIDERS.claude, {label: 'Week', usedPercent: 82.4}), 'Claude weekly quota at 82 %');
+    assert.equal(notificationTitle(PROVIDERS.codex, {label: '5 h', usedPercent: 90}), 'Codex 5-hour quota at 90 %');
+    assert.equal(notificationTitle(PROVIDERS.codex, {label: '30 d', usedPercent: 85}), 'Codex 30-day quota at 85 %');
+    assert.equal(notificationTitle(PROVIDERS.codex, {label: 'Quota', usedPercent: 85}), 'Codex quota at 85 %');
+    assert.equal(notificationTitle(PROVIDERS.codex, {label: '90 min', usedPercent: 85}), 'Codex 90-minute quota at 85 %');
+    assert.equal(notificationTitle(PROVIDERS.codex, {label: '1 d', usedPercent: 85}), 'Codex 1-day quota at 85 %');
 });
 
 test('notifies each period once, after a quiet baseline', () => {
@@ -399,17 +402,17 @@ test('keeps agy periods apart by slot and stores them in the cache', () => {
         ({slot, label: 'Week', usedPercent: 82, durationSeconds: 604800, resetsAt: reset}));
     const tracked = trackPeriods({provider: 'agy', windows, notified: [], threshold: 80, baseline: false, now: NOW});
     assert.deepEqual(tracked.notified, ['agy:gemini-5h:' + reset, 'agy:gemini-weekly:' + reset]);
-    assert.equal(notificationTitle('agy', windows[1]), 'Antigravity weekly quota at 82 %');
-    assert.equal(notificationTitle('agy', {...windows[0], label: '5 h'}), 'Antigravity 5-hour quota at 82 %');
+    assert.equal(notificationTitle(PROVIDERS.agy, windows[1]), 'Antigravity weekly quota at 82 %');
+    assert.equal(notificationTitle(PROVIDERS.agy, {...windows[0], label: '5 h'}), 'Antigravity 5-hour quota at 82 %');
     assert.deepEqual(forgetPeriods(tracked.notified, 'agy'), []);
 
     const cache = readQuotaCache(JSON.stringify({
         providers: {agy: {windows, readAt: NOW}}, notified: tracked.notified,
-    }));
+    }), ALL);
     assert.deepEqual(cache, {providers: {agy: {windows, readAt: NOW}}, notified: tracked.notified});
     // A Claude slot is not an Antigravity one.
     const stray = JSON.stringify({providers: {agy: {windows: [{...windows[0], slot: 'session'}], readAt: NOW}}});
-    assert.deepEqual(readQuotaCache(stray).providers, {});
+    assert.deepEqual(readQuotaCache(stray, ALL).providers, {});
 });
 
 test('compares the rounded percentage with the threshold', () => {
@@ -420,7 +423,7 @@ test('compares the rounded percentage with the threshold', () => {
     }).alerts.length;
     assert.equal(track(79.4), 0);
     assert.equal(track(79.5), 1);
-    assert.equal(notificationTitle('claude', window(79.5)), 'Claude weekly quota at 80 %');
+    assert.equal(notificationTitle(PROVIDERS.claude, window(79.5)), 'Claude weekly quota at 80 %');
 });
 
 test('forgets the periods of one provider', () => {
@@ -430,7 +433,7 @@ test('forgets the periods of one provider', () => {
 });
 
 test('reads the quota cache defensively', () => {
-    assert.deepEqual(readQuotaCache('not json'), {providers: {}, notified: []});
+    assert.deepEqual(readQuotaCache('not json', ALL), {providers: {}, notified: []});
     const window = {
         slot: 'primary', label: 'Week', usedPercent: 16, durationSeconds: 604800, resetsAt: 1795007850,
     };
@@ -441,15 +444,15 @@ test('reads the quota cache defensively', () => {
             other: {windows: [window], readAt: NOW},
         },
         notified: ['codex:primary:1795007850', 'codex:Week:1795007850', 'other:week:1', 3],
-    })), {providers: {codex: {windows: [window], readAt: NOW}}, notified: ['codex:primary:1795007850']});
+    }), ALL), {providers: {codex: {windows: [window], readAt: NOW}}, notified: ['codex:primary:1795007850']});
 
     // A slot of another provider, a missing one, or a malformed number rejects the reading.
     for (const bad of [{slot: 'week'}, {slot: undefined}, {resetsAt: 'soon'}, {durationSeconds: undefined}]) {
         const cache = JSON.stringify({providers: {codex: {windows: [{...window, ...bad}], readAt: NOW}}});
-        assert.deepEqual(readQuotaCache(cache).providers, {}, JSON.stringify(bad));
+        assert.deepEqual(readQuotaCache(cache, ALL).providers, {}, JSON.stringify(bad));
     }
     const empty = JSON.stringify({providers: {codex: {windows: [], readAt: NOW}}});
-    assert.deepEqual(readQuotaCache(empty).providers, {});
+    assert.deepEqual(readQuotaCache(empty, ALL).providers, {});
 });
 
 test('drops a cached reading written before windows had slots', () => {
@@ -457,5 +460,5 @@ test('drops a cached reading written before windows had slots', () => {
     assert.deepEqual(readQuotaCache(JSON.stringify({
         providers: {codex: {windows: [old], readAt: NOW}},
         notified: ['codex:Week:1795007850'],
-    })), {providers: {}, notified: []});
+    }), ALL), {providers: {}, notified: []});
 });

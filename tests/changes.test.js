@@ -30,6 +30,7 @@ const opened = () => ({
     owners: [owner('acme'), owner('octo', {kind: 'user'})],
     ownerOrder: ['acme', 'octo'],
     switches: {'claude-quota-enabled': true, 'codex-quota-enabled': false},
+    customAgents: [],
     quotaInterval: 60,
     threshold: 80,
     routines: ['nightly-report.timer'],

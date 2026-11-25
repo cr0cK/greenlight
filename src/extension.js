@@ -47,6 +47,7 @@ import {
     statusText,
 } from './routines.js';
 import {RoutineWatcher, errorMessage, openLogs} from './systemd.js';
+import {enabledProviders, readCustomAgents} from './customagents.js';
 import {
     PROVIDERS,
     formatAge,
@@ -81,6 +82,9 @@ const LOOKUP_LIMIT = 20;
 const QUOTA_BAR_WIDTH = 160;
 // Static quota rows are tight so that, on a short screen, the pull request list keeps a few rows.
 const QUOTA_ITEM_STYLE = 'padding-top: 3px; padding-bottom: 3px;';
+// The agent quota rows are tighter still: with the five custom agents (CAG) the section must fit a
+// 1280x800 screen with Refresh now, quick open, and Preferences.
+const AGENT_QUOTA_ITEM_STYLE = 'padding-top: 1px; padding-bottom: 1px;';
 // Opening the menu refreshes quotas last tried longer ago than this.
 const QUOTA_STALE_SECONDS = 300;
 // The routine rows scroll when there are more than this many single-line rows, and keep at
@@ -354,7 +358,7 @@ export default class GreenlightExtension extends Extension {
         this._hasNoScopes = false;
         this._filterRefreshSourceId = 0;
         this._refreshAfterCurrent = false;
-        // Per provider: last windows and readAt, status, message, and the refresh in flight.
+        // Per provider identifier: last windows and readAt, status, message, and the refresh in flight.
         this._quotaState = {};
         this._quotaNotified = [];
         this._quotaSourceId = 0;
@@ -419,8 +423,9 @@ export default class GreenlightExtension extends Extension {
             this._settings.connect('changed::author-filter', () => this._scheduleFilterRefresh()),
             // The order only re-sorts the pull requests already loaded: no gh call.
             this._settings.connect('changed::owner-order', () => this._renderPullRequestList()),
-            ...Object.entries(PROVIDERS).map(([provider, {setting}]) =>
-                this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(provider))),
+            ...Object.values(PROVIDERS).map(({id, setting}) =>
+                this._settings.connect('changed::' + setting, () => this._onQuotaProviderChanged(id))),
+            this._settings.connect('changed::custom-agents', () => this._reconcileQuotaProviders()),
             this._settings.connect('changed::agent-quota-interval', () => this._scheduleQuotaRefresh()),
             this._settings.connect('changed::agent-quota-threshold', () => this._renderQuotas()),
             this._settings.connect('changed::watched-routines', () => this._syncRoutines()),
@@ -807,20 +812,18 @@ export default class GreenlightExtension extends Extension {
         }
     }
 
-    _quotaEnabled(provider) {
-        return this._settings.get_boolean(PROVIDERS[provider].setting);
+    /** The providers to read and show, in menu order: the built-in agents on, then the custom ones. */
+    _quotaProviders() {
+        return enabledProviders(readCustomAgents(this._settings.get_string('custom-agents')),
+            id => this._settings.get_boolean(PROVIDERS[id].setting));
     }
 
     /** Shows the last readings at once; the first refresh after startup replaces them. */
     _loadQuotaCache() {
-        const cache = readQuotaCache(this._settings.get_string('agent-quota-cache'));
+        const cache = readQuotaCache(this._settings.get_string('agent-quota-cache'), this._quotaProviders());
         this._quotaNotified = cache.notified;
-        for (const provider of Object.keys(PROVIDERS)) {
-            if (!this._quotaEnabled(provider))
-                this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
-            else if (cache.providers[provider])
-                this._quotaState[provider] = {status: 'ok', ...cache.providers[provider]};
-        }
+        for (const [id, reading] of Object.entries(cache.providers))
+            this._quotaState[id] = {status: 'ok', ...reading};
     }
 
     _saveQuotaCache() {
@@ -852,42 +855,66 @@ export default class GreenlightExtension extends Extension {
     }
 
     _refreshQuotas() {
-        for (const provider of Object.keys(PROVIDERS)) {
-            if (this._quotaEnabled(provider))
-                this._refreshQuota(provider);
-        }
+        for (const provider of this._quotaProviders())
+            this._refreshQuota(provider);
     }
 
     /** Opening the menu refreshes providers not tried for a few minutes. */
     _refreshStaleQuotas() {
         const now = Date.now() / 1000;
-        for (const provider of Object.keys(PROVIDERS)) {
-            const triedAt = this._quotaState[provider]?.triedAt ?? 0;
-            if (this._quotaEnabled(provider) && now - triedAt > QUOTA_STALE_SECONDS)
+        for (const provider of this._quotaProviders()) {
+            const triedAt = this._quotaState[provider.id]?.triedAt ?? 0;
+            if (now - triedAt > QUOTA_STALE_SECONDS)
                 this._refreshQuota(provider);
         }
     }
 
+    /** Cancels a provider's refresh and forgets its reading and its notified periods. */
+    _forgetQuotaProvider(id) {
+        this._quotaState[id]?.cancellable?.cancel();
+        delete this._quotaState[id];
+        this._quotaNotified = forgetPeriods(this._quotaNotified, id);
+    }
+
     /**
-     * A disabled provider forgets its reading and its notified periods, so enabling it again
-     * starts a quiet baseline.
+     * A built-in provider switched off forgets its reading and its notified periods, so enabling
+     * it again starts a quiet baseline.
      */
-    _onQuotaProviderChanged(provider) {
-        if (this._quotaEnabled(provider)) {
-            this._refreshQuota(provider);
+    _onQuotaProviderChanged(id) {
+        const enabled = this._settings.get_boolean(PROVIDERS[id].setting);
+        if (enabled) {
+            this._refreshQuota(PROVIDERS[id]);
             return;
         }
-        this._quotaState[provider]?.cancellable?.cancel();
-        delete this._quotaState[provider];
-        this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
+        this._forgetQuotaProvider(id);
         this._saveQuotaCache();
+        this._renderQuotas();
+    }
+
+    /**
+     * A change of the custom agents: the providers removed, switched off, or whose type changed
+     * are cancelled and forgotten, those added or switched on are read, and the others keep their
+     * state and their work in flight.
+     */
+    _reconcileQuotaProviders() {
+        const providers = this._quotaProviders();
+        const ids = new Set(providers.map(provider => provider.id));
+        for (const id of Object.keys(this._quotaState)) {
+            if (!ids.has(id))
+                this._forgetQuotaProvider(id);
+        }
+        this._saveQuotaCache();
+        for (const provider of providers) {
+            if (!this._quotaState[provider.id])
+                this._refreshQuota(provider);
+        }
         this._renderQuotas();
     }
 
     /** Reads one provider through its CLI; a refresh asked while one runs joins it. */
     async _refreshQuota(provider) {
-        const state = this._quotaState[provider] ?? {};
-        this._quotaState[provider] = state;
+        const state = this._quotaState[provider.id] ?? {};
+        this._quotaState[provider.id] = state;
         if (state.cancellable)
             return;
 
@@ -907,14 +934,14 @@ export default class GreenlightExtension extends Extension {
             if (state.cancellable === cancellable)
                 state.cancellable = null;
         }
-        if (!this._enabled || this._quotaState[provider] !== state || cancellable.is_cancelled())
+        if (!this._enabled || this._quotaState?.[provider.id] !== state || cancellable.is_cancelled())
             return;
 
         const now = Date.now() / 1000;
         if (result.status === 'ok') {
             // The first reading since the provider was enabled only sets the baseline.
             const {notified, alerts} = trackPeriods({
-                provider,
+                provider: provider.id,
                 windows: result.windows,
                 notified: this._quotaNotified,
                 threshold: this._settings.get_int('agent-quota-threshold'),
@@ -933,11 +960,11 @@ export default class GreenlightExtension extends Extension {
                 // Nothing proves the old reading still holds: the next one sets a new baseline.
                 delete state.windows;
                 delete state.readAt;
-                this._quotaNotified = forgetPeriods(this._quotaNotified, provider);
+                this._quotaNotified = forgetPeriods(this._quotaNotified, provider.id);
             }
             state.status = result.status;
             state.message = result.message;
-            console.log('Greenlight: ' + PROVIDERS[provider].name + ' quota ' + result.status +
+            console.log('Greenlight: ' + provider.name + ' quota ' + result.status +
                 ': ' + result.message);
         }
         this._saveQuotaCache();
@@ -954,9 +981,8 @@ export default class GreenlightExtension extends Extension {
         this._quotaSection.removeAll();
 
         const now = Date.now() / 1000;
-        const shown = Object.keys(PROVIDERS)
-            .filter(provider => this._quotaEnabled(provider))
-            .map(provider => [provider, this._quotaState[provider]])
+        const shown = this._quotaProviders()
+            .map(provider => [provider, this._quotaState[provider.id]])
             .filter(([, state]) => state?.windows && state.status !== 'unavailable');
         this._quotaShown = shown.length > 0;
         this._updateSectionVisibility();
@@ -964,24 +990,24 @@ export default class GreenlightExtension extends Extension {
             return;
 
         const heading = new PopupMenu.PopupMenuItem('Agent quotas', {reactive: false, can_focus: false});
-        heading.set_style(QUOTA_ITEM_STYLE);
+        heading.set_style(AGENT_QUOTA_ITEM_STYLE);
         heading.label.set_style('font-weight: 600; padding-top: 2px;');
         this._quotaSection.addMenuItem(heading);
 
         for (const [provider, state] of shown) {
             const dimmed = state.status === 'failed';
             // A long name takes its own line above its windows instead of the name column.
-            const ownLine = PROVIDERS[provider].nameOnOwnLine;
+            const ownLine = provider.nameOnOwnLine;
             if (ownLine)
-                this._quotaSection.addMenuItem(this._createQuotaName(PROVIDERS[provider].name, dimmed));
+                this._quotaSection.addMenuItem(this._createQuotaName(provider.name, dimmed));
             state.windows.forEach((window, index) => {
                 this._quotaSection.addMenuItem(this._createQuotaItem(
-                    index === 0 && !ownLine ? PROVIDERS[provider].name : '', window, now, dimmed));
+                    index === 0 && !ownLine ? provider.name : '', window, now, dimmed));
             });
             if (dimmed) {
-                const cause = PROVIDERS[provider].name + ': ' + state.message + ' · last reading ' +
+                const cause = provider.name + ': ' + state.message + ' · last reading ' +
                     formatAge(now - state.readAt);
-                const item = this._createQuotaRow();
+                const item = this._createQuotaRow(AGENT_QUOTA_ITEM_STYLE);
                 const label = createDimLabel(cause, {style: 'max-width: 34em; font-size: smaller;'});
                 wrapLabel(label);
                 item.add_child(label);
@@ -990,7 +1016,7 @@ export default class GreenlightExtension extends Extension {
         }
 
         const oldest = Math.min(...shown.map(([, state]) => state.readAt));
-        const footer = this._createQuotaRow();
+        const footer = this._createQuotaRow(AGENT_QUOTA_ITEM_STYLE);
         footer.add_child(createDimLabel('Updated ' + formatAge(now - oldest), {style: 'font-size: smaller;'}));
         this._quotaSection.addMenuItem(footer);
     }
@@ -1009,15 +1035,15 @@ export default class GreenlightExtension extends Extension {
     }
 
     /** A static row of the quota section: no activation, hover, or focus. */
-    _createQuotaRow() {
+    _createQuotaRow(style = QUOTA_ITEM_STYLE) {
         const item = new PopupMenu.PopupBaseMenuItem({activate: false, hover: false, can_focus: false});
-        item.set_style(QUOTA_ITEM_STYLE);
+        item.set_style(style);
         return item;
     }
 
     /** A provider's name on its own line, above its windows. */
     _createQuotaName(name, dimmed) {
-        const item = this._createQuotaRow();
+        const item = this._createQuotaRow(AGENT_QUOTA_ITEM_STYLE);
         item.add_child(new St.Label({text: name, style: 'font-weight: bold;'}));
         if (dimmed)
             item.opacity = 140;
@@ -1026,7 +1052,7 @@ export default class GreenlightExtension extends Extension {
 
     /** One window: provider, label, bar with its pace mark, percentage, and reset. */
     _createQuotaItem(name, window, now, dimmed) {
-        const item = this._createQuotaRow();
+        const item = this._createQuotaRow(AGENT_QUOTA_ITEM_STYLE);
         const expired = window.resetsAt !== null && window.resetsAt <= now;
         const used = expired ? 0 : Math.round(window.usedPercent);
         const threshold = this._settings.get_int('agent-quota-threshold');
