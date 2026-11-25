@@ -669,9 +669,14 @@ export class RoutineWatcher {
     _listen(path) {
         if (this._pathSignals.has(path))
             return;
+        const session = this._session;
         this._pathSignals.set(path, this._connection.signal_subscribe(
             BUS_NAME, PROPERTIES, 'PropertiesChanged', path, null, Gio.DBusSignalFlags.NONE,
-            () => this._request()));
+            () => {
+                // A late delivery of a closed connection must not read over a newer one.
+                if (this._session === session)
+                    this._request();
+            }));
     }
 
     /** Drops the listeners of paths that no watched timer or service of a read has any more. */
