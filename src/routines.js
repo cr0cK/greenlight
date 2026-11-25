@@ -288,6 +288,9 @@ export function terminalExitText(service, terminal, {signal = 0, status = 0} = {
 /** How long a started terminal process is watched for an exit, in milliseconds. */
 export const TERMINAL_WATCH_MS = 5000;
 
+/** Whether an exit learned `elapsedMs` after the start still counts: a stalled loop learns late. */
+export const withinTerminalWatch = elapsedMs => elapsedMs <= TERMINAL_WATCH_MS;
+
 /** The line under a row after a start that did not happen. */
 export function startErrorText(name, reason) {
     return 'Could not start ' + name + ': ' + reason;

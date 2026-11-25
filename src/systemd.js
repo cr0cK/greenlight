@@ -8,7 +8,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import {findCli} from './agents.js';
-import {JobWait, NO_ANSWER_REASON, TERMINAL_WATCH_MS, chooseTerminal, terminalErrorText, terminalExitText} from './routines.js';
+import {JobWait, NO_ANSWER_REASON, TERMINAL_WATCH_MS, chooseTerminal, terminalErrorText, terminalExitText, withinTerminalWatch} from './routines.js';
 
 const BUS_NAME = 'org.freedesktop.systemd1';
 const MANAGER_PATH = '/org/freedesktop/systemd1';
@@ -198,6 +198,7 @@ export function openLogs(service, cancellable = null, onFailure = null) {
     const argv = chooseTerminal(service, findCli);
     if (argv === null)
         return terminalErrorText(service);
+    const started = GLib.get_monotonic_time();
     let process;
     try {
         const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.NONE});
@@ -207,12 +208,12 @@ export function openLogs(service, cancellable = null, onFailure = null) {
         return terminalErrorText(service, errorMessage(error));
     }
     if (onFailure)
-        watchTerminal(process, service, argv[0], cancellable, onFailure);
+        watchTerminal(process, service, argv[0], cancellable, onFailure, started);
     return null;
 }
 
 // Ending the watch never touches the process: GLib reaps it when it exits.
-function watchTerminal(process, service, terminal, parent, onFailure) {
+function watchTerminal(process, service, terminal, parent, onFailure, started) {
     if (parent?.is_cancelled())
         return;
     const watch = new Gio.Cancellable();
@@ -240,6 +241,8 @@ function watchTerminal(process, service, terminal, parent, onFailure) {
         } catch {
             return;
         }
+        if (!withinTerminalWatch((GLib.get_monotonic_time() - started) / 1000))
+            return;
         const text = terminalExitText(service, terminal, source.get_if_signaled()
             ? {signal: source.get_term_sig()}
             : {status: source.get_exit_status()});

@@ -30,6 +30,7 @@ import {
     TERMINAL_WATCH_MS,
     terminalErrorText,
     terminalExitText,
+    withinTerminalWatch,
     routineName,
     sameWatched,
     sortRoutines,
@@ -698,4 +699,10 @@ test('a clean exit of the terminal notifies nothing', () => {
 
 test('the terminal is watched for 5 seconds', () => {
     assert.equal(TERMINAL_WATCH_MS, 5000);
+});
+
+test('an exit learned after the 5 seconds does not count', () => {
+    assert.equal(withinTerminalWatch(0), true);
+    assert.equal(withinTerminalWatch(5000), true);
+    assert.equal(withinTerminalWatch(5001), false);
 });
