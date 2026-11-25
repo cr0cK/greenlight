@@ -45,6 +45,10 @@ rewritten by RTN-P3. The mockup is [`mockups/RTN.html`](mockups/RTN.html).
   disabled, not over GNOME Shell's shared one: systemd counts subscribers by bus name, so a
   connection of its own keeps Greenlight's `Subscribe()` and `Unsubscribe()` from touching other
   code's, and closing it ends the subscription.
+- Closing that connection, when the extension is disabled or the last routine stops being
+  watched, first detaches the watcher from it: a callback that fires while the name watch and the
+  connection come down (a vanished owner, a manager signal, the connection's `closed`) changes no
+  state and redraws nothing.
 - The timers are the units that `ListUnitsByPatterns([], ['*.timer'])` returns (every timer the
   user instance has loaded, active or not) whose `Timer.Unit` ends with `.service`. A timer file
   that is not loaded is not listed.
