@@ -12,6 +12,7 @@ import {
     failureCause,
     failureNotification,
     hasFailedRoutine,
+    headingFailureLines,
     indicatorName,
     isSet,
     jobResultReason,
@@ -22,6 +23,7 @@ import {
     nextRunTime,
     nextText,
     normalizeWatched,
+    readFailureText,
     readRoutine,
     runAccessibleName,
     startErrorText,
@@ -630,4 +632,24 @@ test('the dot shows while a routine is failed, stale or not, and the indicator n
     assert.equal(indicatorName(routines), 'Greenlight, a routine failed');
     assert.equal(hasFailedRoutine([{...failed('b-job'), stale: true}]), true);
     assert.equal(hasFailedRoutine([read({}, null)]), false);
+});
+
+test('a routine whose read failed gets its own line, named without the timer suffix', () => {
+    assert.equal(readFailureText('sync-mail.timer', 'Timeout was reached'),
+        'Could not read sync-mail: Timeout was reached');
+    assert.equal(readFailureText('sync-mail.timer', 'Access denied'),
+        'Could not read sync-mail: Access denied');
+});
+
+test('heading failure lines cover routines with no row, one each, sorted by name', () => {
+    const failures = new Map([
+        ['zeta.timer', 'Timeout was reached'],
+        ['alpha.timer', 'Access denied'],
+        ['has-row.timer', 'Timeout was reached'],
+    ]);
+    assert.deepEqual(headingFailureLines(failures, new Set(['has-row.timer'])), [
+        'Could not read alpha: Access denied',
+        'Could not read zeta: Timeout was reached',
+    ]);
+    assert.deepEqual(headingFailureLines(new Map(), new Set()), []);
 });

@@ -276,6 +276,23 @@ export function startErrorText(name, reason) {
     return 'Could not start ' + name + ': ' + reason;
 }
 
+/** The dimmed line of a routine whose own read failed: under its row, or under the heading. */
+export function readFailureText(unit, cause) {
+    return 'Could not read ' + routineName(unit) + ': ' + cause;
+}
+
+/**
+ * The lines under the heading for watched routines whose read failed before any state was read:
+ * those of `failures` (unit to cause) without a row in `loaded` (the units that have one), sorted
+ * by name.
+ */
+export function headingFailureLines(failures, loaded) {
+    return sortRoutines([...failures.keys()]
+        .filter(unit => !loaded.has(unit))
+        .map(unit => ({name: routineName(unit), unit})))
+        .map(({unit}) => readFailureText(unit, failures.get(unit)));
+}
+
 /**
  * What a job result adds to the row, or null: `done` is a start, and `failed` shows in the row's
  * own Failed state, so neither needs a line. Any other result (`dependency`, `canceled`,
