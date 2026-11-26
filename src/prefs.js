@@ -7,7 +7,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {readOwnerFilters} from './filters.js';
-import {describeGhFailure} from './github.js';
+import {describeGhFailure, timeoutResult} from './github.js';
 import {
     bannerTitle,
     classifyShortcut,
@@ -63,7 +63,7 @@ const INTERVAL_LABELS = [
 /** The failure of a gh call that ran out of time, explained as a network failure. */
 function timeoutError() {
     const error = new Error('gh request timed out');
-    error.ghResult = {exitCode: -1, stderr: 'timeout: gh request timed out'};
+    error.ghResult = timeoutResult();
     return error;
 }
 

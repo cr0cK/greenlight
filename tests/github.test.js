@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {describeGhFailure, parseReachability, reachabilityArguments} from '../src/github.js';
+import {describeGhFailure, parseReachability, reachabilityArguments, timeoutResult} from '../src/github.js';
 
 test('explains gh failures by cause', () => {
     assert.equal(describeGhFailure({exitCode: 4, stderr: ''}).kind, 'auth');
@@ -19,6 +19,14 @@ test('explains gh failures by cause', () => {
         {kind: 'other', message: 'gh failed: Something odd', detail: 'Something odd'});
     assert.deepEqual(describeGhFailure({exitCode: 2, stderr: ''}),
         {kind: 'other', message: 'gh failed with exit code 2.', detail: null});
+});
+
+test('explains a gh timeout as a network failure', () => {
+    assert.deepEqual(describeGhFailure(timeoutResult()), {
+        kind: 'network',
+        message: 'Could not reach GitHub. Check the network connection.',
+        detail: 'timeout: gh request timed out',
+    });
 });
 
 test('checks owners and selected repositories in one query, through variables', () => {
