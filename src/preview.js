@@ -70,13 +70,17 @@ export function lookupArguments(repositories, number) {
 
 /**
  * Maps a lookup response back to its repositories. A missing or inaccessible repository and a
- * missing number both read as not found; a response without data throws. updatedAt is the last
- * activity as GitHub returns it, or null when absent.
+ * missing number both read as not found (NOT_FOUND errors); a response without data, or with any
+ * other error, throws so the lookup fails and is not cached. updatedAt is the last activity as
+ * GitHub returns it, or null when absent.
  */
 export function parseLookupResponse(stdout, repositories) {
-    const data = JSON.parse(stdout)?.data;
+    const response = JSON.parse(stdout);
+    const data = response?.data;
     if (!data || typeof data !== 'object')
         throw new Error('gh api graphql returned no lookup data');
+    if (response.errors?.some(error => error?.type !== 'NOT_FOUND'))
+        throw new Error('gh api graphql returned a lookup error');
 
     return repositories.map((repository, index) => {
         const node = data['r' + index]?.issueOrPullRequest;
