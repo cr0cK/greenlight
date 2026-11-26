@@ -64,4 +64,10 @@ exec env \
     GSETTINGS_BACKEND=keyfile \
     GH_CONFIG_DIR="${GH_CONFIG_DIR:-$HOME/.config/gh}" \
     GH_TOKEN="$GH_TOKEN" \
-    dbus-run-session -- gnome-shell --devkit --wayland
+    dbus-run-session -- bash -c '
+        # The private bus has no systemd: the mock serves the fictional timers of routines.json
+        # on it, and exits with the bus.
+        "$1" "$2" >"$3" 2>&1 &
+        exec gnome-shell --devkit --wayland' sandbox \
+        "$ROOT/scripts/screenshots/systemd-mock" "$ROOT/scripts/screenshots/routines.json" \
+        "$SANDBOX/systemd-mock.log"

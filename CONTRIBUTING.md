@@ -41,7 +41,9 @@ scripts/sandbox.sh --reset  # same, from fresh settings
 ~~~
 
 The sandbox keeps its extensions and settings in ~/.cache/greenlight-sandbox (override with
-GREENLIGHT_SANDBOX) on a private D-Bus session. The devkit window starts with a 1280x800 screen
+GREENLIGHT_SANDBOX) on a private D-Bus session. That session has no systemd, so
+`scripts/screenshots/systemd-mock` stands in for it with the fictional timers of
+`scripts/screenshots/routines.json`. The devkit window starts with a 1280x800 screen
 and can take about 30 seconds to appear the first time. The sandbox copies the desktop's Num Lock
 state on each run. Preferences persist between runs. Close the window and run the script again
 after a code change.
