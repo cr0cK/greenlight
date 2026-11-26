@@ -60,6 +60,13 @@ const INTERVAL_LABELS = [
     '10 minutes',
 ];
 
+/** The failure of a gh call that ran out of time, explained as a network failure. */
+function timeoutError() {
+    const error = new Error('gh request timed out');
+    error.ghResult = {exitCode: -1, stderr: 'timeout: gh request timed out'};
+    return error;
+}
+
 /**
  * Runs one gh command without a shell and bounds discovery calls to 30 seconds. Cancelling the
  * cancellable kills the process.
@@ -100,7 +107,7 @@ function runGh(args, cancellable) {
             try {
                 const [, stdout, stderr] = subprocess.communicate_utf8_finish(result);
                 if (timedOut)
-                    throw new Error('gh request timed out');
+                    throw timeoutError();
                 if (!subprocess.get_if_exited() || subprocess.get_exit_status() !== 0) {
                     // Callers that explain failures read the exit code and message.
                     const error = new Error('gh command failed');
@@ -112,9 +119,7 @@ function runGh(args, cancellable) {
                 }
                 resolve(stdout ?? '');
             } catch (error) {
-                reject(timedOut && !cancellable.is_cancelled()
-                    ? new Error('gh request timed out')
-                    : error);
+                reject(timedOut && !cancellable.is_cancelled() ? timeoutError() : error);
             }
         });
     });
