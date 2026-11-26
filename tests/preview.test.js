@@ -174,3 +174,12 @@ test('maps lookup results back to repositories, missing repositories included', 
     }), ['a/b'])[0].updatedAt, null);
     assert.throws(() => parseLookupResponse('{"errors":[{"type":"RATE_LIMITED"}]}', repositories));
 });
+
+test('a lookup error other than NOT_FOUND fails the lookup, even with partial data', () => {
+    const repositories = ['a/b'];
+    const run = errors => parseLookupResponse(JSON.stringify({data: {r0: null}, errors}), repositories);
+    assert.throws(() => run([{type: 'RATE_LIMITED'}]));
+    assert.throws(() => run([{type: 'NOT_FOUND'}, {type: 'RATE_LIMITED'}]));
+    assert.throws(() => run([{message: 'untyped failure'}]));
+    assert.equal(run([{type: 'NOT_FOUND'}])[0].found, false);
+});
