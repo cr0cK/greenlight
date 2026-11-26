@@ -158,6 +158,13 @@ specifications and the parts of v1.2 on labels, owners, and errors, as the produ
   owner's block comes first; owners found by **Discover accounts** come last, paused unless they
   are the first ones configured. Only one `gh` task runs at a time; its buttons and the banner's
   **Save** are insensitive meanwhile, and closing the window cancels it.
+- **Discover accounts**, **Discover repositories**, and **Add** explain a `gh` command that
+  exits with an error from its exit code and stderr, with the sign-in, network, rate-limit, and
+  first-error-line causes of the menu's error row (see Errors); **Add**'s unknown login keeps its
+  own message. When any of their `gh` commands is killed by its 30-second timeout, the action
+  reads `Could not reach GitHub. Check the network connection.` A `gh` that cannot start, or
+  an answer that cannot be read, shows the action's own message asking to check that `gh` is
+  installed and authenticated.
 - While a tab has unsaved changes, a banner at the top of every tab, titled `Unsaved changes in
   Pull requests` (naming the tabs with changes), has a **Save** button; without unsaved changes
   no banner shows. `Ctrl+S` does the same as **Save**, and nothing in a window without unsaved
