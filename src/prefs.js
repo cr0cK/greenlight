@@ -262,6 +262,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             quotaRows[provider] = new Adw.SwitchRow({
                 title: name,
                 subtitle: 'Checking…',
+                use_markup: false,
                 active: settings.get_boolean(PROVIDERS[provider].setting),
                 sensitive: false,
             });
@@ -749,6 +750,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
         const ownerStatus = new Adw.ActionRow({
             title: 'No owners yet',
             subtitle: 'Discover your gh account or add an owner.',
+            use_markup: false,
         });
         ownersGroup.add(ownerStatus);
 
@@ -1051,6 +1053,7 @@ export default class GreenlightPreferences extends ExtensionPreferences {
 
             const discoverRepositoriesRow = new Adw.ActionRow({
                 title: 'Repositories',
+                use_markup: false,
                 subtitle: owner.ghStatus || (loaded
                     ? owner.availableRepositories.length + ' found'
                     : 'Not loaded yet. Discover them to choose some.'),
