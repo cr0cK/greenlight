@@ -69,6 +69,9 @@ function runGh(args, cancellable) {
     const launcher = new Gio.SubprocessLauncher({flags});
     launcher.setenv('GH_PROMPT_DISABLED', '1', true);
     const process = launcher.spawnv(['gh', ...args]);
+    // Reads stop on the caller's cancel or on the timeout, even when a child of gh still holds
+    // its output open after the process is killed.
+    const reading = new Gio.Cancellable();
     let timedOut = false;
     let timeoutSourceId = GLib.timeout_add_seconds(
         GLib.PRIORITY_DEFAULT,
@@ -77,13 +80,17 @@ function runGh(args, cancellable) {
             timedOut = true;
             timeoutSourceId = 0;
             process.force_exit();
+            reading.cancel();
             return GLib.SOURCE_REMOVE;
         }
     );
-    const cancelledId = cancellable.connect(() => process.force_exit());
+    const cancelledId = cancellable.connect(() => {
+        process.force_exit();
+        reading.cancel();
+    });
 
     return new Promise((resolve, reject) => {
-        process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
+        process.communicate_utf8_async(null, reading, (subprocess, result) => {
             cancellable.disconnect(cancelledId);
             if (timeoutSourceId) {
                 GLib.Source.remove(timeoutSourceId);
@@ -105,7 +112,9 @@ function runGh(args, cancellable) {
                 }
                 resolve(stdout ?? '');
             } catch (error) {
-                reject(error);
+                reject(timedOut && !cancellable.is_cancelled()
+                    ? new Error('gh request timed out')
+                    : error);
             }
         });
     });
