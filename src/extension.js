@@ -14,7 +14,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {nextSearchLimit, readOwnerFilters, searchScopes, withoutUnreachable} from './filters.js';
 import {UNKNOWN_OWNER, initialBlockOrder, orderOwnerSections, readOwnerOrder} from './order.js';
-import {describeGhFailure, parseReachability, reachabilityArguments} from './github.js';
+import {describeGhFailure, parseReachability, reachabilityArguments, timeoutResult} from './github.js';
 import {
     MAX_SUGGESTIONS,
     ageAccessibleText,
@@ -474,6 +474,7 @@ export default class GreenlightExtension extends Extension {
                 GLib.Source.remove(entry.timeoutId);
             entry.timeoutId = 0;
             entry.process.force_exit();
+            entry.reading.cancel();
         }
         this._processes.clear();
         if (this._filterRefreshSourceId) {
@@ -566,24 +567,33 @@ export default class GreenlightExtension extends Extension {
 
     /** Runs gh concurrently with other calls; cancelling the cancellable stops the process. */
     async _runGh(args, cancellable = this._cancellable) {
+        cancellable.set_error_if_cancelled();
         const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE;
         const launcher = new Gio.SubprocessLauncher({flags});
         launcher.setenv('GH_PROMPT_DISABLED', '1', true);
         const process = launcher.spawnv(['gh', ...args]);
-        const entry = {process, timeoutId: 0};
-        this._processes.set(process, entry);
+        // A child of gh can hold the pipes open even after gh exits.
+        const reading = new Gio.Cancellable();
+        const entry = {process, reading, timeoutId: 0};
+        const processes = this._processes;
+        processes.set(process, entry);
 
-        // A stalled network request must not permanently block future refreshes.
+        let timedOut = false;
         entry.timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, () => {
+            timedOut = true;
             entry.timeoutId = 0;
             process.force_exit();
+            reading.cancel();
             return GLib.SOURCE_REMOVE;
         });
-        const cancelledId = cancellable.connect(() => process.force_exit());
+        const cancelledId = cancellable.connect(() => {
+            process.force_exit();
+            reading.cancel();
+        });
 
         return new Promise((resolve, reject) => {
-            process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
-                this._processes.delete(subprocess);
+            process.communicate_utf8_async(null, reading, (subprocess, result) => {
+                const tracked = processes.delete(process);
                 cancellable.disconnect(cancelledId);
                 if (entry.timeoutId) {
                     GLib.Source.remove(entry.timeoutId);
@@ -591,13 +601,18 @@ export default class GreenlightExtension extends Extension {
                 }
                 try {
                     const [, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    reading.set_error_if_cancelled();
                     resolve({
                         exitCode: subprocess.get_if_exited() ? subprocess.get_exit_status() : -1,
                         stdout: stdout ?? '',
                         stderr: stderr ?? '',
                     });
                 } catch (error) {
-                    reject(error);
+                    // Disable clears the tracked calls, including ones with their own caller.
+                    if (timedOut && tracked && !cancellable.is_cancelled())
+                        resolve(timeoutResult());
+                    else
+                        reject(error);
                 }
             });
         });
@@ -624,6 +639,7 @@ export default class GreenlightExtension extends Extension {
         this._errorDetail = null;
         this._renderMenu();
 
+        const cancellable = this._cancellable;
         const authorFilter = this._settings.get_string('author-filter').trim();
         const configured = this._settings.get_boolean('owner-filters-configured');
         const owners = configured
@@ -637,7 +653,7 @@ export default class GreenlightExtension extends Extension {
             let unreachable = {owners: [], repositories: []};
             if (owners.length > 0) {
                 const check = reachabilityArguments(owners);
-                const result = await this._runGh(check.args);
+                const result = await this._runGh(check.args, cancellable);
                 try {
                     unreachable = parseReachability(result.stdout, check.logins, check.repositories);
                 } catch {
@@ -681,7 +697,8 @@ export default class GreenlightExtension extends Extension {
                 let rows;
                 while (limit !== null) {
                     const search = await this._runGh(
-                        [...searchArgs, '--limit', String(limit), ...queryTerms]
+                        [...searchArgs, '--limit', String(limit), ...queryTerms],
+                        cancellable
                     );
                     if (search.exitCode !== 0)
                         throw ghFailure(search);
@@ -720,7 +737,7 @@ export default class GreenlightExtension extends Extension {
             const hasMorePullRequests = searchRows.length > SEARCH_LIMIT || truncatedSearch;
             const snapshot = [];
             for (const row of searchRows.slice(0, SEARCH_LIMIT)) {
-                if (!this._enabled)
+                if (cancellable.is_cancelled())
                     return;
 
                 const [owner, repositoryName] = row.repository.nameWithOwner.split('/');
@@ -733,7 +750,7 @@ export default class GreenlightExtension extends Extension {
                         'pr', 'checks', String(row.number),
                         '--repo', repo,
                         '--json', CHECK_FIELDS,
-                    ]);
+                    ], cancellable);
 
                     // gh pr checks uses exit code 8 when checks are still pending.
                     if (result.exitCode !== 0 && result.exitCode !== 8)
@@ -757,6 +774,8 @@ export default class GreenlightExtension extends Extension {
                         checkError: false,
                     });
                 } catch {
+                    if (cancellable.is_cancelled())
+                        return;
                     const previous = this._readCache()[key];
                     snapshot.push({
                         ...row,
@@ -772,7 +791,7 @@ export default class GreenlightExtension extends Extension {
                 }
             }
 
-            if (!this._enabled)
+            if (cancellable.is_cancelled())
                 return;
 
             const latestFilterSignature = filterSignature(this._settings);
@@ -788,7 +807,7 @@ export default class GreenlightExtension extends Extension {
             this._hasMorePullRequests = hasMorePullRequests;
             this._hasNoScopes = hasNoScopes;
         } catch (error) {
-            if (!this._enabled)
+            if (cancellable.is_cancelled())
                 return;
 
             if (error.ghResult) {
@@ -805,7 +824,7 @@ export default class GreenlightExtension extends Extension {
             console.error('Greenlight: failed to read pull requests: ' + this._error +
                 (this._errorDetail ? ' ' + this._errorDetail : ''));
         } finally {
-            if (this._enabled) {
+            if (this._cancellable === cancellable) {
                 this._loading = false;
                 this._updatePanel();
                 this._renderMenu();

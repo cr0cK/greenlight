@@ -1,3 +1,8 @@
+/** Describes a gh timeout in the same result format as a completed command. */
+export function timeoutResult() {
+    return {exitCode: -1, stdout: '', stderr: 'timeout: gh request timed out'};
+}
+
 /**
  * Explains a failed gh call in words a user can act on. gh exits with 4 when it has no
  * authentication; the other cases are only told apart by their message. `detail` keeps gh's own
