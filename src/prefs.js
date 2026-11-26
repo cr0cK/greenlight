@@ -60,6 +60,13 @@ const INTERVAL_LABELS = [
     '10 minutes',
 ];
 
+/** The failure of a gh call that ran out of time, explained as a network failure. */
+function timeoutError() {
+    const error = new Error('gh request timed out');
+    error.ghResult = {exitCode: -1, stderr: 'timeout: gh request timed out'};
+    return error;
+}
+
 /**
  * Runs one gh command without a shell and bounds discovery calls to 30 seconds. Cancelling the
  * cancellable kills the process.
@@ -69,6 +76,9 @@ function runGh(args, cancellable) {
     const launcher = new Gio.SubprocessLauncher({flags});
     launcher.setenv('GH_PROMPT_DISABLED', '1', true);
     const process = launcher.spawnv(['gh', ...args]);
+    // Reads stop on the caller's cancel or on the timeout, even when a child of gh still holds
+    // its output open after the process is killed.
+    const reading = new Gio.Cancellable();
     let timedOut = false;
     let timeoutSourceId = GLib.timeout_add_seconds(
         GLib.PRIORITY_DEFAULT,
@@ -77,13 +87,17 @@ function runGh(args, cancellable) {
             timedOut = true;
             timeoutSourceId = 0;
             process.force_exit();
+            reading.cancel();
             return GLib.SOURCE_REMOVE;
         }
     );
-    const cancelledId = cancellable.connect(() => process.force_exit());
+    const cancelledId = cancellable.connect(() => {
+        process.force_exit();
+        reading.cancel();
+    });
 
     return new Promise((resolve, reject) => {
-        process.communicate_utf8_async(null, cancellable, (subprocess, result) => {
+        process.communicate_utf8_async(null, reading, (subprocess, result) => {
             cancellable.disconnect(cancelledId);
             if (timeoutSourceId) {
                 GLib.Source.remove(timeoutSourceId);
@@ -93,7 +107,7 @@ function runGh(args, cancellable) {
             try {
                 const [, stdout, stderr] = subprocess.communicate_utf8_finish(result);
                 if (timedOut)
-                    throw new Error('gh request timed out');
+                    throw timeoutError();
                 if (!subprocess.get_if_exited() || subprocess.get_exit_status() !== 0) {
                     // Callers that explain failures read the exit code and message.
                     const error = new Error('gh command failed');
@@ -105,7 +119,7 @@ function runGh(args, cancellable) {
                 }
                 resolve(stdout ?? '');
             } catch (error) {
-                reject(error);
+                reject(timedOut && !cancellable.is_cancelled() ? timeoutError() : error);
             }
         });
     });
@@ -1268,8 +1282,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 updateOwnerStatus(
                     discovered.length + ' owners found, including ' + account + '.'
                 );
-            }, () => {
-                updateOwnerStatus('Could not discover owners. Check that gh is installed and authenticated.');
+            }, error => {
+                updateOwnerStatus(error?.ghResult
+                    ? describeGhFailure(error.ghResult).message
+                    : 'Could not discover owners. Check that gh is installed and authenticated.');
             });
         });
 
