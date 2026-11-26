@@ -1282,8 +1282,10 @@ export default class GreenlightPreferences extends ExtensionPreferences {
                 updateOwnerStatus(
                     discovered.length + ' owners found, including ' + account + '.'
                 );
-            }, () => {
-                updateOwnerStatus('Could not discover owners. Check that gh is installed and authenticated.');
+            }, error => {
+                updateOwnerStatus(error?.ghResult
+                    ? describeGhFailure(error.ghResult).message
+                    : 'Could not discover owners. Check that gh is installed and authenticated.');
             });
         });
 
