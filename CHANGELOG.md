@@ -5,6 +5,28 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.5.0](https://github.com/cr0cK/greenlight/compare/v1.4.0...v1.5.0) (2026-11-26)
+
+
+### Added
+
+* add custom agents to the agent quotas ([#75](https://github.com/cr0cK/greenlight/issues/75)) ([c6d4852](https://github.com/cr0cK/greenlight/commit/c6d485266509bd8e8c28645741773cc1f01fedf6))
+* notify routine failures and mark them on the panel ([#71](https://github.com/cr0cK/greenlight/issues/71)) ([1d2e96b](https://github.com/cr0cK/greenlight/commit/1d2e96b6a66f45f60c05d0603a5d30d819187abf))
+* run a routine now and open its logs ([#70](https://github.com/cr0cK/greenlight/issues/70)) ([846e67a](https://github.com/cr0cK/greenlight/commit/846e67ac55a2026c77a19ca72a8c1f0c032aee2d))
+* show the save banner only with unsaved changes ([#67](https://github.com/cr0cK/greenlight/issues/67)) ([ca302e6](https://github.com/cr0cK/greenlight/commit/ca302e6807aa78032a020c3e620c02ac67d1de17))
+* show the watched routines in the menu ([#68](https://github.com/cr0cK/greenlight/issues/68)) ([03f01fa](https://github.com/cr0cK/greenlight/commit/03f01faf34f8f7a83201c6ea1bc266da22f7d606))
+* split the preferences window into tabs ([#64](https://github.com/cr0cK/greenlight/issues/64)) ([602ac99](https://github.com/cr0cK/greenlight/commit/602ac99081073bc321e08ee59c33cc6017cf288f))
+
+
+### Fixed
+
+* end gh discovery calls at the timeout when a child holds the pipe ([#86](https://github.com/cr0cK/greenlight/issues/86)) ([64c2211](https://github.com/cr0cK/greenlight/commit/64c2211379fc09aa3a513f9057a222b5c3ef6f50))
+* fail the quick open lookup on a GraphQL error other than NOT_FOUND ([#85](https://github.com/cr0cK/greenlight/issues/85)) ([3286747](https://github.com/cr0cK/greenlight/commit/3286747523589cce2464e49bbe54585b21e6d9ee))
+* notify when the logs terminal exits with a failure ([#82](https://github.com/cr0cK/greenlight/issues/82)) ([b7307a3](https://github.com/cr0cK/greenlight/commit/b7307a3751084f624b0fa8b17eeff213631dffaf))
+* show each routine's read failure under its row ([#79](https://github.com/cr0cK/greenlight/issues/79)) ([9660477](https://github.com/cr0cK/greenlight/commit/9660477993ea786fbc9504c69a118fa8646a9138))
+* show gh stderr literally in the preferences rows ([#88](https://github.com/cr0cK/greenlight/issues/88)) ([4736499](https://github.com/cr0cK/greenlight/commit/4736499dcb9f47ca8906745f92926ff56a524a28))
+* stop the routine watcher from re-rendering during disable ([#80](https://github.com/cr0cK/greenlight/issues/80)) ([ab52cfc](https://github.com/cr0cK/greenlight/commit/ab52cfca02eb918d858d091fc5f928f06ffc61b8))
+
 ## [1.4.0](https://github.com/cr0cK/greenlight/compare/v1.3.0...v1.4.0) (2026-11-19)
 
 
