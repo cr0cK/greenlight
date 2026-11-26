@@ -1054,10 +1054,11 @@ export default class GreenlightPreferences extends ExtensionPreferences {
             const discoverRepositoriesRow = new Adw.ActionRow({
                 title: 'Repositories',
                 use_markup: false,
-                subtitle: owner.ghStatus || (loaded
-                    ? owner.availableRepositories.length + ' found'
-                    : 'Not loaded yet. Discover them to choose some.'),
             });
+            // After construction: set at construction, the text is parsed before use_markup applies.
+            discoverRepositoriesRow.set_subtitle(owner.ghStatus || (loaded
+                ? owner.availableRepositories.length + ' found'
+                : 'Not loaded yet. Discover them to choose some.'));
             const discoverRepositoriesButton = new Gtk.Button({
                 label: 'Discover',
                 valign: Gtk.Align.CENTER,
