@@ -64,4 +64,16 @@ exec env \
     GSETTINGS_BACKEND=keyfile \
     GH_CONFIG_DIR="${GH_CONFIG_DIR:-$HOME/.config/gh}" \
     GH_TOKEN="$GH_TOKEN" \
-    dbus-run-session -- gnome-shell --devkit --wayland
+    dbus-run-session -- sh -c '
+        # The private bus has no systemd: the mock serves the fictional timers of routines.json
+        # on it, and exits with the bus. sh, unlike bash, reads no BASH_ENV that could point it
+        # at the desktop bus. The shell starts once the mock is ready, so the first read finds it.
+        : >"$3"
+        "$1" "$2" >"$3" 2>&1 &
+        for _ in $(seq 50); do
+            grep -q ready "$3" && break
+            sleep 0.1
+        done
+        exec gnome-shell --devkit --wayland' sandbox \
+        "$ROOT/scripts/screenshots/systemd-mock" "$ROOT/scripts/screenshots/routines.json" \
+        "$SANDBOX/systemd-mock.log"
