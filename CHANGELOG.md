@@ -5,6 +5,13 @@ All notable changes to Greenlight are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release-please writes new
 entries from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [1.5.1](https://github.com/cr0cK/greenlight/compare/v1.5.0...v1.5.1) (2026-11-26)
+
+
+### Fixed
+
+* end the menu's gh calls at the timeout and explain it as a network failure ([#91](https://github.com/cr0cK/greenlight/issues/91)) ([17f9d13](https://github.com/cr0cK/greenlight/commit/17f9d13c022c945bf5b9ce5df77885807d73f11c))
+
 ## [1.5.0](https://github.com/cr0cK/greenlight/compare/v1.4.0...v1.5.0) (2026-11-26)
 
 
